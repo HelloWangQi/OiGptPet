@@ -1,17 +1,20 @@
 {
   "name": "oigptpet",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "description": "A VRM anime desktop companion with ChatGPT sprite export",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "node scripts/dev.mjs",
-    "dev:web": "vite --host 127.0.0.1",
+    "dev:web": "vite",
+    "preview": "vite preview",
     "build": "tsc --noEmit && vite build",
+    "build:demo": "tsc --noEmit && vite build --mode test-demo",
     "start": "electron .",
     "test": "vitest run",
     "test:smoke": "node scripts/smoke.mjs",
+    "test:release": "node scripts/release-smoke.mjs",
     "demo:fetch": "node scripts/fetch-demo.mjs",
     "package": "npm run build && node scripts/package.mjs"
   },

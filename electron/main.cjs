@@ -1,12 +1,16 @@
 const { app, BrowserWindow, ipcMain, screen, Tray, Menu, nativeImage, globalShortcut, dialog, session, protocol, net } = require('electron');
 const path = require('node:path');
+const { createHash } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
 const fs = require('node:fs/promises');
 const { fitBounds } = require('./geometry.cjs');
 
 const root = path.join(__dirname, '..');
 protocol.registerSchemesAsPrivileged([{ scheme: 'oipet', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
-if (!app.isPackaged) app.setPath('userData', path.join(root, '.cache', 'electron-user-data'));
+if (process.env.OIGPTPET_TEST === '1' && process.env.OIGPTPET_TEST_USER_DATA) {
+  app.setPath('userData', path.resolve(process.env.OIGPTPET_TEST_USER_DATA));
+} else if (!app.isPackaged) app.setPath('userData', path.join(root, '.cache', 'electron-user-data'));
+const clientRoot = !app.isPackaged && process.env.OIGPTPET_SMOKE_DEMO === '1' ? path.join(root, '.cache', 'demo-dist') : path.join(root, 'dist');
 let workshop;
 let pet;
 let tray;
@@ -110,14 +114,26 @@ function handlers() {
       pet.setBounds(fitBounds({ ...pet.getBounds(), width: 320 * scale, height: 420 * scale }, area, { width: 320, height: 420 }));
     }
   });
-  ipcMain.handle('atlas:save', async (event, bytes, profile) => {
+  ipcMain.handle('atlas:save', async (event, bytes, profile, sha256) => {
     const owner = trusted(event);
     if (!(bytes instanceof Uint8Array) || bytes.length < 24 || bytes.length > 20 * 1024 * 1024 || !['v1', 'v2'].includes(profile)) throw new Error('Invalid atlas');
     const png = Buffer.from(bytes);
+    if (typeof sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(sha256) || createHash('sha256').update(png).digest('hex') !== sha256) throw new Error('Atlas hash mismatch');
     if (!png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) || png.readUInt32BE(16) !== 1536 || png.readUInt32BE(20) !== (profile === 'v2' ? 2288 : 1872)) throw new Error('Invalid PNG dimensions');
     const result = await dialog.showSaveDialog(owner, { defaultPath: `OiGptPet-${profile}.png`, filters: [{ name: 'PNG 图集', extensions: ['png'] }] });
     if (result.canceled || !result.filePath) return null;
     await fs.writeFile(result.filePath, png);
+    return result.filePath;
+  });
+  ipcMain.handle('report:save', async (event, json) => {
+    const owner = trusted(event);
+    if (typeof json !== 'string' || Buffer.byteLength(json, 'utf8') > 1024 * 1024) throw new Error('Invalid report size');
+    let report;
+    try { report = JSON.parse(json); } catch { throw new Error('Invalid report JSON'); }
+    if (report.schemaVersion !== 1 || report.application !== 'OiGptPet' || !/^[a-f0-9]{64}$/.test(report.file?.sha256 ?? '') || !['v1', 'v2'].includes(report.file?.profile) || !Number.isSafeInteger(report.file?.encodedBytes)) throw new Error('Invalid report schema');
+    const result = await dialog.showSaveDialog(owner, { defaultPath: `OiGptPet-${report.file.profile}-report.json`, filters: [{ name: 'JSON 检查报告', extensions: ['json'] }] });
+    if (result.canceled || !result.filePath) return null;
+    await fs.writeFile(result.filePath, json, 'utf8');
     return result.filePath;
   });
 }
@@ -130,7 +146,7 @@ else {
       try {
         const url = new URL(request.url);
         if (url.hostname !== 'app' || !['GET', 'HEAD'].includes(request.method)) return new Response('Forbidden', { status: 403 });
-        const base = path.join(root, 'dist');
+        const base = clientRoot;
         const target = path.resolve(base, `.${decodeURIComponent(url.pathname)}`);
         const relative = path.relative(base, target);
         if (relative.startsWith('..') || path.isAbsolute(relative)) return new Response('Forbidden', { status: 403 });
