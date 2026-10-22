@@ -2,7 +2,8 @@ import './style.css';
 import { VrmStage } from '../packages/renderer-vrm';
 import { MAX_MODEL_BYTES, type ModelInfo } from '../packages/character-core/vrm-file';
 import { ANIMATION_ROWS, type AnimationState, type AtlasProfile } from '../packages/target-chatgpt/contract';
-import { exportAtlas, type ExportResult } from '../packages/pet-exporter';
+import { exportAtlas } from '../packages/pet-exporter';
+import { ExportSession, type PreviewController } from './export-session';
 import { getSavedModel, saveModel } from './model-store';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
@@ -34,7 +35,7 @@ app.innerHTML = petMode ? `
     <a class="brand" href="#" aria-label="OiGptPet 首页">oi<span>·</span></a>
     <div class="rail-mark selected" title="角色工坊">${icon.box}</div>
     <div class="rail-line"></div>
-    <span class="rail-bottom">0.1</span>
+    <span class="rail-bottom">0.2</span>
   </aside>
   <div class="workspace">
     <header class="topbar">
@@ -57,7 +58,7 @@ app.innerHTML = petMode ? `
       </section>
       <aside class="detail-column">
         <section class="detail-section"><div class="section-heading"><div><span class="section-number">02</span><h2>你的角色</h2></div><span class="tag">VRM</span></div>
-          <button class="character-card" id="load-demo"><div class="avatar-monogram">S<span>✦</span></div><div><strong>官方示例角色</strong><span>pixiv · VRM 1.0</span></div><span class="card-arrow">↗</span></button>
+          <button class="character-card" id="load-demo" ${__WITH_DEMO__ ? '' : 'hidden'}><div class="avatar-monogram">S<span>✦</span></div><div><strong>官方示例角色</strong><span>pixiv · VRM 1.0</span></div><span class="card-arrow">↗</span></button>
           <button class="import-zone" id="import-button">${icon.plus}<strong>导入我的角色</strong><span>.vrm · 最大 64 MiB · VRM 1.0</span></button>
           <input type="file" id="model-file" accept=".vrm" hidden />
           <p class="helper">模型保存在本机。可从 VRoid Studio 导出，或使用作者允许使用的 VRM。</p>
@@ -68,8 +69,6 @@ app.innerHTML = petMode ? `
           <label class="field-label" for="export-profile">导出格式</label>
           <select id="export-profile"><option value="v2">v2 · 73 帧 / 含 16 方向视线</option><option value="v1">v1 · 57 帧 / 网页文档规格</option></select>
           <button class="button export-button" id="export-button" disabled>${icon.download} 导出宠物动画</button>
-          <button class="text-button cancel-button" id="cancel-export" hidden>取消导出</button>
-          <progress id="export-progress" max="73" value="0" hidden></progress>
           <p class="helper">试验性导出。安装前需通过目标应用校验，并确认模型允许导出和上传。</p>
         </section>
         <section class="note-card"><span class="note-star">✦</span><div><strong>从一个喜欢的角色开始。</strong><p>角色和动作共用一套源资产。桌面实时互动，ChatGPT 播放导出的动画。</p></div></section>
@@ -78,7 +77,17 @@ app.innerHTML = petMode ? `
     </main>
     <footer><span>OiGptPet <span class="footer-dot">·</span> 为日常，添一点陪伴。</span><span>WINDOWS DESKTOP / VRM / SPRITE EXPORT</span></footer>
   </div>
-  <dialog id="export-dialog"><div class="dialog-heading"><div><span class="eyebrow">YOUR COMPANION, READY TO GO</span><h2>角色动画已导出</h2></div><button id="close-export" class="round-button" aria-label="关闭">×</button></div><div class="atlas-preview"><img id="atlas-image" alt="角色动作图集预览" /></div><p id="export-description"></p><p class="helper">这是动画素材草稿。请检查每个动作、边界和视线，再在目标入口完成正式校验。</p><button id="save-atlas" class="button dark">保存 PNG 图集 ${icon.download}</button></dialog>`;
+  <dialog id="export-dialog">
+    <div class="dialog-heading"><div><span class="eyebrow">REVIEW YOUR COMPANION</span><h2>检查导出动画</h2></div><button id="close-export" class="round-button" aria-label="关闭">×</button></div>
+    <div class="verification-status"><span>本地结构 <strong id="local-check-status">尚未检查</strong></span><span>平台预检 <strong>未执行</strong></span><span>平台安装 <strong>未执行</strong></span></div>
+    <progress id="export-progress" max="73" value="0" hidden aria-label="动画导出进度"></progress>
+    <div id="check-messages" role="status" aria-live="polite"></div>
+    <div id="atlas-preview-host"></div>
+    <p id="export-description"></p><code id="export-sha256"></code>
+    <details id="atlas-overview"><summary>查看完整图集</summary><div class="atlas-preview"><img id="atlas-image" alt="实际导出文件的完整图集" /></div></details>
+    <p class="helper">本地检查只确认文件结构。请检查每个动作和视线，之后在目标入口完成正式预检与安装。</p>
+    <div class="export-save-actions"><button id="save-atlas" class="button dark" disabled>保存 PNG 图集 ${icon.download}</button><button id="save-report" class="button" disabled>保存检查报告</button><button class="button" id="cancel-export" hidden>取消导出</button></div>
+  </dialog>`;
 
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 const canvas = $<HTMLCanvasElement>('#character-canvas');
@@ -93,9 +102,10 @@ let previousTime = performance.now();
 let transientUntil = 0;
 let look: { yaw: number; pitch: number } | undefined;
 let lastPointer = 0;
-let exportAbort: AbortController | undefined;
-let exportResult: ExportResult | undefined;
+const exportSession = new ExportSession();
+let runRevision = 0;
 let exportUrl: string | undefined;
+let modelSource: 'local-import' | 'official-demo' = 'local-import';
 let forcedInteractive = false;
 let ignoringMouse = false;
 
@@ -121,13 +131,15 @@ function showInfo(value: ModelInfo) {
     $('#model-info').append(paragraph);
   }
 }
-async function load(buffer: ArrayBuffer, persist: boolean) {
-  if (loading || exportAbort) return;
+async function load(buffer: ArrayBuffer, persist: boolean, origin: 'local-import' | 'official-demo' = 'local-import') {
+  if (loading) return;
+  clearExport();
   loading = true;
+  if (!petMode) $<HTMLButtonElement>('#export-button').disabled = true;
   status('正在加载角色…');
   try {
     const value = await stage.load(buffer);
-    info = value; source = buffer;
+    info = value; source = buffer; modelSource = origin;
     showInfo(value);
     if (persist) {
       try { await saveModel(buffer); }
@@ -141,8 +153,8 @@ async function load(buffer: ArrayBuffer, persist: boolean) {
 async function demo(persist: boolean) {
   try {
     const response = await fetch(new URL('models/demo.vrm', document.baseURI));
-    if (!response.ok) throw new Error('示例模型尚未下载，请运行 npm run demo:fetch，或导入自己的 VRM。');
-    await load(await response.arrayBuffer(), persist);
+    if (!response.ok) throw new Error('示例暂不可用。请导入本机的 VRM 1.0 角色。');
+    await load(await response.arrayBuffer(), persist, 'official-demo');
   } catch (error) { status(error instanceof Error ? error.message : '示例加载失败。', true); }
 }
 
@@ -165,29 +177,90 @@ function download(blob: Blob, filename: string) {
   setTimeout(() => URL.revokeObjectURL(url), 5000);
 }
 
+function clearExport(closeDialog = true) {
+  ++runRevision;
+  exportSession.reset();
+  if (exportUrl) { URL.revokeObjectURL(exportUrl); exportUrl = undefined; }
+  if (petMode) return;
+  $<HTMLImageElement>('#atlas-image').removeAttribute('src');
+  $('#atlas-preview-host').replaceChildren();
+  $('#check-messages').replaceChildren();
+  $('#export-description').textContent = '';
+  $('#export-sha256').textContent = '';
+  $('#local-check-status').textContent = '尚未检查';
+  $<HTMLButtonElement>('#save-atlas').disabled = true;
+  $<HTMLButtonElement>('#save-report').disabled = true;
+  $<HTMLButtonElement>('#export-button').disabled = !source || loading;
+  $('#export-progress').hidden = true;
+  $('#cancel-export').hidden = true;
+  const dialog = $<HTMLDialogElement>('#export-dialog');
+  if (closeDialog && dialog.open) dialog.close();
+}
+
+const previewModules = import.meta.glob<{ createAtlasPreview(host: HTMLElement): PreviewController }>('../packages/atlas-preview/index.ts');
+
 async function runExport() {
-  if (!source || exportAbort || loading) return;
-  exportAbort = new AbortController();
+  if (!source || !info || exportSession.busy || loading) return;
+  clearExport(false);
+  const revision = runRevision;
+  const currentSource = source;
+  const currentInfo = structuredClone(info);
+  const origin = modelSource;
   const profile = $<HTMLSelectElement>('#export-profile').value as AtlasProfile;
   const button = $<HTMLButtonElement>('#export-button');
   button.disabled = true;
   const progress = $<HTMLProgressElement>('#export-progress');
   progress.hidden = false;
   $('#cancel-export').hidden = false;
+  $('#local-check-status').textContent = '正在渲染';
+  $<HTMLDialogElement>('#export-dialog').showModal();
   status('正在渲染透明动画帧…');
   try {
-    exportResult = await exportAtlas(source, profile, (done, total) => {
-      progress.max = total; progress.value = done;
-      status(`正在导出 ${done} / ${total} 帧…`);
-    }, exportAbort.signal);
-    if (exportUrl) URL.revokeObjectURL(exportUrl);
-    exportUrl = URL.createObjectURL(exportResult.blob);
+    const importPreview = previewModules['../packages/atlas-preview/index.ts'];
+    if (!importPreview) throw new Error('动画预览暂不可用，请稍后重试。');
+    const { createAtlasPreview } = await importPreview();
+    if (revision !== runRevision) return;
+    const record = await exportSession.run(profile, {
+      model: currentInfo, source: origin,
+      sourceUrl: origin === 'official-demo' ? 'https://github.com/pixiv/three-vrm/tree/dev/packages/three-vrm/examples/models' : undefined,
+    }, async (signal) => {
+      const rendered = await exportAtlas(currentSource, profile, (done, total) => {
+        if (revision !== runRevision) return;
+        progress.max = total; progress.value = done;
+        $('#local-check-status').textContent = `渲染 ${done} / ${total}`;
+        status(`正在导出 ${done} / ${total} 帧…`);
+      }, signal);
+      if (revision === runRevision) $('#local-check-status').textContent = '正在检查';
+      return rendered.blob;
+    }, () => createAtlasPreview($('#atlas-preview-host')));
+    if (revision !== runRevision) return;
+    const { checked, report } = record;
+    exportUrl = URL.createObjectURL(checked.blob);
     $<HTMLImageElement>('#atlas-image').src = exportUrl;
-    $('#export-description').textContent = `${info?.name ?? '角色'} · ${exportResult.width} × ${exportResult.height} · ${exportResult.frames} 帧 · ${(exportResult.blob.size / 1024 / 1024).toFixed(2)} MiB`;
-    $<HTMLDialogElement>('#export-dialog').showModal();
-    status('图集已生成。保存后请在目标入口完成校验。');
-  } catch (error) { status(exportAbort.signal.aborted ? '导出已取消。' : error instanceof Error ? error.message : '导出失败。', !exportAbort.signal.aborted); }
-  finally { exportAbort = undefined; button.disabled = !source; progress.hidden = true; $('#cancel-export').hidden = true; }
+    $('#export-description').textContent = `${report.model.name} · ${report.file.width} × ${report.file.height} · ${checked.inspection.requiredFrames} 帧 · ${(checked.encodedBytes / 1024 / 1024).toFixed(2)} MiB`;
+    $('#export-sha256').textContent = `SHA-256 ${checked.sha256}`;
+    $('#local-check-status').textContent = checked.inspection.valid ? '通过' : '未通过';
+    for (const issue of checked.inspection.errors) {
+      const paragraph = document.createElement('p'); paragraph.className = 'error';
+      paragraph.textContent = `${issue.row === undefined ? '' : `第 ${issue.row + 1} 行、第 ${(issue.frame ?? 0) + 1} 帧：`}${issue.message}`;
+      $('#check-messages').append(paragraph);
+    }
+    for (const warning of checked.inspection.warnings) {
+      const paragraph = document.createElement('p'); paragraph.className = 'helper'; paragraph.textContent = warning;
+      $('#check-messages').append(paragraph);
+    }
+    $<HTMLButtonElement>('#save-atlas').disabled = !exportSession.canSave;
+    $<HTMLButtonElement>('#save-report').disabled = false;
+    status(checked.inspection.valid ? '本地结构检查通过。请查看动作预览，再保存文件。' : '图集结构未通过检查，已禁用 PNG 保存。', !checked.inspection.valid);
+  } catch (error) {
+    if (revision !== runRevision) return;
+    const message = error instanceof Error ? error.message : '导出失败。';
+    $('#local-check-status').textContent = '未通过';
+    $('#check-messages').textContent = message;
+    status(message, true);
+  } finally {
+    if (revision === runRevision) { button.disabled = !source; progress.hidden = true; $('#cancel-export').hidden = true; }
+  }
 }
 
 async function bootstrap() {
@@ -224,8 +297,9 @@ async function bootstrap() {
   try {
     const saved = await getSavedModel();
     if (saved) await load(saved, false);
-    else await demo(false);
-  } catch { await demo(false); }
+    else if (__WITH_DEMO__) await demo(false);
+    else status('导入本机的 VRM 1.0 角色，开始陪伴。');
+  } catch { if (__WITH_DEMO__) await demo(false); else status('本地角色读取失败，请重新导入。', true); }
   desktop?.onModelChanged(async () => {
     try { const saved = await getSavedModel(); if (saved) await load(saved, false); }
     catch { status('同步角色失败，请重新打开工坊。', true); }
@@ -251,23 +325,40 @@ if (petMode) {
   $('#wave-button').onclick = () => { changeState('waving'); transientUntil = performance.now() + 2000; };
   $('#pause-button').onclick = () => { paused = !paused; $('#pause-button').textContent = paused ? '继续动画' : '暂停动画'; };
   document.querySelectorAll<HTMLButtonElement>('[data-state]').forEach((button) => button.onclick = () => { transientUntil = 0; changeState(button.dataset.state as AnimationState); });
-  $('#open-pet').onclick = () => desktop ? void desktop.openPet() : status('桌面模式需要 Electron。请使用 npm run dev 或 npm start 启动。');
+  if (desktop) {
+    $('#open-pet').onclick = () => { void desktop.openPet().catch(() => status('桌宠窗口无法打开，请从托盘重新尝试。', true)); };
+  } else {
+    const open = $<HTMLButtonElement>('#open-pet');
+    open.disabled = true; open.textContent = '桌面版功能';
+    open.title = '独立悬浮需要桌面应用；浏览器支持角色预览与图集导出。';
+  }
   $('#export-button').onclick = () => void runExport();
-  $('#cancel-export').onclick = () => exportAbort?.abort();
+  $('#cancel-export').onclick = () => { clearExport(); status('导出已取消。'); };
   $('#close-export').onclick = () => $<HTMLDialogElement>('#export-dialog').close();
+  $('#export-dialog').addEventListener('close', () => clearExport(false));
   $('#save-atlas').onclick = async () => {
-    if (!exportResult) return;
+    const record = exportSession.record;
+    if (!record || !exportSession.canSave) return;
     try {
       if (desktop) {
-        const path = await desktop.saveAtlas(new Uint8Array(await exportResult.blob.arrayBuffer()), exportResult.profile);
+        const path = await desktop.saveAtlas(new Uint8Array(await record.checked.blob.arrayBuffer()), record.checked.profile, record.checked.sha256);
         if (path) status(`图集已保存到 ${path}`);
-      } else download(exportResult.blob, `OiGptPet-${exportResult.profile}.png`);
+      } else download(record.checked.blob, `OiGptPet-${record.checked.profile}.png`);
     } catch { status('保存失败，请重试。', true); }
+  };
+  $('#save-report').onclick = async () => {
+    const record = exportSession.record;
+    if (!record) return;
+    const json = JSON.stringify(record.report, null, 2);
+    try {
+      if (desktop) { const path = await desktop.saveReport(json); if (path) status(`检查报告已保存到 ${path}`); }
+      else download(new Blob([json], { type: 'application/json' }), `OiGptPet-${record.checked.profile}-report.json`);
+    } catch { status('报告保存失败，请重试。', true); }
   };
   window.addEventListener('dragover', (event) => { event.preventDefault(); $('#drop-zone').classList.add('dragover'); });
   window.addEventListener('dragleave', () => $('#drop-zone').classList.remove('dragover'));
   window.addEventListener('drop', (event) => { event.preventDefault(); $('#drop-zone').classList.remove('dragover'); void importFile(event.dataTransfer?.files[0]); });
 }
 
-window.addEventListener('beforeunload', () => { exportAbort?.abort(); stage?.dispose(); if (exportUrl) URL.revokeObjectURL(exportUrl); });
+window.addEventListener('beforeunload', () => { exportSession.reset(); stage?.dispose(); if (exportUrl) URL.revokeObjectURL(exportUrl); });
 void bootstrap();

@@ -1,3 +1,5 @@
+declare const __WITH_DEMO__: boolean;
+
 interface Window {
   petDesktop?: {
     getModel(): Promise<Uint8Array | null>;
@@ -7,7 +9,8 @@ interface Window {
     hidePet(): Promise<void>;
     setClickThrough(value: boolean): Promise<void>;
     setScale(value: number): Promise<void>;
-    saveAtlas(bytes: Uint8Array, profile: 'v1' | 'v2'): Promise<string | null>;
+    saveAtlas(bytes: Uint8Array, profile: 'v1' | 'v2', sha256: string): Promise<string | null>;
+    saveReport(json: string): Promise<string | null>;
     onModelChanged(callback: () => void): () => void;
     onInteractionRestored(callback: () => void): () => void;
   };
