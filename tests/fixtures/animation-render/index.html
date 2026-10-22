@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Animation render fixture</title>
+    <script>
+      (() => {
+        const probe = { contexts: 0, lost: 0, live: 0, draws: 0, clears: 0 };
+        const originalGetContext = HTMLCanvasElement.prototype.getContext;
+        HTMLCanvasElement.prototype.getContext = function getContext(type, ...args) {
+          const context = originalGetContext.call(this, type, ...args);
+          if (context && (type === 'webgl2' || type === 'webgl')) {
+            probe.contexts += 1;
+            probe.live += 1;
+            this.addEventListener('webglcontextlost', () => {
+              probe.lost += 1;
+              probe.live = Math.max(0, probe.live - 1);
+            }, { once: true });
+            for (const name of ['drawArrays', 'drawElements']) {
+              const original = context[name].bind(context);
+              context[name] = (...drawArgs) => {
+                probe.draws += 1;
+                return original(...drawArgs);
+              };
+            }
+            const originalClear = context.clear.bind(context);
+            context.clear = (...clearArgs) => {
+              probe.clears += 1;
+              return originalClear(...clearArgs);
+            };
+          }
+          return context;
+        };
+        window.__animationRenderProbe = probe;
+      })();
+    </script>
+  </head>
+  <body>
+    <main id="status" data-ready="false">Animation render fixture</main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

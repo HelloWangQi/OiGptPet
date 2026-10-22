@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Atlas Preview Fixture</title>
+    <style>
+      body {
+        margin: 24px;
+        font: 14px/1.5 system-ui, sans-serif;
+        color: #1f2937;
+      }
+      h1 {
+        font-size: 18px;
+        margin: 0 0 8px;
+      }
+      p {
+        margin: 0 0 16px;
+        color: #5b6472;
+      }
+      #host {
+        width: 420px;
+        padding: 12px;
+        border: 1px dashed #cbd5e1;
+        border-radius: 8px;
+      }
+      #log {
+        margin-top: 16px;
+        color: #b42318;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Atlas Preview Fixture</h1>
+    <p>
+      本页在浏览器中生成合成的测试图集，仅用于验证预览控件，不用于创建宠物。
+      使用 <code>?auto=0</code> 关闭自动示例，供 smoke 脚本接管。
+    </p>
+    <div id="host"></div>
+    <pre id="log"></pre>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

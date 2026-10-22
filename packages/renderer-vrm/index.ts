@@ -55,6 +55,8 @@ export class VrmStage {
     this.root.add(candidate.scene);
     this.root.scale.setScalar(1);
     this.root.position.set(0, 0, 0);
+    candidate.lookAt && (candidate.lookAt.target = this.lookTarget);
+    this.lookTarget.position.set(0, 1.65, 5);
     this.applyPose('idle', 0);
     candidate.update(0);
     const bounds = new THREE.Box3().setFromObject(candidate.scene);
@@ -65,8 +67,13 @@ export class VrmStage {
     const scale = 1.85 / size.y;
     candidate.scene.scale.setScalar(scale);
     candidate.scene.position.set(-(bounds.min.x + bounds.max.x) / 2 * scale, -bounds.min.y * scale, 0);
-    candidate.lookAt && (candidate.lookAt.target = this.lookTarget);
-    this.lookTarget.position.set(0, 1.65, 5);
+    candidate.scene.updateMatrixWorld(true);
+    this.applyPose('idle', 0);
+    candidate.update(0);
+    // The loader initialized springs before our final scale and neutral pose.
+    // Re-capture the rest state in world space so the first atlas frame starts settled.
+    candidate.springBoneManager?.reset();
+    candidate.springBoneManager?.setInitState();
     return info;
   }
 
@@ -93,6 +100,9 @@ export class VrmStage {
     rotate('rightLowerArm', ...p.rightForearm);
     rotate('leftUpperLeg', p.leftLeg);
     rotate('rightUpperLeg', p.rightLeg);
+    if (p.spine) rotate('spine', ...p.spine);
+    if (p.chest) rotate('chest', ...p.chest);
+    if (p.neck) rotate('neck', ...p.neck);
     rotate('head', look?.pitch ?? p.headPitch, look?.yaw ?? p.headYaw, p.headRoll);
     this.root.position.y = p.rootY;
     this.root.rotation.y = p.rootYaw;
@@ -108,6 +118,30 @@ export class VrmStage {
   render(state: AnimationState, phase: number, delta: number, look?: { yaw: number; pitch: number }) {
     this.applyPose(state, phase, look);
     this.vrm?.update(Math.min(Math.max(delta, 0), 1 / 15));
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  /**
+   * Export-only helper: reset the springs to the model rest state, advance a
+   * fixed number of 60 Hz steps, then draw once. The result is independent of
+   * the previously sampled row/frame, so row transitions and the first frame
+   * cannot inherit an uninitialized hair state.
+   */
+  renderSettled(
+    state: AnimationState,
+    phase: number,
+    look?: { yaw: number; pitch: number },
+    steps = 30,
+  ) {
+    if (!this.vrm) return;
+    this.applyPose(state, phase, look);
+    this.vrm.update(0);
+    const springs = this.vrm.springBoneManager;
+    springs?.reset();
+    // The pose and constraints are constant during warm-up, so advancing only
+    // the springs is equivalent to a full VRM update and avoids redundant work.
+    const count = Math.max(0, Math.floor(steps));
+    for (let step = 0; step < count; step += 1) springs?.update(1 / 60);
     this.renderer.render(this.scene, this.camera);
   }
 

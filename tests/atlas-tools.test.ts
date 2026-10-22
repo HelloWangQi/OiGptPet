@@ -292,6 +292,36 @@ describe('getAnimationFrameRect', () => {
       /Unknown animation state/,
     );
   });
+
+  it('returns finite frame-zero coordinates when finite inputs overflow the product', () => {
+    const overflowInputs: ReadonlyArray<readonly [number, number]> = [
+      [Number.MAX_VALUE, 2],
+      [Number.MAX_VALUE, Number.MAX_VALUE],
+      [1e308, 10],
+      [2, Number.MAX_VALUE],
+    ];
+    ANIMATION_ROWS.forEach((row, rowIndex) => {
+      for (const [time, fps] of overflowInputs) {
+        const rect = getAnimationFrameRect(row.state, time, fps);
+        expect(rect, `${row.state} time=${time} fps=${fps}`).toEqual(cellRect(rowIndex, 0));
+        expect(Number.isFinite(rect.x)).toBe(true);
+        expect(Number.isFinite(rect.y)).toBe(true);
+      }
+    });
+  });
+
+  it('wraps huge finite frame counts onto a legal column', () => {
+    ANIMATION_ROWS.forEach((row, rowIndex) => {
+      for (const time of [Number.MAX_SAFE_INTEGER / 8, 1e15, 1e300]) {
+        const rect = getAnimationFrameRect(row.state, time);
+        expect(Number.isInteger(rect.x), `${row.state} time=${time}`).toBe(true);
+        expect(rect.x).toBeGreaterThanOrEqual(0);
+        expect(rect.x).toBeLessThan(row.frames * CELL_WIDTH);
+        expect(rect.x % CELL_WIDTH).toBe(0);
+        expect(rect.y).toBe(rowIndex * CELL_HEIGHT);
+      }
+    });
+  });
 });
 
 describe('getLookFrameRect', () => {
