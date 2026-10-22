@@ -12,6 +12,9 @@ export interface MotionPose {
   rightForearm: [number, number, number];
   leftLeg: number;
   rightLeg: number;
+  spine?: [number, number, number];
+  chest?: [number, number, number];
+  neck?: [number, number, number];
   blink: number;
   happy: number;
   sad: number;
@@ -57,9 +60,17 @@ export function sampleMotion(state: AnimationState, phase: number): MotionPose {
       pose.happy = 0.4;
       break;
     case 'failed':
-      pose.headPitch = 0.24;
-      pose.headRoll = -0.13 + wave * 0.03;
-      pose.sad = 0.8;
+      pose.headPitch = 0.38 + wave * 0.02;
+      pose.headYaw = 0;
+      pose.headRoll = -0.1 + wave * 0.02;
+      pose.spine = [0.18, 0, -0.05];
+      pose.chest = [0.1, 0, -0.03];
+      pose.neck = [0.12, 0, 0.05];
+      pose.leftArm = [-0.7, 0, -0.6];
+      pose.rightArm = [-0.7, 0, 0.6];
+      pose.leftForearm = [0, 0, -2.4 + wave * 0.03];
+      pose.rightForearm = [0, 0, 2.4 - wave * 0.03];
+      pose.sad = 1;
       break;
     case 'waiting':
       pose.headRoll = 0.15 + wave * 0.04;
@@ -68,11 +79,15 @@ export function sampleMotion(state: AnimationState, phase: number): MotionPose {
       pose.leftForearm = [-0.75, 0, -0.25];
       break;
     case 'running':
-      pose.headPitch = 0.18 + wave * 0.035;
-      pose.leftArm = [-0.7, 0, -1.0];
-      pose.rightArm = [-0.7, 0, 1.0];
-      pose.leftForearm = [-0.6 + wave * 0.13, 0, 0];
-      pose.rightForearm = [-0.6 - wave * 0.13, 0, 0];
+      pose.headPitch = 0.24 + wave * 0.03;
+      pose.headYaw = 0.08 + wave * 0.05;
+      pose.headRoll = 0.05;
+      pose.spine = [0.1, 0, 0];
+      pose.chest = [0.06, 0, 0];
+      pose.leftArm = [-0.5, 0, -1.1];
+      pose.rightArm = [-0.6, 0, 0.35];
+      pose.leftForearm = [0, 0, -1.2 + wave * 0.04];
+      pose.rightForearm = [0, 0, 2.2 - wave * 0.04];
       break;
     case 'review':
       pose.headYaw = wave * 0.2;

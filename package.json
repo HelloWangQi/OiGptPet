@@ -12,7 +12,7 @@
     "build": "tsc --noEmit && vite build",
     "build:demo": "tsc --noEmit && vite build --mode test-demo",
     "start": "electron .",
-    "test": "vitest run",
+    "test": "vitest run --exclude \"**/.cache/**\"",
     "test:smoke": "node scripts/smoke.mjs",
     "test:release": "node scripts/release-smoke.mjs",
     "demo:fetch": "node scripts/fetch-demo.mjs",

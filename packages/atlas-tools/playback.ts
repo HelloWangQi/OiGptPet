@@ -42,7 +42,8 @@ export function getAnimationFrameRect(
   const row = animationRowIndex(state);
   const frameCount = ANIMATION_ROWS[row].frames;
   const safeTime = Number.isFinite(timeSeconds) && timeSeconds > 0 ? timeSeconds : 0;
-  const frame = Math.floor(safeTime * effectiveFps(fps)) % frameCount;
+  const scaled = safeTime * effectiveFps(fps);
+  const frame = Number.isFinite(scaled) ? Math.floor(scaled) % frameCount : 0;
   return frameRect(row, frame);
 }
 
