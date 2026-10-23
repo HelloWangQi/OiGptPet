@@ -8,6 +8,13 @@ contextBridge.exposeInMainWorld('petDesktop', Object.freeze({
   hidePet: () => ipcRenderer.invoke('pet:hide'),
   setClickThrough: (value) => ipcRenderer.invoke('pet:click-through', value),
   setScale: (value) => ipcRenderer.invoke('pet:scale', value),
+  getPreferences: () => ipcRenderer.invoke('preferences:get'),
+  setPreferences: (patch) => ipcRenderer.invoke('preferences:set', patch),
+  onPreferencesChanged: (callback) => {
+    const listener = (_event, preferences) => callback(preferences);
+    ipcRenderer.on('preferences:changed', listener);
+    return () => ipcRenderer.removeListener('preferences:changed', listener);
+  },
   saveAtlas: (bytes, profile, sha256) => ipcRenderer.invoke('atlas:save', bytes, profile, sha256),
   saveReport: (json) => ipcRenderer.invoke('report:save', json),
   onInteractionRestored: (callback) => {

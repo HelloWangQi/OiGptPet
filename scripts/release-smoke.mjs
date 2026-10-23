@@ -11,7 +11,8 @@ const latest = JSON.parse(await readFile(path.join(releaseRoot, 'latest.json'), 
 if (typeof latest.directory !== 'string') throw new Error('Invalid release manifest');
 const release = path.resolve(releaseRoot, latest.directory);
 if (!release.startsWith(`${releaseRoot}${path.sep}`)) throw new Error('Release path escapes output directory');
-const output = path.resolve(root, 'artifacts/release-smoke');
+const outputRoot = path.resolve(root, 'artifacts/release-smoke');
+const output = path.join(outputRoot, `run-${Date.now()}`);
 const userData = path.resolve(root, `.cache/release-smoke-profile-${Date.now()}`);
 await mkdir(output, { recursive: true });
 const files = await assertAppDistribution(path.join(release, 'resources/app'));
@@ -45,9 +46,45 @@ try {
   page = await launch();
   await page.waitForFunction(() => document.querySelector('#status')?.textContent.includes('角色已就绪'), undefined, { timeout: 60000 });
   assert.match(await page.locator('#character-name').innerText(), /VRM1/);
+  await page.locator('#model-file').setInputFiles(path.join(root, 'artifacts/animation-fixes/run-04/atlas-v2.png'));
+  await page.waitForFunction(() => document.body.dataset.characterKind === 'sprite', undefined, { timeout: 60000 });
+  await page.locator('#import-button:not([disabled])').waitFor();
+  assert.equal(await page.locator('#export-button').isDisabled(), true);
+  await page.locator('#character-alias').fill('发布包精灵图');
+  await page.locator('#rename-character').click();
+  await page.waitForFunction(() => document.querySelector('#character-name').textContent === '发布包精灵图');
+  await page.locator('#performance-mode').selectOption('battery');
+  await page.locator('#performance-mode:not([disabled])').waitFor();
+  await page.locator('#pet-scale').selectOption('1.2');
+  await page.locator('#pet-scale:not([disabled])').waitFor();
+  const nextWindow = desktop.waitForEvent('window');
+  await page.locator('#open-pet').click();
+  const pet = await nextWindow;
+  pet.on('pageerror', (error) => errors.push(error.message));
+  await desktop.evaluate(({ BrowserWindow }) => {
+    for (const win of BrowserWindow.getAllWindows()) win.webContents.setBackgroundThrottling(false);
+  });
+  await pet.waitForFunction(() => document.body.dataset.characterKind === 'sprite');
+  await pet.waitForFunction(() => {
+    const canvas = document.querySelector('#character-canvas');
+    const context = canvas.getContext('2d');
+    return context?.getImageData(0, 0, canvas.width, canvas.height).data.some((value, i) => i % 4 === 3 && value >= 8);
+  });
+  const bounds = await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((win) => !win.isResizable()).getBounds());
+  assert.equal(bounds.width, 384); assert.equal(bounds.height, 504);
+  await pet.screenshot({ path: path.join(output, 'packaged-sprite-pet.png') });
+  await desktop.close(); desktop = undefined;
+  page = await launch();
+  await page.waitForFunction(() => document.body.dataset.characterKind === 'sprite', undefined, { timeout: 60000 });
+  assert.equal(await page.locator('#character-name').innerText(), '发布包精灵图');
+  assert.equal(await page.locator('#character-list .library-row').count(), 2);
+  assert.equal(await page.locator('#performance-mode').inputValue(), 'battery');
+  assert.equal(await page.locator('#pet-scale').inputValue(), '1.2');
+  await page.screenshot({ path: path.join(output, 'restored-sprite-library.png') });
   assert.deepEqual(errors, []);
-  await writeFile(path.join(output, 'result.json'), JSON.stringify({ ok: true, version: latest.version, directory: latest.directory, packaged, files, emptyFirstStart: true, localImport: true, persistedAfterRestart: true, rendererErrors: errors }, null, 2));
-  console.log('Release smoke passed: no bundled model, empty first launch, local import and restart persistence.');
+  await writeFile(path.join(output, 'result.json'), JSON.stringify({ ok: true, version: latest.version, directory: latest.directory, packaged, files, emptyFirstStart: true, localImport: true, persistedAfterRestart: true, spritePetRendered: true, spriteLibraryRestored: true, preferencesRestored: true, petBounds: bounds, rendererErrors: errors }, null, 2));
+  await writeFile(path.join(outputRoot, 'latest.json'), JSON.stringify({ directory: path.basename(output), version: latest.version }, null, 2));
+  console.log(`Release smoke passed: clean distribution, empty first launch, VRM/sprite library, actual pet drawing, settings and restart persistence. ${output}`);
 } catch (error) {
   await writeFile(path.join(output, 'native-failure.log'), nativeLog.join(''));
   if (page) {
