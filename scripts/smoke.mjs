@@ -7,18 +7,22 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const artifactRoot = new URL('../artifacts/smoke/', import.meta.url);
 const runId = Date.now();
-const output = new URL(`phase-02/run-${runId}/`, artifactRoot);
+const preferencesOnly = process.argv.includes('--preferences-only');
+const phase = 'phase-03';
+const output = new URL(`${phase}/run-${runId}/`, artifactRoot);
 const userData = new URL(`../.cache/smoke-profile-${Date.now()}/`, import.meta.url);
 await mkdir(output, { recursive: true });
 const env = { ...process.env, OIGPTPET_TEST: '1', OIGPTPET_SMOKE_DEMO: '1', OIGPTPET_TEST_USER_DATA: fileURLToPath(userData) };
 delete env.ELECTRON_RUN_AS_NODE;
 delete env.OIGPTPET_DEV_URL;
-const desktop = await electron.launch({ args: ['.', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'], cwd: root, env, timeout: 60000 });
+const launchOptions = { args: ['.', '--use-angle=swiftshader', '--enable-unsafe-swiftshader'], cwd: root, env, timeout: 60000 };
+let desktop = await electron.launch(launchOptions);
 const errors = [];
 const nativeLog = [];
 desktop.process().stderr.on('data', (chunk) => nativeLog.push(chunk.toString()));
 const profiles = [];
 let page;
+let cadence;
 
 async function exportProfile(profile, valid = true) {
   await page.locator('#export-profile').selectOption(profile);
@@ -78,7 +82,33 @@ try {
   for (const state of ['waving', 'jumping', 'running', 'review', 'idle']) await page.locator(`[data-state="${state}"]`).click();
   await page.screenshot({ path: fileURLToPath(new URL('workshop.png', output)) });
 
-  if (!process.argv.includes('--window-only')) {
+  if (preferencesOnly) {
+    assert.deepEqual(await page.evaluate(() => window.petDesktop.getPreferences()), { version: 1, scale: 1, performance: 'balanced' });
+    await page.locator('#performance-mode').selectOption('battery');
+    await page.waitForFunction(() => document.querySelector('#performance-mode')?.disabled === false);
+    await page.locator('#pet-scale').selectOption('0.8');
+    await page.waitForFunction(() => document.querySelector('#pet-scale')?.disabled === false);
+    assert.deepEqual(await page.evaluate(() => window.petDesktop.getPreferences()), { version: 1, scale: 0.8, performance: 'battery' });
+    const rejected = await page.evaluate(async () => {
+      try { await window.petDesktop.setPreferences({ scale: 9 }); return ''; }
+      catch (error) { return error.message; }
+    });
+    assert.match(rejected, /Invalid desktop preferences/);
+    cadence = await page.evaluate(async () => {
+      const gl = document.querySelector('#character-canvas').getContext('webgl2');
+      const original = gl.clear;
+      let frames = 0;
+      gl.clear = function (...args) { frames++; return original.apply(this, args); };
+      const started = performance.now();
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      gl.clear = original;
+      return { frames, elapsedMs: performance.now() - started, hidden: document.hidden };
+    });
+    assert.ok(cadence.frames <= Math.ceil(cadence.elapsedMs / 1000 * 15) + 2, 'battery mode caps actual GPU render calls');
+    if (!cadence.hidden) assert.ok(cadence.frames > 0, 'visible preview draws');
+  }
+
+  if (!process.argv.includes('--window-only') && !preferencesOnly) {
   for (const profile of ['v2', 'v1']) {
     await exportProfile(profile);
     assert.equal(await page.locator('[data-atlas-gaze]').count(), profile === 'v2' ? 1 : 0);
@@ -146,11 +176,39 @@ try {
   assert.equal(pet.background, 'rgba(0, 0, 0, 0)');
   assert.equal(pet.alwaysOnTop, true);
   await writeFile(new URL('desktop-pet.png', output), Buffer.from(pet.png, 'base64'));
+  if (preferencesOnly) {
+    const bounds = () => desktop.evaluate(({ BrowserWindow }) => {
+      const window = BrowserWindow.getAllWindows().find((item) => !item.isResizable());
+      return window ? window.getBounds() : null;
+    });
+    assert.equal((await bounds()).width, 256);
+    assert.equal((await bounds()).height, 336);
+    await page.locator('#pet-scale').selectOption('1.2');
+    await page.waitForFunction(() => document.querySelector('#pet-scale')?.disabled === false);
+    assert.equal((await bounds()).width, 384);
+    assert.equal((await bounds()).height, 504);
+    await page.locator('#performance-mode').selectOption('quality');
+    await page.waitForFunction(() => document.querySelector('#performance-mode')?.disabled === false);
+    assert.deepEqual(JSON.parse(await readFile(new URL('preferences.json', userData), 'utf8')), { version: 1, scale: 1.2, performance: 'quality' });
+    await desktop.close();
+    desktop = await electron.launch(launchOptions);
+    desktop.process().stderr.on('data', (chunk) => nativeLog.push(chunk.toString()));
+    page = await desktop.firstWindow();
+    page.on('pageerror', (error) => errors.push(error.message));
+    await page.waitForFunction(() => document.querySelector('#performance-mode')?.disabled === false);
+    assert.equal(await page.locator('#pet-scale').inputValue(), '1.2');
+    assert.equal(await page.locator('#performance-mode').inputValue(), 'quality');
+    await page.locator('#open-pet').click();
+    for (let attempt = 0; attempt < 100 && !await bounds(); attempt++) await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal((await bounds()).width, 384);
+    assert.equal((await bounds()).height, 504);
+    await page.screenshot({ path: fileURLToPath(new URL('preferences-restored.png', output)) });
+  }
   assert.deepEqual(errors, []);
-  const windowOnly = process.argv.includes('--window-only');
-  await writeFile(new URL(windowOnly ? 'window-result.json' : 'result.json', output), JSON.stringify({ ok: true, profiles, invalidSaveBlocked: !windowOnly, cancelReopen: !windowOnly, nativePngAndReportSave: !windowOnly, rendererErrors: errors, officialValidation: 'not-run', installedAsChatGPTPet: false }, null, 2));
-  await writeFile(new URL(windowOnly ? 'latest-window.json' : 'latest.json', artifactRoot), JSON.stringify({ directory: `phase-02/run-${runId}`, generatedAt: new Date().toISOString() }, null, 2));
-  console.log(windowOnly ? 'Desktop window smoke passed: transparent always-on-top pet.' : 'Desktop smoke passed: v1/v2 previews, exact PNG/report hashes, invalid-save blocking, cancel/reopen and transparent pet.');
+  const windowOnly = process.argv.includes('--window-only') || preferencesOnly;
+  await writeFile(new URL(preferencesOnly ? 'preferences-result.json' : windowOnly ? 'window-result.json' : 'result.json', output), JSON.stringify({ ok: true, profiles, preferencesVerified: preferencesOnly, cadence, invalidSaveBlocked: !windowOnly, cancelReopen: !windowOnly, nativePngAndReportSave: !windowOnly, rendererErrors: errors, officialValidation: 'not-run', installedAsChatGPTPet: false }, null, 2));
+  await writeFile(new URL(preferencesOnly ? 'latest-preferences.json' : windowOnly ? 'latest-window.json' : 'latest.json', artifactRoot), JSON.stringify({ directory: `${phase}/run-${runId}`, generatedAt: new Date().toISOString() }, null, 2));
+  console.log(preferencesOnly ? 'Preferences smoke passed: size, performance, IPC validation, GPU cadence and restart persistence.' : windowOnly ? 'Desktop window smoke passed: transparent always-on-top pet.' : 'Desktop smoke passed: v1/v2 previews, exact PNG/report hashes, invalid-save blocking, cancel/reopen and transparent pet.');
 } catch (error) {
   await writeFile(new URL('native-failure.log', output), nativeLog.join(''));
   if (page) {

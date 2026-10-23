@@ -1,10 +1,14 @@
 import './style.css';
-import { VrmStage } from '../packages/renderer-vrm';
+import { CompanionStage, type CompanionInput, type PreparedCompanion } from './companion-stage';
+import { createCharacterLibrary, type CharacterAsset, type CharacterSummary } from '../packages/character-library';
 import { MAX_MODEL_BYTES, type ModelInfo } from '../packages/character-core/vrm-file';
 import { ANIMATION_ROWS, type AnimationState, type AtlasProfile } from '../packages/target-chatgpt/contract';
 import { exportAtlas } from '../packages/pet-exporter';
 import { ExportSession, type PreviewController } from './export-session';
-import { getSavedModel, saveModel } from './model-store';
+import { getSavedModel } from './model-store';
+import { DEFAULT_PREFERENCES, IDLE_AFTER_MS, PERFORMANCE_POLICIES, normalizePreferences, readPreferences, savePreferences, type DesktopPreferences } from './desktop-preferences';
+import { FramePacer } from './frame-pacer';
+import { sha256Hex } from '../packages/atlas-preview/sha256';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 const desktop = window.petDesktop;
@@ -35,7 +39,7 @@ app.innerHTML = petMode ? `
     <a class="brand" href="#" aria-label="OiGptPet 首页">oi<span>·</span></a>
     <div class="rail-mark selected" title="角色工坊">${icon.box}</div>
     <div class="rail-line"></div>
-    <span class="rail-bottom">0.2</span>
+    <span class="rail-bottom">0.3</span>
   </aside>
   <div class="workspace">
     <header class="topbar">
@@ -49,9 +53,9 @@ app.innerHTML = petMode ? `
           <div class="stage-label"><span class="live-dot"></span> LIVE PREVIEW <span id="format-badge">VRM 1.0</span></div>
           <div class="stage-grid"></div><div class="stage-halo"></div><div class="ground-shadow"></div>
           <canvas id="character-canvas" aria-label="VRM 角色实时预览"></canvas>
-          <div class="stage-empty" id="stage-empty"><span>初次见面，请多关照。</span><p>导入一个 VRM，开启陪伴。</p></div>
+          <div class="stage-empty" id="stage-empty"><span>初次见面，请多关照。</span><p>导入 VRM 或精灵图，开启陪伴。</p></div>
           <div class="stage-caption"><div><span class="eyebrow">CURRENT COMPANION</span><h3 id="character-name">等待角色</h3><span id="character-author">仅在本机处理你的模型</span></div><button class="round-button" id="wave-button" title="向你挥手">✧</button></div>
-          <span class="stage-tip">移动鼠标，和 TA 对视 · 支持拖入 .vrm</span>
+          <span class="stage-tip">移动鼠标，和 TA 对视 · 支持拖入 VRM / PNG / WebP</span>
         </div>
         <div class="motion-panel"><div class="motion-heading"><h2>今天是什么心情？</h2><button id="pause-button" class="text-button">暂停动画</button></div><div class="motion-list">${ANIMATION_ROWS.map((row, i) => `<button class="motion-button ${i === 0 ? 'active' : ''}" data-state="${row.state}"><span class="motion-index">${String(i + 1).padStart(2, '0')}</span>${row.label}</button>`).join('')}</div></div>
         <p class="status-line" id="status" role="status" aria-live="polite">正在准备角色工坊…</p>
@@ -59,9 +63,14 @@ app.innerHTML = petMode ? `
       <aside class="detail-column">
         <section class="detail-section"><div class="section-heading"><div><span class="section-number">02</span><h2>你的角色</h2></div><span class="tag">VRM</span></div>
           <button class="character-card" id="load-demo" ${__WITH_DEMO__ ? '' : 'hidden'}><div class="avatar-monogram">S<span>✦</span></div><div><strong>官方示例角色</strong><span>pixiv · VRM 1.0</span></div><span class="card-arrow">↗</span></button>
-          <button class="import-zone" id="import-button">${icon.plus}<strong>导入我的角色</strong><span>.vrm · 最大 64 MiB · VRM 1.0</span></button>
-          <input type="file" id="model-file" accept=".vrm" hidden />
-          <p class="helper">模型保存在本机。可从 VRoid Studio 导出，或使用作者允许使用的 VRM。</p>
+          <button class="import-zone" id="import-button" disabled>${icon.plus}<strong>导入我的角色</strong><span>VRM 1.0 ≤64 MiB · PNG / WebP ≤20 MiB</span></button>
+          <input type="file" id="model-file" accept=".vrm,.png,.webp,image/png,image/webp" hidden />
+          <label class="field-label" for="sprite-profile">导入精灵图规格</label>
+          <select id="sprite-profile"><option value="v2">v2 · 含 16 方向视线</option><option value="v1">v1 · 仅动作</option></select>
+          <button class="text-button" id="cancel-load" hidden>取消加载</button>
+          <div id="character-list" class="character-list" aria-label="本地角色库"></div>
+          <div id="character-editor" hidden><label class="field-label" for="character-alias">当前角色名称</label><input id="character-alias" maxlength="80" /><button class="text-button" id="rename-character">保存名称</button></div>
+          <p class="helper">角色保存在本机，最多 12 个、合计 256 MiB。删除库内副本不会删除原文件。请确认作者允许使用。</p>
         </section>
         <section class="detail-section export-section"><div class="section-heading"><div><span class="section-number">03</span><h2>同一个 TA，两种陪伴</h2></div></div>
           <div class="destination-card"><span class="destination-icon">↗</span><div><strong>独立桌面</strong><p>随时互动，自由换装换角色</p></div><span class="status-pill">实时</span></div>
@@ -70,6 +79,14 @@ app.innerHTML = petMode ? `
           <select id="export-profile"><option value="v2">v2 · 73 帧 / 含 16 方向视线</option><option value="v1">v1 · 57 帧 / 网页文档规格</option></select>
           <button class="button export-button" id="export-button" disabled>${icon.download} 导出宠物动画</button>
           <p class="helper">试验性导出。安装前需通过目标应用校验，并确认模型允许导出和上传。</p>
+        </section>
+        <section class="detail-section desktop-settings"><div class="section-heading"><div><span class="section-number">04</span><h2>陪伴设置</h2></div></div>
+          <label class="field-label" for="pet-scale">桌宠大小</label>
+          <select id="pet-scale" disabled><option value="0.8">小 · 80%</option><option value="1" selected>标准 · 100%</option><option value="1.2">大 · 120%</option></select>
+          <label class="field-label" for="performance-mode">动画性能</label>
+          <select id="performance-mode" disabled><option value="quality">画质优先 · 最高 60 帧</option><option value="balanced" selected>均衡 · 最高 30 帧</option><option value="battery">省电 · 最高 15 帧</option></select>
+          <p class="helper">闲置 10 秒自动降低绘制频率，隐藏时停止绘制。设置在本机保存。</p>
+          <p class="helper" id="settings-status" role="status" aria-live="polite"></p>
         </section>
         <section class="note-card"><span class="note-star">✦</span><div><strong>从一个喜欢的角色开始。</strong><p>角色和动作共用一套源资产。桌面实时互动，ChatGPT 播放导出的动画。</p></div></section>
         <details class="model-details"><summary>角色信息与使用说明</summary><div id="model-info">导入后显示角色元数据。</div><p>导出不代表已安装为 ChatGPT 宠物。不同入口可能支持不同规格；安装和预检在目标应用内完成。</p></details>
@@ -90,17 +107,26 @@ app.innerHTML = petMode ? `
   </dialog>`;
 
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
-const canvas = $<HTMLCanvasElement>('#character-canvas');
-let stage: VrmStage;
+const canvasHost = $<HTMLCanvasElement>('#character-canvas').parentElement!;
+let stage: CompanionStage;
+const library = createCharacterLibrary();
+const libraryChannel = new BroadcastChannel('oigptpet-library-changed');
+let currentCharacter: CharacterSummary | null = null;
+let loadController: AbortController | null = null;
+let committing = false;
+let syncRequested = false;
 let source: ArrayBuffer | null = null;
 let state: AnimationState = 'idle';
 let info: ModelInfo | null = null;
 let loading = false;
 let paused = false;
 let animationTime = 0;
-let previousTime = performance.now();
+let lastInteraction = performance.now();
+let preferences: DesktopPreferences = { ...DEFAULT_PREFERENCES };
+const framePacer = new FramePacer();
+let resizeStage = () => {};
 let transientUntil = 0;
-let look: { yaw: number; pitch: number } | undefined;
+let look: { yaw: number; pitch: number; angle: number } | undefined;
 let lastPointer = 0;
 const exportSession = new ExportSession();
 let runRevision = 0;
@@ -108,6 +134,30 @@ let exportUrl: string | undefined;
 let modelSource: 'local-import' | 'official-demo' = 'local-import';
 let forcedInteractive = false;
 let ignoringMouse = false;
+
+function applyPreferences(value: DesktopPreferences) {
+  preferences = normalizePreferences(value);
+  framePacer.reset();
+  resizeStage();
+  if (!petMode) {
+    $<HTMLSelectElement>('#pet-scale').value = String(preferences.scale);
+    $<HTMLSelectElement>('#performance-mode').value = preferences.performance;
+  }
+}
+
+async function changePreferences() {
+  const size = $<HTMLSelectElement>('#pet-scale');
+  const performance = $<HTMLSelectElement>('#performance-mode');
+  size.disabled = true; performance.disabled = true;
+  try {
+    const next = await savePreferences({ scale: Number(size.value) as DesktopPreferences['scale'], performance: performance.value as DesktopPreferences['performance'] });
+    applyPreferences(next);
+    $('#settings-status').textContent = '已保存。';
+  } catch {
+    applyPreferences(preferences);
+    $('#settings-status').textContent = '设置保存失败，请重试。';
+  } finally { size.disabled = !desktop; performance.disabled = false; }
+}
 
 function status(message: string, error = false) {
   const target = petMode ? $('#pet-message') : $('#status');
@@ -131,30 +181,120 @@ function showInfo(value: ModelInfo) {
     $('#model-info').append(paragraph);
   }
 }
-async function load(buffer: ArrayBuffer, persist: boolean, origin: 'local-import' | 'official-demo' = 'local-import') {
+function showCharacter(summary: CharacterSummary | null, value: ModelInfo | null, input: CompanionInput) {
+  document.body.dataset.characterKind = input.kind;
+  document.body.dataset.characterId = summary?.id ?? '';
+  if (value) showInfo(value);
+  if (petMode) { status(''); return; }
+  $('#stage-empty').hidden = true;
+  $('#format-badge').textContent = input.kind === 'vrm' ? 'VRM 1.0' : `SPRITE ${input.profile}`;
+  $('#character-name').textContent = summary?.name ?? value?.name ?? '本地精灵图';
+  if (!value) {
+    $('#character-author').textContent = '精灵图角色 · 原文件保存在本机';
+    $('#model-info').textContent = `精灵图 ${input.kind === 'sprite' ? input.profile : ''}；可用于桌宠播放。作者和使用许可请核对原始文件说明。`;
+  }
+  $('#character-editor').hidden = !summary;
+  $<HTMLInputElement>('#character-alias').value = summary?.name ?? '';
+  $<HTMLButtonElement>('#export-button').title = value ? '' : '精灵图可直接播放；导出新动作需要源 VRM。';
+}
+
+async function refreshLibrary() {
+  const entries = await library.list();
+  if (petMode) return;
+  const host = $('#character-list'); host.replaceChildren();
+  for (const item of entries) {
+    const row = document.createElement('div'); row.className = 'library-row'; row.dataset.characterId = item.id;
+    const select = document.createElement('button'); select.className = 'library-select'; select.dataset.selectCharacter = item.id;
+    select.textContent = `${item.id === currentCharacter?.id ? '● ' : ''}${item.name} · ${item.kind === 'vrm' ? 'VRM' : item.profile}`;
+    select.disabled = loading || item.id === currentCharacter?.id;
+    select.onclick = () => void selectCharacter(item.id);
+    const remove = document.createElement('button'); remove.className = 'text-button'; remove.textContent = '移除'; remove.dataset.removeCharacter = item.id;
+    remove.disabled = loading || item.id === currentCharacter?.id;
+    remove.onclick = () => void removeCharacter(item.id);
+    row.append(select, remove); host.append(row);
+  }
+}
+
+function notifyLibrary() { libraryChannel.postMessage('changed'); }
+
+async function load(input: CompanionInput, persist: boolean, origin: 'local-import' | 'official-demo' = 'local-import', existing?: CharacterSummary) {
   if (loading) return;
   clearExport();
   loading = true;
-  if (!petMode) $<HTMLButtonElement>('#export-button').disabled = true;
+  const controller = new AbortController(); loadController = controller;
+  if (!petMode) {
+    $<HTMLButtonElement>('#export-button').disabled = true;
+    $('#cancel-load').hidden = false;
+    $<HTMLButtonElement>('#cancel-load').disabled = false;
+    $<HTMLButtonElement>('#import-button').disabled = true;
+  }
   status('正在加载角色…');
+  let prepared: PreparedCompanion | undefined;
   try {
-    const value = await stage.load(buffer);
-    info = value; source = buffer; modelSource = origin;
-    showInfo(value);
-    if (persist) {
-      try { await saveModel(buffer); }
-      catch { status('角色已加载，但本地保存失败；重启后请重新导入。', true); return; }
-    }
+    if (existing && (input.blob.size !== existing.encodedBytes || await sha256Hex(await input.blob.arrayBuffer(), { signal: controller.signal }) !== existing.sha256)) throw new Error('角色内容与保存摘要不一致。');
+    prepared = await stage.prepare(input, controller.signal);
+    const nextSource = input.kind === 'vrm' ? await input.blob.arrayBuffer() : null;
+    let summary = existing ?? null;
+    if (persist && !summary) summary = await library.add(input, controller.signal);
+    if (controller.signal.aborted) throw new DOMException('角色切换已取消。', 'AbortError');
+    committing = true;
+    if (!petMode) $<HTMLButtonElement>('#cancel-load').disabled = true;
+    if (persist && summary) await library.activate(summary.id);
+    prepared.commit();
+    currentCharacter = summary;
+    info = prepared.info; source = nextSource; modelSource = origin;
+    animationTime = 0; changeState('idle'); framePacer.reset(); resizeStage();
+    showCharacter(summary, info, input);
+    if (persist) notifyLibrary();
     status(petMode ? '' : '角色已就绪 · 点击动作试试看。');
-  } catch (error) { status(error instanceof Error ? error.message : '模型加载失败。', true); }
-  finally { loading = false; if (!petMode) $<HTMLButtonElement>('#export-button').disabled = !source; }
+  } catch (error) {
+    status(controller.signal.aborted ? '加载已取消，保留原角色。' : `${error instanceof Error ? error.message : '角色加载失败。'}${stage.loaded ? ' 已保留原角色。' : ''}`, true);
+  } finally {
+    prepared?.dispose(); loading = false; committing = false; loadController = null;
+    if (!petMode) { $<HTMLButtonElement>('#export-button').disabled = !source; $('#cancel-load').hidden = true; $<HTMLButtonElement>('#import-button').disabled = false; }
+    try { await refreshLibrary(); } catch { status('角色库读取失败，请重试。', true); }
+    if (syncRequested) { syncRequested = false; void syncLibrary(); }
+  }
+}
+
+function assetInput(asset: CharacterAsset): CompanionInput {
+  if (asset.summary.kind === 'sprite') {
+    if (asset.summary.profile !== 'v1' && asset.summary.profile !== 'v2') throw new Error('精灵图规格缺失。');
+    return { kind: 'sprite', blob: asset.blob, profile: asset.summary.profile };
+  }
+  return { kind: 'vrm', blob: asset.blob };
+}
+
+async function selectCharacter(id: string) {
+  if (loading) return;
+  try {
+    const asset = await library.get(id);
+    if (!asset) throw new Error('角色不存在，请刷新角色库。');
+    await load(assetInput(asset), true, 'local-import', asset.summary);
+  } catch (error) { status(error instanceof Error ? error.message : '切换失败，保留原角色。', true); }
+}
+
+async function removeCharacter(id: string) {
+  if (loading) return;
+  try { await library.remove(id); await refreshLibrary(); notifyLibrary(); status('已移除库内副本，原文件未删除。'); }
+  catch (error) { status(error instanceof Error ? error.message : '移除失败。', true); }
+}
+
+async function syncLibrary() {
+  if (loading) { syncRequested = true; return; }
+  try {
+    const active = await library.getActive();
+    if (active && active.summary.id !== currentCharacter?.id) await load(assetInput(active), false, 'local-import', active.summary);
+    else if (active) { currentCharacter = active.summary; showCharacter(currentCharacter, info, assetInput(active)); }
+    await refreshLibrary();
+  } catch (error) { status(`角色同步失败，保留当前画面：${error instanceof Error ? error.message : '请重试。'}`, true); }
 }
 
 async function demo(persist: boolean) {
   try {
     const response = await fetch(new URL('models/demo.vrm', document.baseURI));
     if (!response.ok) throw new Error('示例暂不可用。请导入本机的 VRM 1.0 角色。');
-    await load(await response.arrayBuffer(), persist, 'official-demo');
+    await load({ kind: 'vrm', blob: await response.blob() }, persist, 'official-demo');
   } catch (error) { status(error instanceof Error ? error.message : '示例加载失败。', true); }
 }
 
@@ -164,10 +304,15 @@ function changeState(next: AnimationState) {
 }
 
 async function importFile(file?: File) {
-  if (!file) return;
-  if (!file.name.toLowerCase().endsWith('.vrm')) { status('请选择 .vrm 文件。', true); return; }
-  if (file.size > MAX_MODEL_BYTES) { status('模型不能超过 64 MiB。', true); return; }
-  await load(await file.arrayBuffer(), true);
+  if (!file || !stage || loading) return;
+  if (file.name.toLowerCase().endsWith('.vrm')) {
+    if (file.size > MAX_MODEL_BYTES) { status('模型不能超过 64 MiB。', true); return; }
+    await load({ kind: 'vrm', blob: file }, true);
+  } else if (/\.(png|webp)$/i.test(file.name)) {
+    if (file.size > 20 * 1024 * 1024) { status('精灵图不能超过 20 MiB。', true); return; }
+    const type = file.name.toLowerCase().endsWith('.png') ? 'image/png' : 'image/webp';
+    await load({ kind: 'sprite', blob: file.type ? file : new Blob([file], { type }), profile: $<HTMLSelectElement>('#sprite-profile').value as AtlasProfile }, true);
+  } else status('请选择 VRM、PNG 或 WebP 文件。', true);
 }
 
 function download(blob: Blob, filename: string) {
@@ -264,46 +409,69 @@ async function runExport() {
 }
 
 async function bootstrap() {
-  try { stage = new VrmStage(canvas); }
-  catch { status('无法启动 WebGL。请更新显卡驱动，或在支持 WebGL 的环境运行。', true); return; }
+  try { applyPreferences(await readPreferences()); }
+  catch { applyPreferences(DEFAULT_PREFERENCES); if (!petMode) $('#settings-status').textContent = '设置读取失败，暂用默认值。'; }
+  desktop?.onPreferencesChanged(applyPreferences);
+  if (!petMode) {
+    $<HTMLSelectElement>('#pet-scale').disabled = !desktop;
+    $<HTMLSelectElement>('#performance-mode').disabled = false;
+    if (!desktop) $<HTMLSelectElement>('#pet-scale').title = '桌宠大小需要桌面应用。';
+  }
+  stage = new CompanionStage($<HTMLCanvasElement>('#character-canvas'));
   const resize = () => {
-    const bounds = canvas.getBoundingClientRect();
-    if (bounds.width && bounds.height) stage.resize(Math.round(bounds.width), Math.round(bounds.height));
+    const bounds = canvasHost.getBoundingClientRect();
+    if (bounds.width && bounds.height) stage.resize(Math.round(bounds.width), Math.round(bounds.height), Math.min(window.devicePixelRatio || 1, PERFORMANCE_POLICIES[preferences.performance].maxPixelRatio));
   };
-  new ResizeObserver(resize).observe(canvas);
+  resizeStage = resize;
+  new ResizeObserver(resize).observe(canvasHost);
   resize();
   const frame = (now: number) => {
-    const delta = Math.min((now - previousTime) / 1000, 0.05);
-    previousTime = now;
-    if (!document.hidden) {
+    const policy = PERFORMANCE_POLICIES[preferences.performance];
+    const fps = now - lastInteraction >= IDLE_AFTER_MS ? policy.idleFps : policy.activeFps;
+    const delta = framePacer.tick(now, fps, document.hidden);
+    if (delta !== null) {
       if (!paused) animationTime += delta;
       if (transientUntil && now > transientUntil) { transientUntil = 0; changeState('idle'); }
-      stage.render(state, animationTime / 2, paused ? 0 : delta, now - lastPointer < 1800 ? look : undefined);
+      stage.render(state, animationTime, paused ? 0 : delta, now - lastPointer < 1800 ? look : undefined);
     }
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);
   window.addEventListener('pointermove', (event) => {
-    const bounds = canvas.getBoundingClientRect();
-    look = { yaw: -(event.clientX - bounds.left - bounds.width / 2) / bounds.width * 0.7, pitch: (event.clientY - bounds.top - bounds.height / 2) / bounds.height * 0.4 };
+    const bounds = canvasHost.getBoundingClientRect();
+    const x = event.clientX - bounds.left - bounds.width / 2;
+    const y = event.clientY - bounds.top - bounds.height / 2;
+    look = { yaw: -x / bounds.width * 0.7, pitch: y / bounds.height * 0.4, angle: (Math.atan2(x, -y) * 180 / Math.PI + 360) % 360 };
     lastPointer = performance.now();
+    lastInteraction = lastPointer;
     if (petMode && !forcedInteractive) {
       const interactive = (event.target as HTMLElement)?.closest('[data-interactive]') || stage.hitTest(event.clientX, event.clientY);
       const next = !interactive;
       if (next !== ignoringMouse) { ignoringMouse = next; void desktop!.setClickThrough(next); }
     }
   });
-  canvas.addEventListener('click', () => { changeState('waving'); transientUntil = performance.now() + 2000; });
-  try {
-    const saved = await getSavedModel();
-    if (saved) await load(saved, false);
-    else if (__WITH_DEMO__) await demo(false);
-    else status('导入本机的 VRM 1.0 角色，开始陪伴。');
-  } catch { if (__WITH_DEMO__) await demo(false); else status('本地角色读取失败，请重新导入。', true); }
-  desktop?.onModelChanged(async () => {
-    try { const saved = await getSavedModel(); if (saved) await load(saved, false); }
-    catch { status('同步角色失败，请重新打开工坊。', true); }
+  const markActive = () => { lastInteraction = performance.now(); };
+  window.addEventListener('pointerdown', markActive);
+  window.addEventListener('keydown', markActive);
+  document.addEventListener('visibilitychange', () => { framePacer.reset(); markActive(); });
+  canvasHost.addEventListener('click', (event) => {
+    if ((event.target as HTMLElement).id !== 'character-canvas') return;
+    changeState('waving'); transientUntil = performance.now() + 2000;
   });
+  try {
+    let active = await library.getActive();
+    if (!active) {
+      const saved = await getSavedModel();
+      if (saved) { await library.migrateLegacyVrm(saved); active = await library.getActive(); }
+    }
+    if (active) await load(assetInput(active), false, 'local-import', active.summary);
+    else if (__WITH_DEMO__) await demo(false);
+    else status('导入本机的 VRM 1.0 角色或精灵图，开始陪伴。');
+    await refreshLibrary();
+  } catch (error) { status(`本地角色读取或迁移失败，原数据已保留：${error instanceof Error ? error.message : '请重试。'}`, true); }
+  if (!petMode) $<HTMLButtonElement>('#import-button').disabled = false;
+  libraryChannel.onmessage = () => void syncLibrary();
+  desktop?.onModelChanged(() => void syncLibrary());
   desktop?.onInteractionRestored(() => { forcedInteractive = true; ignoringMouse = false; });
 }
 
@@ -316,6 +484,14 @@ if (petMode) {
     void desktop!.setClickThrough(true);
   };
 } else {
+  $('#cancel-load').onclick = () => { if (!committing) loadController?.abort(); };
+  $('#rename-character').onclick = async () => {
+    if (!currentCharacter || loading) return;
+    try { await library.rename(currentCharacter.id, $<HTMLInputElement>('#character-alias').value); await syncLibrary(); notifyLibrary(); status('角色名称已保存。'); }
+    catch (error) { status(error instanceof Error ? error.message : '名称保存失败。', true); }
+  };
+  $('#pet-scale').onchange = () => void changePreferences();
+  $('#performance-mode').onchange = () => void changePreferences();
   $('#import-button').onclick = () => $<HTMLInputElement>('#model-file').click();
   $<HTMLInputElement>('#model-file').onchange = (event) => {
     const input = event.target as HTMLInputElement;
@@ -360,5 +536,5 @@ if (petMode) {
   window.addEventListener('drop', (event) => { event.preventDefault(); $('#drop-zone').classList.remove('dragover'); void importFile(event.dataTransfer?.files[0]); });
 }
 
-window.addEventListener('beforeunload', () => { exportSession.reset(); stage?.dispose(); if (exportUrl) URL.revokeObjectURL(exportUrl); });
+window.addEventListener('beforeunload', () => { loadController?.abort(); libraryChannel.close(); library.close(); exportSession.reset(); stage?.dispose(); if (exportUrl) URL.revokeObjectURL(exportUrl); });
 void bootstrap();

@@ -16,3 +16,7 @@
 .export-save-actions { display:flex; flex-wrap:wrap; gap:10px; }
 #atlas-preview-host:empty { display:none; }
 #export-dialog { max-height:90vh; overflow:auto; }
+.character-list { margin-top:12px; display:grid; gap:6px; }
+.library-row { display:flex; gap:8px; align-items:center; padding:7px 8px; border:1px solid var(--line); border-radius:6px; }
+.library-select { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left; border:0; background:transparent; font-size:11px; padding:5px 0; }
+#character-alias { width:100%; border:1px solid var(--line); border-radius:6px; background:#fafaf7; padding:9px; color:var(--ink); }

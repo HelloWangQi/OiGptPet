@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Sprite Stage Fixture</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: #eef2f7;
+        font: 13px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+        color: #1f2937;
+      }
+      main {
+        padding: 24px;
+      }
+      #host {
+        display: inline-block;
+        padding: 12px;
+        border: 1px solid #cbd5e1;
+        background:
+          linear-gradient(45deg, #e2e8f0 25%, transparent 25%),
+          linear-gradient(-45deg, #e2e8f0 25%, transparent 25%),
+          linear-gradient(45deg, transparent 75%, #e2e8f0 75%),
+          linear-gradient(-45deg, transparent 75%, #e2e8f0 75%),
+          #f8fafc;
+        background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+        background-size: 16px 16px;
+      }
+      #log {
+        margin-top: 12px;
+        font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+        color: #475569;
+        white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div id="host"></div>
+      <p id="log">fixture ready</p>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

@@ -4,6 +4,7 @@ const { createHash } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
 const fs = require('node:fs/promises');
 const { fitBounds } = require('./geometry.cjs');
+const { createPreferencesStore } = require('./preferences.cjs');
 
 const root = path.join(__dirname, '..');
 protocol.registerSchemesAsPrivileged([{ scheme: 'oipet', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
@@ -20,6 +21,7 @@ let quitting = false;
 let modelBytes = null;
 const statePath = () => path.join(app.getPath('userData'), 'window-state.json');
 const modelPath = () => path.join(app.getPath('userData'), 'current.vrm');
+const preferences = createPreferencesStore(path.join(app.getPath('userData'), 'preferences.json'));
 
 function trusted(event) {
   const owner = BrowserWindow.fromWebContents(event.sender);
@@ -56,7 +58,20 @@ function currentBounds() {
     const target = screen.getDisplayMatching({ x: savedBounds.x, y: savedBounds.y, width: 320, height: 420 });
     area = target.workArea;
   }
-  return fitBounds(savedBounds, area, { width: 320, height: 420 });
+  const scale = preferences.get().scale;
+  return fitBounds({ ...savedBounds, width: 320 * scale, height: 420 * scale }, area, { width: 320, height: 420 });
+}
+
+async function updatePreferences(patch) {
+  const next = await preferences.update(patch);
+  if (pet && !pet.isDestroyed()) {
+    const bounds = pet.getBounds();
+    const area = screen.getDisplayMatching(bounds).workArea;
+    const nextBounds = fitBounds({ ...bounds, width: 320 * next.scale, height: 420 * next.scale }, area, { width: 320, height: 420 });
+    if (bounds.width !== nextBounds.width || bounds.height !== nextBounds.height) pet.setBounds(nextBounds);
+  }
+  for (const win of [workshop, pet]) if (win && !win.isDestroyed()) win.webContents.send('preferences:changed', next);
+  return next;
 }
 
 function openPet() {
@@ -106,13 +121,12 @@ function handlers() {
     if (typeof enabled !== 'boolean') throw new Error('Invalid toggle');
     pet?.setIgnoreMouseEvents(enabled, { forward: true });
   });
-  ipcMain.handle('pet:scale', (event, scale) => {
+  ipcMain.handle('preferences:get', (event) => { trusted(event); return preferences.get(); });
+  ipcMain.handle('preferences:set', async (event, patch) => { trusted(event); return updatePreferences(patch); });
+  ipcMain.handle('pet:scale', async (event, scale) => {
     trusted(event);
     if (![0.8, 1, 1.2].includes(scale)) throw new Error('Invalid size');
-    if (pet) {
-      const area = screen.getDisplayMatching(pet.getBounds()).workArea;
-      pet.setBounds(fitBounds({ ...pet.getBounds(), width: 320 * scale, height: 420 * scale }, area, { width: 320, height: 420 }));
-    }
+    await updatePreferences({ scale });
   });
   ipcMain.handle('atlas:save', async (event, bytes, profile, sha256) => {
     const owner = trusted(event);
@@ -154,6 +168,7 @@ else {
       } catch { return new Response('Invalid resource', { status: 400 }); }
     });
     await fs.mkdir(app.getPath('userData'), { recursive: true });
+    try { await preferences.load(); } catch (error) { console.error('Preferences could not be read:', error.message); }
     try { savedBounds = JSON.parse(await fs.readFile(statePath(), 'utf8')); } catch { /* First launch or damaged settings. */ }
     try { const bytes = await fs.readFile(modelPath()); if (bytes.length <= 64 * 1024 * 1024) modelBytes = bytes; } catch { /* No imported model yet. */ }
     session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
