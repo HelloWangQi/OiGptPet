@@ -5,6 +5,7 @@ const { pathToFileURL } = require('node:url');
 const fs = require('node:fs/promises');
 const { fitBounds } = require('./geometry.cjs');
 const { createPreferencesStore } = require('./preferences.cjs');
+const { createCharacterPackageSaver } = require('./character-package-save.cjs');
 
 const root = path.join(__dirname, '..');
 protocol.registerSchemesAsPrivileged([{ scheme: 'oipet', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
@@ -22,6 +23,9 @@ let modelBytes = null;
 const statePath = () => path.join(app.getPath('userData'), 'window-state.json');
 const modelPath = () => path.join(app.getPath('userData'), 'current.vrm');
 const preferences = createPreferencesStore(path.join(app.getPath('userData'), 'preferences.json'));
+const characterPackageSaver = createCharacterPackageSaver({ chooseFile: (owner) => dialog.showSaveDialog(owner, {
+  defaultPath: 'OiGptPet-character.oipet', filters: [{ name: 'OiGptPet 角色备份', extensions: ['oipet'] }],
+}) });
 
 function trusted(event) {
   const owner = BrowserWindow.fromWebContents(event.sender);
@@ -102,6 +106,8 @@ function makeTrayIcon() {
 }
 
 function handlers() {
+  ipcMain.handle('character-package:save', (event, bytes, sha256, operationId) => characterPackageSaver.save(trusted(event), bytes, sha256, operationId));
+  ipcMain.handle('character-package:cancel', (event, operationId) => characterPackageSaver.cancel(trusted(event), operationId));
   ipcMain.handle('model:get', (event) => { trusted(event); return modelBytes; });
   ipcMain.handle('model:set', async (event, bytes) => {
     trusted(event);

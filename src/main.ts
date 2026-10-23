@@ -9,6 +9,7 @@ import { getSavedModel } from './model-store';
 import { DEFAULT_PREFERENCES, IDLE_AFTER_MS, PERFORMANCE_POLICIES, normalizePreferences, readPreferences, savePreferences, type DesktopPreferences } from './desktop-preferences';
 import { FramePacer } from './frame-pacer';
 import { sha256Hex } from '../packages/atlas-preview/sha256';
+import { characterPackageModule, MAX_CHARACTER_BACKUP_BYTES } from './character-package-client';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 const desktop = window.petDesktop;
@@ -39,7 +40,7 @@ app.innerHTML = petMode ? `
     <a class="brand" href="#" aria-label="OiGptPet 首页">oi<span>·</span></a>
     <div class="rail-mark selected" title="角色工坊">${icon.box}</div>
     <div class="rail-line"></div>
-    <span class="rail-bottom">0.3</span>
+    <span class="rail-bottom">0.4</span>
   </aside>
   <div class="workspace">
     <header class="topbar">
@@ -70,6 +71,10 @@ app.innerHTML = petMode ? `
           <button class="text-button" id="cancel-load" hidden>取消加载</button>
           <div id="character-list" class="character-list" aria-label="本地角色库"></div>
           <div id="character-editor" hidden><label class="field-label" for="character-alias">当前角色名称</label><input id="character-alias" maxlength="80" /><button class="text-button" id="rename-character">保存名称</button></div>
+          <div class="backup-actions"><button class="button" id="backup-character" disabled>备份当前角色</button><button class="button" id="restore-character" disabled>恢复角色备份</button><button class="text-button" id="cancel-package" hidden>取消</button></div>
+          <input type="file" id="package-file" accept=".oipet" hidden />
+          <p class="helper" id="package-status" role="status" aria-live="polite"></p>
+          <p class="helper">备份文件包含一个角色的原始文件、名称和规格，可在其他本地应用目录恢复。</p>
           <p class="helper">角色保存在本机，最多 12 个、合计 256 MiB。删除库内副本不会删除原文件。请确认作者允许使用。</p>
         </section>
         <section class="detail-section export-section"><div class="section-heading"><div><span class="section-number">03</span><h2>同一个 TA，两种陪伴</h2></div></div>
@@ -112,6 +117,9 @@ let stage: CompanionStage;
 const library = createCharacterLibrary();
 const libraryChannel = new BroadcastChannel('oigptpet-library-changed');
 let currentCharacter: CharacterSummary | null = null;
+interface PackageJob { kind: 'backup' | 'restore'; id: string; controller: AbortController; nativeStarted: boolean }
+let packageJob: PackageJob | null = null;
+let closed = false;
 let loadController: AbortController | null = null;
 let committing = false;
 let syncRequested = false;
@@ -164,6 +172,95 @@ function status(message: string, error = false) {
   target.textContent = message;
   target.classList.toggle('error', error);
 }
+function packageStatus(message: string, error = false) {
+  if (petMode || closed) return;
+  $('#package-status').textContent = message;
+  $('#package-status').classList.toggle('error', error);
+}
+function updatePackageControls() {
+  if (petMode || closed) return;
+  const busy = loading || Boolean(packageJob);
+  document.body.dataset.packageBusy = packageJob?.kind ?? '';
+  $<HTMLButtonElement>('#backup-character').disabled = busy || !currentCharacter;
+  $<HTMLButtonElement>('#restore-character').disabled = busy || !stage;
+  $<HTMLButtonElement>('#import-button').disabled = busy || !stage;
+  $<HTMLButtonElement>('#load-demo').disabled = busy;
+  $<HTMLButtonElement>('#rename-character').disabled = busy;
+  $<HTMLButtonElement>('#export-button').disabled = busy || !source;
+  $('#cancel-package').hidden = !packageJob;
+  $<HTMLButtonElement>('#cancel-package').disabled = committing;
+  if (busy) document.querySelectorAll<HTMLButtonElement>('#character-list button').forEach((button) => { button.disabled = true; });
+}
+function packageId() {
+  // randomUUID is absent on non-secure LAN HTTP; getRandomValues remains available.
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (value) => value.toString(16).padStart(2, '0')).join('');
+}
+function checkPackageJob(job: PackageJob) {
+  if (closed || packageJob !== job || job.controller.signal.aborted) throw new DOMException('备份操作已取消。', 'AbortError');
+}
+async function cancelPackage() {
+  const job = packageJob;
+  if (!job || committing) return;
+  if (job.nativeStarted && desktop) {
+    try {
+      const accepted = await desktop.cancelCharacterPackage(job.id);
+      if (packageJob !== job || closed) return;
+      if (!accepted) { packageStatus('正在完成保存，请稍候。'); return; }
+    } catch { packageStatus('取消请求失败，请在保存窗口取消。', true); return; }
+  }
+  job.controller.abort();
+  packageStatus('已请求取消，正在结束当前操作。');
+}
+function finishPackage(job: PackageJob) {
+  if (packageJob !== job) return;
+  packageJob = null; updatePackageControls();
+  if (!closed) {
+    void refreshLibrary().catch(() => packageStatus('角色库刷新失败，请重试。', true));
+    if (syncRequested) { syncRequested = false; void syncLibrary(); }
+  }
+}
+async function backupCharacter() {
+  if (!currentCharacter || loading || packageJob) return;
+  clearExport();
+  const selected = { id: currentCharacter.id, name: currentCharacter.name };
+  const job: PackageJob = { kind: 'backup', id: packageId(), controller: new AbortController(), nativeStarted: false };
+  packageJob = job; updatePackageControls(); packageStatus('正在准备角色备份…');
+  try {
+    const asset = await library.getActive(); checkPackageJob(job);
+    if (!asset || asset.summary.id !== selected.id || asset.summary.name !== selected.name) throw new Error('当前角色已变化，请重新备份。');
+    const codec = await characterPackageModule(); checkPackageJob(job);
+    const result = await codec.encodeCharacterPackage(asset, job.controller.signal); checkPackageJob(job);
+    if (desktop) {
+      const bytes = new Uint8Array(await result.blob.arrayBuffer()); checkPackageJob(job);
+      job.nativeStarted = true;
+      const path = await desktop.saveCharacterPackage(bytes, result.sha256, job.id);
+      if (closed || packageJob !== job) return;
+      // Native rename may already have committed; a successful path is authoritative.
+      packageStatus(path ? `“${selected.name}”已备份到 ${path}` : '备份已取消。');
+    } else {
+      checkPackageJob(job); download(result.blob, 'OiGptPet-character.oipet');
+      packageStatus(`“${selected.name}”备份已交给浏览器下载。`);
+    }
+  } catch (error) {
+    if (!closed && packageJob === job) packageStatus(job.controller.signal.aborted ? '备份已取消。' : error instanceof Error ? error.message : '备份失败，请重试。', !job.controller.signal.aborted);
+  } finally { finishPackage(job); }
+}
+async function restoreCharacter(file?: File) {
+  if (!file || !stage || loading || packageJob) return;
+  if (file.size > MAX_CHARACTER_BACKUP_BYTES) { packageStatus('角色备份超过大小上限。', true); return; }
+  clearExport();
+  const job: PackageJob = { kind: 'restore', id: packageId(), controller: new AbortController(), nativeStarted: false };
+  packageJob = job; updatePackageControls(); packageStatus('正在检查角色备份…');
+  try {
+    const codec = await characterPackageModule(); checkPackageJob(job);
+    const decoded = await codec.decodeCharacterPackage(file, job.controller.signal); checkPackageJob(job);
+    const restored = await load(decoded.input, true, 'local-import', undefined, { name: decoded.input.name, signal: job.controller.signal });
+    checkPackageJob(job);
+    packageStatus(restored ? '角色备份已恢复。重复角色沿用库内已有名称。' : '恢复未完成，原角色保持不变。', !restored);
+  } catch (error) {
+    if (!closed && packageJob === job) packageStatus(job.controller.signal.aborted ? '恢复已取消，原角色保持不变。' : `${error instanceof Error ? error.message : '恢复失败。'} 原角色保持不变。`, !job.controller.signal.aborted);
+  } finally { finishPackage(job); }
+}
 function showInfo(value: ModelInfo) {
   if (petMode) { status(''); return; }
   $('#character-name').textContent = value.name.replaceAll('_', ' ');
@@ -206,10 +303,10 @@ async function refreshLibrary() {
     const row = document.createElement('div'); row.className = 'library-row'; row.dataset.characterId = item.id;
     const select = document.createElement('button'); select.className = 'library-select'; select.dataset.selectCharacter = item.id;
     select.textContent = `${item.id === currentCharacter?.id ? '● ' : ''}${item.name} · ${item.kind === 'vrm' ? 'VRM' : item.profile}`;
-    select.disabled = loading || item.id === currentCharacter?.id;
+    select.disabled = loading || Boolean(packageJob) || item.id === currentCharacter?.id;
     select.onclick = () => void selectCharacter(item.id);
     const remove = document.createElement('button'); remove.className = 'text-button'; remove.textContent = '移除'; remove.dataset.removeCharacter = item.id;
-    remove.disabled = loading || item.id === currentCharacter?.id;
+    remove.disabled = loading || Boolean(packageJob) || item.id === currentCharacter?.id;
     remove.onclick = () => void removeCharacter(item.id);
     row.append(select, remove); host.append(row);
   }
@@ -217,11 +314,15 @@ async function refreshLibrary() {
 
 function notifyLibrary() { libraryChannel.postMessage('changed'); }
 
-async function load(input: CompanionInput, persist: boolean, origin: 'local-import' | 'official-demo' = 'local-import', existing?: CharacterSummary) {
-  if (loading) return;
+async function load(input: CompanionInput, persist: boolean, origin: 'local-import' | 'official-demo' = 'local-import', existing?: CharacterSummary, options?: { name?: string; signal?: AbortSignal }) {
+  if (loading || closed || (packageJob && (packageJob.kind !== 'restore' || options?.signal !== packageJob.controller.signal))) return false;
   clearExport();
   loading = true;
   const controller = new AbortController(); loadController = controller;
+  const relayAbort = () => { if (!committing) controller.abort(); };
+  options?.signal?.addEventListener('abort', relayAbort, { once: true });
+  if (options?.signal?.aborted) controller.abort();
+  updatePackageControls();
   if (!petMode) {
     $<HTMLButtonElement>('#export-button').disabled = true;
     $('#cancel-load').hidden = false;
@@ -235,9 +336,10 @@ async function load(input: CompanionInput, persist: boolean, origin: 'local-impo
     prepared = await stage.prepare(input, controller.signal);
     const nextSource = input.kind === 'vrm' ? await input.blob.arrayBuffer() : null;
     let summary = existing ?? null;
-    if (persist && !summary) summary = await library.add(input, controller.signal);
+    if (persist && !summary) summary = await library.add({ ...input, ...(options?.name === undefined ? {} : { name: options.name }) }, controller.signal);
     if (controller.signal.aborted) throw new DOMException('角色切换已取消。', 'AbortError');
     committing = true;
+    updatePackageControls();
     if (!petMode) $<HTMLButtonElement>('#cancel-load').disabled = true;
     if (persist && summary) await library.activate(summary.id);
     prepared.commit();
@@ -247,13 +349,17 @@ async function load(input: CompanionInput, persist: boolean, origin: 'local-impo
     showCharacter(summary, info, input);
     if (persist) notifyLibrary();
     status(petMode ? '' : '角色已就绪 · 点击动作试试看。');
+    return true;
   } catch (error) {
     status(controller.signal.aborted ? '加载已取消，保留原角色。' : `${error instanceof Error ? error.message : '角色加载失败。'}${stage.loaded ? ' 已保留原角色。' : ''}`, true);
+    return false;
   } finally {
+    options?.signal?.removeEventListener('abort', relayAbort);
     prepared?.dispose(); loading = false; committing = false; loadController = null;
     if (!petMode) { $<HTMLButtonElement>('#export-button').disabled = !source; $('#cancel-load').hidden = true; $<HTMLButtonElement>('#import-button').disabled = false; }
+    updatePackageControls();
     try { await refreshLibrary(); } catch { status('角色库读取失败，请重试。', true); }
-    if (syncRequested) { syncRequested = false; void syncLibrary(); }
+    if (syncRequested && !packageJob) { syncRequested = false; void syncLibrary(); }
   }
 }
 
@@ -266,7 +372,7 @@ function assetInput(asset: CharacterAsset): CompanionInput {
 }
 
 async function selectCharacter(id: string) {
-  if (loading) return;
+  if (loading || packageJob) return;
   try {
     const asset = await library.get(id);
     if (!asset) throw new Error('角色不存在，请刷新角色库。');
@@ -275,15 +381,16 @@ async function selectCharacter(id: string) {
 }
 
 async function removeCharacter(id: string) {
-  if (loading) return;
+  if (loading || packageJob) return;
   try { await library.remove(id); await refreshLibrary(); notifyLibrary(); status('已移除库内副本，原文件未删除。'); }
   catch (error) { status(error instanceof Error ? error.message : '移除失败。', true); }
 }
 
 async function syncLibrary() {
-  if (loading) { syncRequested = true; return; }
+  if (loading || packageJob) { syncRequested = true; if (packageJob) void cancelPackage(); return; }
   try {
     const active = await library.getActive();
+    if (loading || packageJob) { syncRequested = true; if (packageJob) void cancelPackage(); return; }
     if (active && active.summary.id !== currentCharacter?.id) await load(assetInput(active), false, 'local-import', active.summary);
     else if (active) { currentCharacter = active.summary; showCharacter(currentCharacter, info, assetInput(active)); }
     await refreshLibrary();
@@ -291,6 +398,7 @@ async function syncLibrary() {
 }
 
 async function demo(persist: boolean) {
+  if (loading || packageJob) return;
   try {
     const response = await fetch(new URL('models/demo.vrm', document.baseURI));
     if (!response.ok) throw new Error('示例暂不可用。请导入本机的 VRM 1.0 角色。');
@@ -304,7 +412,8 @@ function changeState(next: AnimationState) {
 }
 
 async function importFile(file?: File) {
-  if (!file || !stage || loading) return;
+  if (!file || !stage || loading || packageJob) return;
+  if (file.name.toLowerCase().endsWith('.oipet')) { await restoreCharacter(file); return; }
   if (file.name.toLowerCase().endsWith('.vrm')) {
     if (file.size > MAX_MODEL_BYTES) { status('模型不能超过 64 MiB。', true); return; }
     await load({ kind: 'vrm', blob: file }, true);
@@ -312,7 +421,7 @@ async function importFile(file?: File) {
     if (file.size > 20 * 1024 * 1024) { status('精灵图不能超过 20 MiB。', true); return; }
     const type = file.name.toLowerCase().endsWith('.png') ? 'image/png' : 'image/webp';
     await load({ kind: 'sprite', blob: file.type ? file : new Blob([file], { type }), profile: $<HTMLSelectElement>('#sprite-profile').value as AtlasProfile }, true);
-  } else status('请选择 VRM、PNG 或 WebP 文件。', true);
+  } else status('请选择 VRM、PNG、WebP 或 .oipet 备份文件。', true);
 }
 
 function download(blob: Blob, filename: string) {
@@ -335,7 +444,7 @@ function clearExport(closeDialog = true) {
   $('#local-check-status').textContent = '尚未检查';
   $<HTMLButtonElement>('#save-atlas').disabled = true;
   $<HTMLButtonElement>('#save-report').disabled = true;
-  $<HTMLButtonElement>('#export-button').disabled = !source || loading;
+  $<HTMLButtonElement>('#export-button').disabled = !source || loading || Boolean(packageJob);
   $('#export-progress').hidden = true;
   $('#cancel-export').hidden = true;
   const dialog = $<HTMLDialogElement>('#export-dialog');
@@ -345,7 +454,7 @@ function clearExport(closeDialog = true) {
 const previewModules = import.meta.glob<{ createAtlasPreview(host: HTMLElement): PreviewController }>('../packages/atlas-preview/index.ts');
 
 async function runExport() {
-  if (!source || !info || exportSession.busy || loading) return;
+  if (!source || !info || exportSession.busy || loading || packageJob) return;
   clearExport(false);
   const revision = runRevision;
   const currentSource = source;
@@ -469,7 +578,7 @@ async function bootstrap() {
     else status('导入本机的 VRM 1.0 角色或精灵图，开始陪伴。');
     await refreshLibrary();
   } catch (error) { status(`本地角色读取或迁移失败，原数据已保留：${error instanceof Error ? error.message : '请重试。'}`, true); }
-  if (!petMode) $<HTMLButtonElement>('#import-button').disabled = false;
+  updatePackageControls();
   libraryChannel.onmessage = () => void syncLibrary();
   desktop?.onModelChanged(() => void syncLibrary());
   desktop?.onInteractionRestored(() => { forcedInteractive = true; ignoringMouse = false; });
@@ -484,9 +593,15 @@ if (petMode) {
     void desktop!.setClickThrough(true);
   };
 } else {
+  $('#backup-character').onclick = () => void backupCharacter();
+  $('#restore-character').onclick = () => $<HTMLInputElement>('#package-file').click();
+  $<HTMLInputElement>('#package-file').onchange = (event) => {
+    const input = event.target as HTMLInputElement; void restoreCharacter(input.files?.[0]); input.value = '';
+  };
+  $('#cancel-package').onclick = () => void cancelPackage();
   $('#cancel-load').onclick = () => { if (!committing) loadController?.abort(); };
   $('#rename-character').onclick = async () => {
-    if (!currentCharacter || loading) return;
+    if (!currentCharacter || loading || packageJob) return;
     try { await library.rename(currentCharacter.id, $<HTMLInputElement>('#character-alias').value); await syncLibrary(); notifyLibrary(); status('角色名称已保存。'); }
     catch (error) { status(error instanceof Error ? error.message : '名称保存失败。', true); }
   };
@@ -536,5 +651,9 @@ if (petMode) {
   window.addEventListener('drop', (event) => { event.preventDefault(); $('#drop-zone').classList.remove('dragover'); void importFile(event.dataTransfer?.files[0]); });
 }
 
-window.addEventListener('beforeunload', () => { loadController?.abort(); libraryChannel.close(); library.close(); exportSession.reset(); stage?.dispose(); if (exportUrl) URL.revokeObjectURL(exportUrl); });
+window.addEventListener('beforeunload', () => {
+  closed = true; packageJob?.controller.abort();
+  if (packageJob?.nativeStarted) void desktop?.cancelCharacterPackage(packageJob.id).catch(() => {});
+  loadController?.abort(); libraryChannel.close(); library.close(); exportSession.reset(); stage?.dispose(); if (exportUrl) URL.revokeObjectURL(exportUrl);
+});
 void bootstrap();

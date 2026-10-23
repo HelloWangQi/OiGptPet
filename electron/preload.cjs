@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld('petDesktop', Object.freeze({
   },
   saveAtlas: (bytes, profile, sha256) => ipcRenderer.invoke('atlas:save', bytes, profile, sha256),
   saveReport: (json) => ipcRenderer.invoke('report:save', json),
+  saveCharacterPackage: (bytes, sha256, operationId) => ipcRenderer.invoke('character-package:save', bytes, sha256, operationId),
+  cancelCharacterPackage: (operationId) => ipcRenderer.invoke('character-package:cancel', operationId),
   onInteractionRestored: (callback) => {
     const listener = () => callback();
     ipcRenderer.on('pet:interactive', listener);

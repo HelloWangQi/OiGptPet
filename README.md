@@ -4,7 +4,7 @@
 
 推荐路线：VRM 角色源资产 + 独立桌面运行时 + ChatGPT 精灵图导出适配器。
 
-当前开发版本：0.3.0。已包含角色工坊、Electron 桌宠、VRM 1.0 / 精灵图角色库、大小和性能设置、v1/v2 图集导出、最终文件结构检查、逐帧预览和检查报告。ChatGPT 官方预检与安装尚未执行。
+当前开发版本：0.4.0。已包含角色工坊、Electron 桌宠、VRM 1.0 / 精灵图角色库、单角色备份与恢复、大小和性能设置、v1/v2 图集导出、最终文件结构检查、逐帧预览和检查报告。ChatGPT 官方预检与安装尚未执行。
 
 ## 启动
 
@@ -25,6 +25,12 @@ npm run dev
 “陪伴设置”支持小/标准/大和画质/均衡/省电模式。绘制上限分别为 60/30/15 fps，闲置 10 秒降为 30/12/5 fps，隐藏时停止绘制。设置本地保存；具体 CPU、内存和耗电效果因设备而异。
 
 新版角色库使用独立 IndexedDB。首次启动可从旧 Electron `current.vrm` 或浏览器旧数据库迁移模型，保留旧数据。浏览器按来源地址隔离存储；更换 IP、端口或协议后不会自动共享角色。默认生产桌面应用使用固定本地来源，用户数据位于 Electron 的 userData 目录；开发版数据在 `.cache/electron-user-data/`。
+
+### 角色备份与恢复
+
+先把角色导入角色库，再点“备份当前角色”，保存 `.oipet` 文件。在另一个应用数据目录或浏览器中点“恢复角色备份”即可恢复角色、名称和图集规格，也支持拖入备份文件。重复恢复沿用已有角色与本地名称；失败保留当前可用角色。
+
+备份包含一个角色的原始 VRM/PNG/WebP、名称和规格，不包含应用设置或整个角色库。文件不自动上传；作者及许可信息保留在原资产中，外部说明请另外保管。浏览器交给下载管理器保存，桌面通过保存对话框原子写入；最终重命名开始后，取消不能撤销已经提交的保存。
 
 ## 检查与构建
 
@@ -59,6 +65,9 @@ node scripts/renderer-sprite-smoke.mjs
 node scripts/character-library-smoke.mjs
 node scripts/smoke.mjs --preferences-only
 npm run test:phase-three
+node scripts/character-package-smoke.mjs
+node scripts/web-package-smoke.mjs
+npm run test:phase-four
 ```
 
 `build:demo` 将开发示例放入独立的 `.cache/demo-dist/`，用于测试，不改变生产 `dist/`。主冒烟测试验证 v1/v2 预览、实际 PNG/报告保存与哈希一致性、异常图集保存门控、取消重开及透明桌宠。组件 smoke 单独验证解码、逐帧播放、局域网 HTTP 摘要回退和资源清理。
@@ -68,6 +77,8 @@ Electron 图形测试建议顺序运行，使用独立测试用户目录；产�
 主冒烟测试每次写入独立目录，`artifacts/smoke/latest.json` 指向最新成功结果，避免覆盖旧视觉 QA 的输入。
 
 阶段三集成检查验证旧文件迁移、角色命名/移除、VRM/精灵图切换、加载和存储失败回退、取消、跨窗口同步及重启恢复。需有本机旧 QA 图集 `artifacts/animation-fixes/run-04/atlas-v1.png` 和 `atlas-v2.png`；这些本地资源不随仓库分发。结果写入 `artifacts/phase-03/`。
+
+阶段四桌面检查验证 profile A→B 的实际备份/恢复、重复别名保留、坏容器/坏源文件、取消、原生保存失败、20 次角色选择、资源探针与重启。`node scripts/phase-four-smoke.mjs --release` 使用 `release/latest.json` 指向的实际 EXE，产物写入 `artifacts/phase-04/`。短时内存样本不代表长期无泄漏。
 
 ### Windows 发布包
 
@@ -97,6 +108,7 @@ npm run test:release
 - [阶段三任务与对齐点](docs/PHASE_03.md)：设置、角色库和两种桌宠的分工及集成范围。
 - [阶段三检查点](docs/CHECKPOINT_03.md)：最终交付、验证证据和未完成项。
 - [版本更新说明](docs/releases/v0.3.0.md)：0.3.0 发布内容；历史 0.1.0/0.2.0 说明位于同目录。
+- [阶段四计划](docs/PHASE_04.md)：角色备份/恢复的双轮分工与共同验收点。
 - [精灵图渲染器](docs/RENDERER_SPRITE.md)：绘制、视线、透明命中与资源生命周期。
 - [角色库](docs/CHARACTER_LIBRARY.md)：本地存储、迁移、容量限制和原子操作。
 - [DeepSeek 协作任务](docs/DEEPSEEK_HANDOFF.md)：独立文件范围和稳定接口。

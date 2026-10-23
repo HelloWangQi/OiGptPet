@@ -14,6 +14,8 @@ interface Window {
     onPreferencesChanged(callback: (preferences: import('./desktop-preferences').DesktopPreferences) => void): () => void;
     saveAtlas(bytes: Uint8Array, profile: 'v1' | 'v2', sha256: string): Promise<string | null>;
     saveReport(json: string): Promise<string | null>;
+    saveCharacterPackage(bytes: Uint8Array, sha256: string, operationId: string): Promise<string | null>;
+    cancelCharacterPackage(operationId: string): Promise<boolean>;
     onModelChanged(callback: () => void): () => void;
     onInteractionRestored(callback: () => void): () => void;
   };

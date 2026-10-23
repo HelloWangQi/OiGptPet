@@ -1,6 +1,6 @@
 {
   "name": "oigptpet",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "A VRM anime desktop companion with ChatGPT sprite export",
   "type": "module",
@@ -15,6 +15,7 @@
     "test": "vitest run --exclude \"**/.cache/**\"",
     "test:smoke": "node scripts/smoke.mjs",
     "test:phase-three": "node scripts/phase-three-smoke.mjs",
+    "test:phase-four": "node scripts/phase-four-smoke.mjs",
     "test:release": "node scripts/release-smoke.mjs",
     "demo:fetch": "node scripts/fetch-demo.mjs",
     "package": "npm run build && node scripts/package.mjs"
