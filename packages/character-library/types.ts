@@ -80,6 +80,7 @@ export interface CharacterLibrary {
   list(): Promise<CharacterSummary[]>;
   get(id: string): Promise<CharacterAsset | null>;
   add(input: CharacterInput, signal?: AbortSignal): Promise<CharacterSummary>;
+  addAndActivate(input: CharacterInput, signal?: AbortSignal, beforeCommit?: () => void): Promise<CharacterSummary>;
   getActive(): Promise<CharacterAsset | null>;
   activate(id: string): Promise<void>;
   rename(id: string, name: string): Promise<void>;

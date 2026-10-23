@@ -410,6 +410,32 @@ describe('legacy migration', () => {
 });
 
 describe('transactions, cancellation and close', () => {
+  it('atomic import rolls back the new asset when active pointer writing fails', async () => {
+    const library = create({ databaseName: databaseName() });
+    const original = await library.addAndActivate({ kind: 'vrm', blob: vrmBlob('Original') });
+    fake.failNextWrite('meta');
+    await expectCode(library.addAndActivate({ kind: 'vrm', blob: vrmBlob('Candidate') }), 'quota');
+    expect(await library.list()).toHaveLength(1);
+    expect((await library.getActive())?.summary.id).toBe(original.id);
+    const candidate = await library.addAndActivate({ kind: 'vrm', blob: vrmBlob('Candidate') });
+    expect((await library.getActive())?.summary.id).toBe(candidate.id);
+  });
+  it('atomic duplicate import preserves the existing alias and never deletes it on failure', async () => {
+    const library = create({ databaseName: databaseName() });
+    const input = { kind: 'vrm' as const, blob: vrmBlob('Original') };
+    const original = await library.addAndActivate(input);
+    await library.rename(original.id, 'My alias');
+    fake.failNextWrite('meta');
+    await expectCode(library.addAndActivate({ ...input, name: 'Incoming alias' }), 'quota');
+    expect(await library.list()).toHaveLength(1);
+    expect((await library.getActive())?.summary.name).toBe('My alias');
+    expect((await library.addAndActivate({ ...input, name: 'Incoming alias' })).name).toBe('My alias');
+  });
+  it('cancelling after validation before the atomic transaction leaves no row or active pointer', async () => {
+    const library = create({ databaseName: databaseName() }); const controller = new AbortController();
+    await expect(library.addAndActivate({ kind: 'vrm', blob: vrmBlob('Cancelled') }, controller.signal, () => controller.abort())).rejects.toMatchObject({ name: 'AbortError' });
+    expect(await library.list()).toHaveLength(0); expect(await library.getActive()).toBeNull();
+  });
   it('rolls back a failed asset write and allows a retry', async () => {
     const library = create({ databaseName: databaseName() });
     fake.failNextWrite('assets');

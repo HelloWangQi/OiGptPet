@@ -46,6 +46,13 @@ class IndexedDbCharacterLibrary implements CharacterLibrary {
     return this.store.getActive();
   }
 
+  async addAndActivate(input: CharacterInput, signal?: AbortSignal, beforeCommit?: () => void): Promise<CharacterSummary> {
+    const prepared = await prepareCharacter(input, signal);
+    if (signal?.aborted) throw new DOMException('角色导入已取消。', 'AbortError');
+    beforeCommit?.();
+    return this.store.add(prepared, signal, true);
+  }
+
   async activate(id: string): Promise<void> {
     const asset = await this.store.get(id);
     if (!asset) {

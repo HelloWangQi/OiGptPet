@@ -166,8 +166,9 @@ export class CharacterStore {
   async add(
     prepared: PreparedCharacter,
     signal?: AbortSignal,
+    activate = false,
   ): Promise<CharacterSummary> {
-    return this.run([CHARACTERS, ASSETS], 'readwrite', async (tx) => {
+    return this.run(activate ? [CHARACTERS, ASSETS, META] : [CHARACTERS, ASSETS], 'readwrite', async (tx) => {
       const characters = tx.objectStore(CHARACTERS);
       const assets = tx.objectStore(ASSETS);
       const existing = await requestResult<CharacterSummary | undefined>(
@@ -183,6 +184,12 @@ export class CharacterStore {
           || currentAsset.blob.size !== existing.encodedBytes
         ) {
           throw incompleteError(existing.id);
+        }
+        if (activate) {
+          if (existing.kind !== prepared.summary.kind || existing.sha256 !== prepared.summary.sha256 || existing.encodedBytes !== prepared.summary.encodedBytes || existing.profile !== prepared.summary.profile) throw incompleteError(existing.id);
+          // Use the freshly validated exact bytes, retaining the existing alias and identity.
+          await requestResult(assets.put({ id: existing.id, blob: prepared.blob }));
+          await requestResult(tx.objectStore(META).put({ id: existing.id }, ACTIVE_KEY));
         }
         return cloneSummary(existing);
       }
@@ -207,6 +214,7 @@ export class CharacterStore {
         id: prepared.summary.id,
         blob: prepared.blob,
       }));
+      if (activate) await requestResult(tx.objectStore(META).put({ id: prepared.summary.id }, ACTIVE_KEY));
       return cloneSummary(prepared.summary);
     }, signal);
   }

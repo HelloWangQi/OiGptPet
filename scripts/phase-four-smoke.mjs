@@ -138,6 +138,34 @@ try {
   await name('本地改名'); await restore(vrmBackup);
   assert.equal(await page.locator('#character-name').innerText(), '本地改名');
   assert.equal(await page.locator('#character-list .library-row').count(), 1);
+  await page.evaluate(() => {
+    const put = IDBObjectStore.prototype.put;
+    IDBObjectStore.prototype.put = function (...args) {
+      if (this.name === 'meta' && args[1] === 'active') {
+        IDBObjectStore.prototype.put = put;
+        throw new DOMException('Injected active write failure', 'QuotaExceededError');
+      }
+      return put.apply(this, args);
+    };
+  });
+  await restore(spriteBackup);
+  assert.equal(await currentId(), vrmId);
+  assert.equal(await page.locator('#character-list .library-row').count(), 1, 'failed activation rolls back the new entry too');
+  assert.equal(await page.locator('#package-status.error').count(), 1);
+  await page.evaluate(() => {
+    const descriptor = Object.getOwnPropertyDescriptor(IDBTransaction.prototype, 'oncomplete');
+    window.__restoreCompleteDescriptor = descriptor;
+    Object.defineProperty(IDBTransaction.prototype, 'oncomplete', { ...descriptor, set(handler) {
+      if (handler && this.mode === 'readwrite' && this.objectStoreNames.contains('meta')) {
+        descriptor.set.call(this, function (event) { window.__atomicCommitReached = true; setTimeout(() => handler.call(this, event), 400); });
+      } else descriptor.set.call(this, handler);
+    } });
+  });
+  await page.locator('#package-file').setInputFiles(spriteBackup);
+  await page.waitForFunction(() => window.__atomicCommitReached === true);
+  assert.equal(await page.locator('#cancel-package').isDisabled(), true, 'committed writes cannot be reported as cancelled');
+  await packageIdle();
+  await page.evaluate(() => { Object.defineProperty(IDBTransaction.prototype, 'oncomplete', window.__restoreCompleteDescriptor); });
   await restore(spriteBackup); assert.equal(await currentId(), spriteId);
   assert.equal(await page.locator('#character-name').innerText(), '图集迁移');
   assert.equal(await page.locator('#export-button').isDisabled(), true);

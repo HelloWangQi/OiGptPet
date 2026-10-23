@@ -336,12 +336,17 @@ async function load(input: CompanionInput, persist: boolean, origin: 'local-impo
     prepared = await stage.prepare(input, controller.signal);
     const nextSource = input.kind === 'vrm' ? await input.blob.arrayBuffer() : null;
     let summary = existing ?? null;
-    if (persist && !summary) summary = await library.add({ ...input, ...(options?.name === undefined ? {} : { name: options.name }) }, controller.signal);
     if (controller.signal.aborted) throw new DOMException('角色切换已取消。', 'AbortError');
-    committing = true;
-    updatePackageControls();
-    if (!petMode) $<HTMLButtonElement>('#cancel-load').disabled = true;
-    if (persist && summary) await library.activate(summary.id);
+    const beginCommit = () => {
+      committing = true; updatePackageControls();
+      if (!petMode) $<HTMLButtonElement>('#cancel-load').disabled = true;
+    };
+    if (persist && !summary) {
+      summary = await library.addAndActivate({ ...input, ...(options?.name === undefined ? {} : { name: options.name }) }, controller.signal, beginCommit);
+    } else {
+      beginCommit();
+      if (persist && summary) await library.activate(summary.id);
+    }
     prepared.commit();
     currentCharacter = summary;
     info = prepared.info; source = nextSource; modelSource = origin;
