@@ -31,9 +31,10 @@ export async function checkPetBodyDrag(desktop, page) {
   try {
     await page.evaluate(() => {
       window.__bodyClickCount = 0;
-      document.querySelector('.pet-shell').addEventListener('click', event => {
+      window.__bodyClickListener = event => {
         if (event.target.id === 'character-canvas') window.__bodyClickCount++;
-      });
+      };
+      document.querySelector('.pet-shell').addEventListener('click', window.__bodyClickListener);
     });
     await page.mouse.move(point.x, point.y); await page.mouse.down();
     await page.waitForFunction(() => document.body.classList.contains('pet-body-dragging'));
@@ -63,6 +64,10 @@ export async function checkPetBodyDrag(desktop, page) {
     return { bodyPixel: point, start, dragged: moved, released: stopped.after, injectedCursor: true };
   } finally {
     await page.mouse.up().catch(() => {});
+    await page.evaluate(() => {
+      document.querySelector('.pet-shell').removeEventListener('click', window.__bodyClickListener);
+      delete window.__bodyClickListener;
+    });
     await desktop.evaluate(({ screen }) => { screen.getCursorScreenPoint = globalThis.__dragOriginalCursor; });
   }
 }

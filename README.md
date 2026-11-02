@@ -122,6 +122,7 @@ npm run test:release
 - [阶段五计划](docs/PHASE_05.md)：窗口恢复、位置持久化与实机稳定性验收。
 - [窗口位置存储](docs/WINDOW_STATE.md)：原子保存、正常退出等待与失败边界。
 - [窗口稳定性检查矩阵](docs/WINDOW_STABILITY_QA.md)：自动化范围和待实机验收项；阶段五现由 Codex 独立推进。
+- [桌面一小时检查](docs/DESKTOP_SOAK.md)：实际 EXE 操作、资源/内存采样及结果边界。
 - [精灵图渲染器](docs/RENDERER_SPRITE.md)：绘制、视线、透明命中与资源生命周期。
 - [角色库](docs/CHARACTER_LIBRARY.md)：本地存储、迁移、容量限制和原子操作。
 - [DeepSeek 协作任务](docs/DEEPSEEK_HANDOFF.md)：独立文件范围和稳定接口。
