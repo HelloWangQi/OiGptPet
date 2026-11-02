@@ -95,7 +95,9 @@ npm run package
 npm run test:release
 ```
 
-生成 Windows x64 免安装目录，输出在 `release/v<版本>-<运行编号>/`，双击其中 `OiGptPet.exe` 启动。`release/latest.json` 指向最新成功构建；旧包保留。打包可能下载 Electron 分发文件，已有本地缓存时复用。
+生成 Windows x64 免安装目录，输出在 `release/v<版本>-<运行编号>/`，双击其中 `OiGptPet.exe` 启动。`release/latest.json` 指向最新成功构建，成功打包后自动保留最近 3 个包。打包可能下载 Electron 分发文件，已有本地缓存时复用。
+
+用户验证前运行 `npm run verify:desktop`，会重新编译、打包并启动最新 EXE 做基础检查。成功打包后，本地 `release/` 仅保留最近 3 个 EXE 包目录（含当前 latest；同版本号多次构建分别计数），较旧的已识别包自动清理。未知目录、源模型、用户数据和远端 Release 不参与清理。手动预览清理清单用 `node scripts/package-retention.mjs`，确认执行用 `node scripts/package-retention.mjs --apply`。
 
 默认生产构建和发布包不附带源 VRM、开发下载元数据、用户模型或导出图集，首次启动通过本地导入添加角色。构建与打包阶段分别检查分发文件范围。`test:release` 实际启动最新包，验证空模型首次启动、导入和重启恢复。
 
