@@ -92,4 +92,4 @@ PowerShell 此环境下 npm 转发自定义参数被吞掉，短测请直接运�
 
 原始一小时结果的 `memoryNeedsReview=true` 来自把 VRM 与精灵图两类工作负载合并计算 GPU 子进程趋势。统计已改为按进程身份和当前角色类型分组；基于原始样本分类型重算，GPU 的 VRM 55 个点为 466.0→515.4 MiB（+49.4 MiB，1.06 MiB/min），精灵图 53 个点为 239.3→305.6 MiB（+66.3 MiB，1.10 MiB/min）。同类型净增均低于 100 MiB 复核门槛，但仍有正斜率，原始逐点记录保留供后续观察。该结论不等于发现泄漏，也不等于排除泄漏；SwiftShader 内存数据不代表真实显卡显存或耗电。
 
-`tests/stability-metrics.test.js` 增加混合负载分组回归。`npm test` 当前为 20 个文件、249 项通过；`npm run verify:desktop` 重新构建 0.5.0 Windows x64 包并通过发布 smoke，最新包为 `release/v0.5.0-1793603164118/OiGptPet-win32-x64/`。产品运行代码没有因本次长测修改。真实多屏/DPI/休眠与电量测试、ChatGPT 官方安装和目标平台实际验证仍未完成；这些实机项目仍在预发布说明中明确列出。下一步创建本地提交并制作校验清单，用户手动推送后核对远端 SHA，再发布 GitHub 预发布。
+`tests/stability-metrics.test.js` 增加混合负载分组回归。`npm test` 当前为 20 个文件、249 项通过；`npm run verify:desktop` 重新构建 0.5.0 Windows x64 包并通过发布 smoke，最新包为 `release/v0.5.0-1793603164118/OiGptPet-win32-x64/`。产品运行代码没有因本次长测修改。真实多屏/DPI/休眠与电量测试、ChatGPT 官方安装和目标平台实际验证仍未完成；这些实机项目仍在预发布说明中明确列出。本轮改动已本地提交，预发布 ZIP、SHA 和 manifest 已核验；待用户手动推送后核对远端 SHA，再发布 GitHub 预发布。
