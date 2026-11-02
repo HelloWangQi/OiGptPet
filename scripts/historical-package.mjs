@@ -6,6 +6,7 @@ import path from 'node:path';
 import { build } from 'vite';
 import { packager } from '@electron/packager';
 import { assertAppDistribution } from './distribution.mjs';
+import { retainPackages } from './package-retention.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const sources = { '0.1.0': '7ea0cbc', '0.2.0': '402bbf8' };
@@ -42,3 +43,4 @@ await writeFile(path.join(outputRoot, 'source-info.json'), JSON.stringify(proven
 await mkdir(path.join(root, 'artifacts/github-release'), { recursive: true });
 await writeFile(path.join(root, `artifacts/github-release/v${version}-build.json`), JSON.stringify(provenance, null, 2));
 console.log(JSON.stringify(provenance));
+console.log(JSON.stringify(await retainPackages(path.join(root, 'release'), { apply: true })));

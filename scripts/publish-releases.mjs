@@ -7,15 +7,20 @@ import path from 'node:path';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const repo = 'HelloWangQi/OiGptPet';
-const artifactRoot = path.join(root, 'artifacts/github-release');
-const versions = ['0.1.0', '0.2.0', '0.3.0'];
-const historicalCommits = { '0.1.0': '7ea0cbc70f19a835610b80e8bbf714626d76fef9', '0.2.0': '402bbf8397b16cc3c11c1fa9a4cd39cf7ec29598' };
+const historicalCommits = { '0.1.0': '7ea0cbc70f19a835610b80e8bbf714626d76fef9', '0.2.0': '402bbf8397b16cc3c11c1fa9a4cd39cf7ec29598', '0.3.0': 'e8069ba5e79572b38c2983590826923a85f90849' };
 const git = (args) => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
 const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
 async function main() {
   const command = process.argv[2];
-  if (!['--status', '--publish'].includes(command)) throw new Error('Use --status or --publish. Publishing requires a clean, pushed checkpoint and prepared archives.');
+  if (!['--status', '--publish'].includes(command)) throw new Error('Use --status or --publish --versions <version[,version]> [--manifest <path>].');
+  const versionArgument = process.argv.indexOf('--versions');
+  const versions = versionArgument < 0 ? [] : (process.argv[versionArgument + 1] ?? '').split(',');
+  if (command === '--publish' && (!versions.length || versions.some((v) => !/^\d+\.\d+\.\d+$/.test(v)) || new Set(versions).size !== versions.length)) throw new Error('Publishing requires explicit, distinct semantic versions');
+  const manifestArgument = process.argv.indexOf('--manifest');
+  const manifestPath = path.resolve(root, manifestArgument < 0 ? 'artifacts/github-release/manifest.json' : process.argv[manifestArgument + 1] ?? '');
+  if (!manifestPath.startsWith(path.join(root, 'artifacts') + path.sep) || path.basename(manifestPath) !== 'manifest.json') throw new Error('Manifest must be under this workspace artifacts directory');
+  const artifactRoot = path.dirname(manifestPath);
   if (git(['remote', 'get-url', 'origin']) !== `https://github.com/${repo}.git`) throw new Error('Unexpected repository remote');
   let credential;
   try {
@@ -47,12 +52,15 @@ async function main() {
   const head = git(['rev-parse', 'HEAD']);
   const branch = git(['branch', '--show-current']);
   if (branch !== 'codex/desktop-prototype') throw new Error('Unexpected checkpoint branch');
-  if (git(['ls-remote', 'origin', `refs/heads/${branch}`]).split(/\s/)[0] !== head) throw new Error('Push the checkpoint branch before publishing');
-  const manifest = JSON.parse(await readFile(path.join(artifactRoot, 'manifest.json'), 'utf8'));
+  const remoteRef = await request(`git/ref/heads/${branch}`);
+  if (remoteRef.object.type !== 'commit' || remoteRef.object.sha !== head) throw new Error('Push the checkpoint branch before publishing');
+  const packageVersion = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8')).version;
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
   if (manifest.length !== versions.length || versions.some((version, i) => manifest[i].version !== version)) throw new Error('Unexpected release manifest');
   // Validate every source, archive and checksum before creating the first release.
   for (const entry of manifest) {
-    if (entry.commit !== (historicalCommits[entry.version] ?? head)) throw new Error('Release source commit mismatch');
+    const expectedCommit = historicalCommits[entry.version] ?? (entry.version === packageVersion ? head : null);
+    if (!expectedCommit || entry.commit !== expectedCommit) throw new Error('Release source commit mismatch');
     if (entry.assets.length !== 2) throw new Error('Expected ZIP and SHA-256 checksum per release');
     const expected = [`OiGptPet-v${entry.version}-win32-x64.zip`, `OiGptPet-v${entry.version}-SHA256SUMS.txt`];
     for (const [i, asset] of entry.assets.entries()) {
@@ -79,7 +87,7 @@ async function main() {
       if (uploaded.state !== 'uploaded' || uploaded.size !== asset.bytes || uploaded.digest !== `sha256:${asset.sha256}`) throw new Error(`Upload checksum mismatch: ${asset.name}`);
       console.log(`Uploaded ${tag}: ${asset.name}`);
     }
-    release = await request(`releases/${release.id}`, { method: 'PATCH', json: { name: `OiGptPet ${tag}`, body, draft: false, prerelease: false, make_latest: entry.version === '0.3.0' ? 'true' : 'false' } });
+    release = await request(`releases/${release.id}`, { method: 'PATCH', json: { name: `OiGptPet ${tag}`, body, draft: false, prerelease: false, make_latest: entry.version === versions.at(-1) ? 'true' : 'false' } });
     const finalTag = await request(`git/ref/tags/${tag}`);
     if (finalTag.object.type !== 'commit' || finalTag.object.sha !== entry.commit) throw new Error(`Published tag ${tag} source mismatch`);
     for (const asset of entry.assets) {

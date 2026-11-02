@@ -5,6 +5,8 @@
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{transition:none!important}}
 
 /* Export inspection panel; preview widget owns its namespaced controls. */
+.pet-mode #character-canvas { cursor:grab; touch-action:none; user-select:none; }
+.pet-body-dragging #character-canvas { cursor:grabbing; }
 .verification-status { display:flex; flex-wrap:wrap; gap:8px; margin:16px 0; }
 .verification-status > span { display:flex; gap:9px; align-items:center; background:#e9eee2; border:1px solid #d9e1cf; border-radius:7px; padding:9px 12px; color:#7a8970; font-size:11px; }
 .verification-status strong { font-weight:600; color:#52694a; }
@@ -20,3 +22,5 @@
 .library-row { display:flex; gap:8px; align-items:center; padding:7px 8px; border:1px solid var(--line); border-radius:6px; }
 .library-select { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left; border:0; background:transparent; font-size:11px; padding:5px 0; }
 #character-alias { width:100%; border:1px solid var(--line); border-radius:6px; background:#fafaf7; padding:9px; color:var(--ink); }
+.backup-actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:12px; }
+.backup-actions .button { flex:1; padding:9px 6px; background:#e8ecdf; font-size:10px; white-space:nowrap; }

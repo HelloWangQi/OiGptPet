@@ -1,10 +1,13 @@
-const { app, BrowserWindow, ipcMain, screen, Tray, Menu, nativeImage, globalShortcut, dialog, session, protocol, net } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, powerMonitor, Tray, Menu, nativeImage, globalShortcut, dialog, session, protocol, net } = require('electron');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
 const fs = require('node:fs/promises');
-const { fitBounds } = require('./geometry.cjs');
+const { createWindowRecovery } = require('./window-recovery.cjs');
+const { createWindowStateStore } = require('./window-state.cjs');
+const { createPetDrag } = require('./pet-drag.cjs');
 const { createPreferencesStore } = require('./preferences.cjs');
+const { createCharacterPackageSaver } = require('./character-package-save.cjs');
 
 const root = path.join(__dirname, '..');
 protocol.registerSchemesAsPrivileged([{ scheme: 'oipet', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
@@ -16,12 +19,24 @@ let workshop;
 let pet;
 let tray;
 let savedBounds;
-let stateTimer;
+let windowRecovery;
 let quitting = false;
+let quitFlush;
+let quitReady = false;
 let modelBytes = null;
 const statePath = () => path.join(app.getPath('userData'), 'window-state.json');
+const windowState = createWindowStateStore(statePath(), { onError: error => console.error('Window position could not be saved:', error.message) });
 const modelPath = () => path.join(app.getPath('userData'), 'current.vrm');
 const preferences = createPreferencesStore(path.join(app.getPath('userData'), 'preferences.json'));
+const petDrag = createPetDrag({ getWindow: () => pet, getCursor: () => screen.getCursorScreenPoint() });
+function endPetDrag() {
+  petDrag.stop();
+  windowRecovery?.reconcile();
+  persistBounds();
+}
+const characterPackageSaver = createCharacterPackageSaver({ chooseFile: (owner) => dialog.showSaveDialog(owner, {
+  defaultPath: 'OiGptPet-character.oipet', filters: [{ name: 'OiGptPet 角色备份', extensions: ['oipet'] }],
+}) });
 
 function trusted(event) {
   const owner = BrowserWindow.fromWebContents(event.sender);
@@ -53,41 +68,36 @@ function openWorkshop() {
 }
 
 function currentBounds() {
-  let area = screen.getPrimaryDisplay().workArea;
-  if (savedBounds && Number.isFinite(savedBounds.x) && Number.isFinite(savedBounds.y)) {
-    const target = screen.getDisplayMatching({ x: savedBounds.x, y: savedBounds.y, width: 320, height: 420 });
-    area = target.workArea;
-  }
-  const scale = preferences.get().scale;
-  return fitBounds({ ...savedBounds, width: 320 * scale, height: 420 * scale }, area, { width: 320, height: 420 });
+  return windowRecovery.boundsFor(savedBounds);
 }
 
 async function updatePreferences(patch) {
   const next = await preferences.update(patch);
   if (pet && !pet.isDestroyed()) {
-    const bounds = pet.getBounds();
-    const area = screen.getDisplayMatching(bounds).workArea;
-    const nextBounds = fitBounds({ ...bounds, width: 320 * next.scale, height: 420 * next.scale }, area, { width: 320, height: 420 });
-    if (bounds.width !== nextBounds.width || bounds.height !== nextBounds.height) pet.setBounds(nextBounds);
+    windowRecovery.reconcile();
   }
   for (const win of [workshop, pet]) if (win && !win.isDestroyed()) win.webContents.send('preferences:changed', next);
   return next;
 }
 
 function openPet() {
-  if (pet && !pet.isDestroyed()) { pet.setIgnoreMouseEvents(false); pet.show(); return; }
+  if (pet && !pet.isDestroyed()) { windowRecovery.reconcile(); pet.setIgnoreMouseEvents(false); pet.show(); return; }
   pet = secureWindow({ ...currentBounds(), transparent: true, frame: false, hasShadow: false, resizable: false, alwaysOnTop: true, skipTaskbar: true, backgroundColor: '#00000000', title: 'OiGptPet' });
   pet.on('move', persistBounds);
   pet.on('resize', persistBounds);
+  pet.on('blur', endPetDrag);
+  pet.on('hide', endPetDrag);
+  pet.on('closed', () => petDrag.stop(false));
+  pet.on('close', persistBounds);
   pet.on('closed', () => { pet = null; });
+  persistBounds();
   loadView(pet, 'pet').catch(console.error);
 }
 
 function persistBounds() {
-  if (!pet || pet.isDestroyed()) return;
+  if (quitting || !pet || pet.isDestroyed()) return;
   savedBounds = pet.getBounds();
-  clearTimeout(stateTimer);
-  stateTimer = setTimeout(() => fs.writeFile(statePath(), JSON.stringify(savedBounds)).catch(console.error), 300);
+  windowState.schedule(savedBounds);
 }
 
 function recoverPet() { openPet(); pet.setIgnoreMouseEvents(false); pet.show(); pet.focus(); pet.webContents.send('pet:interactive'); }
@@ -102,6 +112,16 @@ function makeTrayIcon() {
 }
 
 function handlers() {
+  ipcMain.handle('pet:drag-start', event => {
+    if (trusted(event) !== pet) throw new Error('Only the pet can start dragging');
+    return !quitting && petDrag.start();
+  });
+  ipcMain.handle('pet:drag-end', event => {
+    if (trusted(event) !== pet) throw new Error('Only the pet can end dragging');
+    endPetDrag();
+  });
+  ipcMain.handle('character-package:save', (event, bytes, sha256, operationId) => characterPackageSaver.save(trusted(event), bytes, sha256, operationId));
+  ipcMain.handle('character-package:cancel', (event, operationId) => characterPackageSaver.cancel(trusted(event), operationId));
   ipcMain.handle('model:get', (event) => { trusted(event); return modelBytes; });
   ipcMain.handle('model:set', async (event, bytes) => {
     trusted(event);
@@ -119,7 +139,7 @@ function handlers() {
   ipcMain.handle('pet:click-through', (event, enabled) => {
     trusted(event);
     if (typeof enabled !== 'boolean') throw new Error('Invalid toggle');
-    pet?.setIgnoreMouseEvents(enabled, { forward: true });
+    pet?.setIgnoreMouseEvents(petDrag.active ? false : enabled, { forward: true });
   });
   ipcMain.handle('preferences:get', (event) => { trusted(event); return preferences.get(); });
   ipcMain.handle('preferences:set', async (event, patch) => { trusted(event); return updatePreferences(patch); });
@@ -168,8 +188,9 @@ else {
       } catch { return new Response('Invalid resource', { status: 400 }); }
     });
     await fs.mkdir(app.getPath('userData'), { recursive: true });
+    windowRecovery = createWindowRecovery({ screen, powerMonitor, getWindow: () => pet, getScale: () => preferences.get().scale });
     try { await preferences.load(); } catch (error) { console.error('Preferences could not be read:', error.message); }
-    try { savedBounds = JSON.parse(await fs.readFile(statePath(), 'utf8')); } catch { /* First launch or damaged settings. */ }
+    try { savedBounds = await windowState.load(); } catch (error) { console.error('Window position could not be read:', error.message); }
     try { const bytes = await fs.readFile(modelPath()); if (bytes.length <= 64 * 1024 * 1024) modelBytes = bytes; } catch { /* No imported model yet. */ }
     session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
     session.defaultSession.setPermissionCheckHandler(() => false);
@@ -180,16 +201,26 @@ else {
       { label: '打开角色工坊', click: openWorkshop },
       { label: '显示桌宠 / 恢复互动', click: recoverPet },
       { label: '隐藏桌宠', click: () => pet?.hide() },
-      { type: 'separator' }, { label: '退出 OiGptPet', click: () => { quitting = true; app.quit(); } },
+      { type: 'separator' }, { label: '退出 OiGptPet', click: () => app.quit() },
     ]));
     tray.on('double-click', openWorkshop);
     const registered = globalShortcut.register('CommandOrControl+Alt+P', recoverPet);
     if (!registered) console.warn('Ctrl+Alt+P unavailable; restore interactivity from the tray menu.');
-    screen.on('display-removed', () => pet && pet.setBounds(currentBounds()));
-    screen.on('display-metrics-changed', () => pet && pet.setBounds(currentBounds()));
     openWorkshop();
   }).catch((error) => { console.error(error); app.exit(1); });
   app.on('window-all-closed', () => { if (quitting) app.quit(); });
-  app.on('before-quit', () => { quitting = true; clearTimeout(stateTimer); });
-  app.on('will-quit', () => globalShortcut.unregisterAll());
+  app.on('before-quit', event => {
+    if (quitReady) return;
+    event.preventDefault();
+    if (quitFlush) return;
+    petDrag.stop();
+    // Capture the live bounds before freezing move/resize persistence during shutdown.
+    persistBounds();
+    quitting = true;
+    windowRecovery?.dispose();
+    quitFlush = windowState.flush()
+      .catch(error => console.error('Last window position could not be saved:', error.message))
+      .finally(() => { quitReady = true; app.quit(); });
+  });
+  app.on('will-quit', () => { windowRecovery?.dispose(); globalShortcut.unregisterAll(); });
 }

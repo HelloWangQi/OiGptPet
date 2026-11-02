@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld('petDesktop', Object.freeze({
   openPet: () => ipcRenderer.invoke('pet:open'),
   openWorkshop: () => ipcRenderer.invoke('workshop:open'),
   hidePet: () => ipcRenderer.invoke('pet:hide'),
+  startDrag: () => ipcRenderer.invoke('pet:drag-start'),
+  endDrag: () => ipcRenderer.invoke('pet:drag-end'),
   setClickThrough: (value) => ipcRenderer.invoke('pet:click-through', value),
   setScale: (value) => ipcRenderer.invoke('pet:scale', value),
   getPreferences: () => ipcRenderer.invoke('preferences:get'),
@@ -17,6 +19,8 @@ contextBridge.exposeInMainWorld('petDesktop', Object.freeze({
   },
   saveAtlas: (bytes, profile, sha256) => ipcRenderer.invoke('atlas:save', bytes, profile, sha256),
   saveReport: (json) => ipcRenderer.invoke('report:save', json),
+  saveCharacterPackage: (bytes, sha256, operationId) => ipcRenderer.invoke('character-package:save', bytes, sha256, operationId),
+  cancelCharacterPackage: (operationId) => ipcRenderer.invoke('character-package:cancel', operationId),
   onInteractionRestored: (callback) => {
     const listener = () => callback();
     ipcRenderer.on('pet:interactive', listener);

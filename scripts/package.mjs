@@ -3,6 +3,7 @@ import { cp, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { assertClientDistribution, assertAppDistribution } from './distribution.mjs';
+import { retainPackages } from './package-retention.mjs';
 
 const root = new URL('../', import.meta.url);
 const runId = Date.now();
@@ -37,3 +38,4 @@ await writeFile(new URL('release/latest.json', root), JSON.stringify({
   directory: path.relative(fileURLToPath(new URL('release/', root)), output[0]).split(path.sep).join('/'),
 }, null, 2));
 console.log(output.join('\n'));
+console.log(JSON.stringify(await retainPackages(fileURLToPath(new URL('release/', root)), { apply: true })));
