@@ -552,12 +552,54 @@ async function bootstrap() {
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);
+  let bodyDrag: { pointerId: number; x: number; y: number; target: HTMLElement; moved: boolean } | undefined;
+  let suppressBodyClick = false;
+  const trackDrag = (event: PointerEvent) => {
+    if (bodyDrag && event.pointerId === bodyDrag.pointerId
+      && Math.hypot(event.screenX - bodyDrag.x, event.screenY - bodyDrag.y) >= 4) bodyDrag.moved = true;
+  };
+  const finishBodyDrag = () => {
+    if (!bodyDrag) return;
+    const previous = bodyDrag; bodyDrag = undefined;
+    suppressBodyClick = previous.moved;
+    document.body.classList.remove('pet-body-dragging');
+    if (previous.target.hasPointerCapture(previous.pointerId)) previous.target.releasePointerCapture(previous.pointerId);
+    void desktop!.endDrag().catch(console.error);
+  };
+  if (petMode) {
+    canvasHost.addEventListener('pointerdown', event => {
+      if (event.button !== 0 || !event.isPrimary || (event.target as HTMLElement).id !== 'character-canvas'
+        || !stage.hitTest(event.clientX, event.clientY)) return;
+      suppressBodyClick = false;
+      const target = event.target as HTMLElement;
+      bodyDrag = { pointerId: event.pointerId, x: event.screenX, y: event.screenY, target, moved: false };
+      target.setPointerCapture(event.pointerId);
+      document.body.classList.add('pet-body-dragging');
+      ignoringMouse = false;
+      void desktop!.startDrag().then(started => { if (!started) finishBodyDrag(); }).catch(error => { finishBodyDrag(); console.error(error); });
+      event.preventDefault();
+    });
+    window.addEventListener('pointerup', event => { if (event.pointerId === bodyDrag?.pointerId) { trackDrag(event); finishBodyDrag(); } });
+    window.addEventListener('pointercancel', event => { if (event.pointerId === bodyDrag?.pointerId) finishBodyDrag(); });
+    window.addEventListener('lostpointercapture', event => { if (event.pointerId === bodyDrag?.pointerId) finishBodyDrag(); });
+    window.addEventListener('blur', finishBodyDrag);
+    window.addEventListener('pagehide', finishBodyDrag);
+    canvasHost.addEventListener('click', event => {
+      if (suppressBodyClick && (event.target as HTMLElement).id === 'character-canvas') {
+        suppressBodyClick = false; event.preventDefault(); event.stopImmediatePropagation();
+      }
+    }, true);
+  }
   window.addEventListener('pointermove', (event) => {
+    if (bodyDrag) {
+      trackDrag(event);
+      if (event.buttons === 0) finishBodyDrag();
+    }
     const bounds = canvasHost.getBoundingClientRect();
     look = pointerLook(event.clientX, event.clientY, bounds);
     lastPointer = performance.now();
     lastInteraction = lastPointer;
-    if (petMode && !forcedInteractive) {
+    if (petMode && !forcedInteractive && !bodyDrag) {
       const interactive = (event.target as HTMLElement)?.closest('[data-interactive]') || stage.hitTest(event.clientX, event.clientY);
       const next = !interactive;
       if (next !== ignoringMouse) { ignoringMouse = next; void desktop!.setClickThrough(next); }
@@ -569,6 +611,7 @@ async function bootstrap() {
   document.addEventListener('visibilitychange', () => { framePacer.reset(); markActive(); });
   canvasHost.addEventListener('click', (event) => {
     if ((event.target as HTMLElement).id !== 'character-canvas') return;
+    if (petMode && !stage.hitTest(event.clientX, event.clientY)) return;
     changeState('waving'); transientUntil = performance.now() + 2000;
   });
   try {

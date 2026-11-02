@@ -5,6 +5,7 @@ const { pathToFileURL } = require('node:url');
 const fs = require('node:fs/promises');
 const { createWindowRecovery } = require('./window-recovery.cjs');
 const { createWindowStateStore } = require('./window-state.cjs');
+const { createPetDrag } = require('./pet-drag.cjs');
 const { createPreferencesStore } = require('./preferences.cjs');
 const { createCharacterPackageSaver } = require('./character-package-save.cjs');
 
@@ -27,6 +28,12 @@ const statePath = () => path.join(app.getPath('userData'), 'window-state.json');
 const windowState = createWindowStateStore(statePath(), { onError: error => console.error('Window position could not be saved:', error.message) });
 const modelPath = () => path.join(app.getPath('userData'), 'current.vrm');
 const preferences = createPreferencesStore(path.join(app.getPath('userData'), 'preferences.json'));
+const petDrag = createPetDrag({ getWindow: () => pet, getCursor: () => screen.getCursorScreenPoint() });
+function endPetDrag() {
+  petDrag.stop();
+  windowRecovery?.reconcile();
+  persistBounds();
+}
 const characterPackageSaver = createCharacterPackageSaver({ chooseFile: (owner) => dialog.showSaveDialog(owner, {
   defaultPath: 'OiGptPet-character.oipet', filters: [{ name: 'OiGptPet 角色备份', extensions: ['oipet'] }],
 }) });
@@ -78,6 +85,9 @@ function openPet() {
   pet = secureWindow({ ...currentBounds(), transparent: true, frame: false, hasShadow: false, resizable: false, alwaysOnTop: true, skipTaskbar: true, backgroundColor: '#00000000', title: 'OiGptPet' });
   pet.on('move', persistBounds);
   pet.on('resize', persistBounds);
+  pet.on('blur', endPetDrag);
+  pet.on('hide', endPetDrag);
+  pet.on('closed', () => petDrag.stop(false));
   pet.on('close', persistBounds);
   pet.on('closed', () => { pet = null; });
   persistBounds();
@@ -102,6 +112,14 @@ function makeTrayIcon() {
 }
 
 function handlers() {
+  ipcMain.handle('pet:drag-start', event => {
+    if (trusted(event) !== pet) throw new Error('Only the pet can start dragging');
+    return !quitting && petDrag.start();
+  });
+  ipcMain.handle('pet:drag-end', event => {
+    if (trusted(event) !== pet) throw new Error('Only the pet can end dragging');
+    endPetDrag();
+  });
   ipcMain.handle('character-package:save', (event, bytes, sha256, operationId) => characterPackageSaver.save(trusted(event), bytes, sha256, operationId));
   ipcMain.handle('character-package:cancel', (event, operationId) => characterPackageSaver.cancel(trusted(event), operationId));
   ipcMain.handle('model:get', (event) => { trusted(event); return modelBytes; });
@@ -121,7 +139,7 @@ function handlers() {
   ipcMain.handle('pet:click-through', (event, enabled) => {
     trusted(event);
     if (typeof enabled !== 'boolean') throw new Error('Invalid toggle');
-    pet?.setIgnoreMouseEvents(enabled, { forward: true });
+    pet?.setIgnoreMouseEvents(petDrag.active ? false : enabled, { forward: true });
   });
   ipcMain.handle('preferences:get', (event) => { trusted(event); return preferences.get(); });
   ipcMain.handle('preferences:set', async (event, patch) => { trusted(event); return updatePreferences(patch); });
@@ -195,6 +213,7 @@ else {
     if (quitReady) return;
     event.preventDefault();
     if (quitFlush) return;
+    petDrag.stop();
     // Capture the live bounds before freezing move/resize persistence during shutdown.
     persistBounds();
     quitting = true;

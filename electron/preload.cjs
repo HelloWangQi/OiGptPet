@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld('petDesktop', Object.freeze({
   openPet: () => ipcRenderer.invoke('pet:open'),
   openWorkshop: () => ipcRenderer.invoke('workshop:open'),
   hidePet: () => ipcRenderer.invoke('pet:hide'),
+  startDrag: () => ipcRenderer.invoke('pet:drag-start'),
+  endDrag: () => ipcRenderer.invoke('pet:drag-end'),
   setClickThrough: (value) => ipcRenderer.invoke('pet:click-through', value),
   setScale: (value) => ipcRenderer.invoke('pet:scale', value),
   getPreferences: () => ipcRenderer.invoke('preferences:get'),

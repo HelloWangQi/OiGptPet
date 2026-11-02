@@ -4,6 +4,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { assertAppDistribution } from './distribution.mjs';
+import { checkPetBodyDrag } from './pet-drag-smoke-steps.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const releaseRoot = path.resolve(root, 'release');
@@ -73,6 +74,8 @@ try {
   const bounds = await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((win) => !win.isResizable()).getBounds());
   assert.equal(bounds.width, 384); assert.equal(bounds.height, 504);
   await pet.screenshot({ path: path.join(output, 'packaged-sprite-pet.png') });
+  const bodyDrag = await checkPetBodyDrag(desktop, pet);
+  await assert.rejects(page.evaluate(() => window.petDesktop.startDrag()), /Only the pet/);
   await desktop.close(); desktop = undefined;
   page = await launch();
   await page.waitForFunction(() => document.body.dataset.characterKind === 'sprite', undefined, { timeout: 60000 });
@@ -82,7 +85,7 @@ try {
   assert.equal(await page.locator('#pet-scale').inputValue(), '1.2');
   await page.screenshot({ path: path.join(output, 'restored-sprite-library.png') });
   assert.deepEqual(errors, []);
-  await writeFile(path.join(output, 'result.json'), JSON.stringify({ ok: true, version: latest.version, directory: latest.directory, packaged, files, emptyFirstStart: true, localImport: true, persistedAfterRestart: true, spritePetRendered: true, spriteLibraryRestored: true, preferencesRestored: true, petBounds: bounds, rendererErrors: errors }, null, 2));
+  await writeFile(path.join(output, 'result.json'), JSON.stringify({ ok: true, version: latest.version, directory: latest.directory, packaged, files, emptyFirstStart: true, localImport: true, persistedAfterRestart: true, spritePetRendered: true, spriteLibraryRestored: true, preferencesRestored: true, petBounds: bounds, bodyDrag, workshopDragRejected: true, rendererErrors: errors }, null, 2));
   await writeFile(path.join(outputRoot, 'latest.json'), JSON.stringify({ directory: path.basename(output), version: latest.version }, null, 2));
   console.log(`Release smoke passed: clean distribution, empty first launch, VRM/sprite library, actual pet drawing, settings and restart persistence. ${output}`);
 } catch (error) {

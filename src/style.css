@@ -5,6 +5,8 @@
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{transition:none!important}}
 
 /* Export inspection panel; preview widget owns its namespaced controls. */
+.pet-mode #character-canvas { cursor:grab; touch-action:none; user-select:none; }
+.pet-body-dragging #character-canvas { cursor:grabbing; }
 .verification-status { display:flex; flex-wrap:wrap; gap:8px; margin:16px 0; }
 .verification-status > span { display:flex; gap:9px; align-items:center; background:#e9eee2; border:1px solid #d9e1cf; border-radius:7px; padding:9px 12px; color:#7a8970; font-size:11px; }
 .verification-status strong { font-weight:600; color:#52694a; }
