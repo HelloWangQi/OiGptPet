@@ -42,7 +42,8 @@ function attach(target) {
 }
 async function probe(target) { return target.evaluate(() => ({ ...window.__stabilityProbe })); }
 async function waitSelection(id) {
-  for (const target of [page, pet].filter(Boolean)) await target.waitForFunction(id => document.body.dataset.characterId === id, id, { timeout: 60000 });
+  // State synchronization must not depend on RAF in a background/occluded window.
+  for (const target of [page, pet].filter(Boolean)) await target.waitForFunction(id => document.body.dataset.characterId === id, id, { timeout: 60000, polling: 100 });
   await page.locator('#import-button:not([disabled])').waitFor();
 }
 async function record() {
@@ -111,5 +112,12 @@ try {
   await writeFile(path.join(output, 'result.json'), JSON.stringify(result, null, 2));
   console.log(`Soak finished: ${output}; completeHour=${completeHour}; memoryNeedsReview=${result.memoryNeedsReview}`);
 } catch (error) {
-  await writeFile(path.join(output, 'failure.json'), JSON.stringify({ message: error.message, elapsedSeconds: elapsed(), switches, actions, samples: samples.length, errors }, null, 2)); throw error;
+  const windows = [];
+  for (const [name, target] of [['workshop', page], ['pet', pet]]) {
+    if (!target || target.isClosed()) continue;
+    const state = await target.evaluate(() => ({ id: document.body.dataset.characterId, kind: document.body.dataset.characterKind, hidden: document.hidden, status: document.querySelector('#status, #pet-message')?.textContent, probe: window.__stabilityProbe })).catch(error => ({ inspectionError: error.message }));
+    windows.push({ name, state });
+    await target.screenshot({ path: path.join(output, `${name}-failure.png`), timeout: 5000 }).catch(() => {});
+  }
+  await writeFile(path.join(output, 'failure.json'), JSON.stringify({ message: error.message, elapsedSeconds: elapsed(), switches, actions, samples: samples.length, errors, windows }, null, 2)); throw error;
 } finally { closing = true; if (desktop) await desktop.close(); process.removeListener('SIGINT', cancel); process.removeListener('SIGTERM', cancel); }

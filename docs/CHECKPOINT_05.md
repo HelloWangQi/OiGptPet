@@ -64,3 +64,16 @@
 验证：npm test 19 文件、240 项通过；TypeScript 通过。npm run verify:desktop 成功，包为 release/v0.4.0-1793588105894/OiGptPet-win32-x64/，对应 artifacts/release-smoke/run-1793588119953/result.json。实际包使用精灵图身体像素发起 PointerEvent，注入主进程全局光标坐标（Playwright 不移动 Windows 硬件光标），检查位移、松手停止、拖后无点击、轻点仍有效、按钮不拖动、工坊调用被拒绝，以及原有导入/角色库/设置/重启回归。注入光标不是人工鼠标或真实混合 DPI 验收；VRM 命中和常用角色手感由用户继续实测。
 
 本轮包仍显示 0.4.0，未发布 Release；本地只保留最近 3 个 EXE 包。
+
+## 长时稳定性工具及未通过记录
+
+2026-11-02。本轮新增实际 EXE 稳定性运行器、资源探针和内存趋势计算，说明见 DESKTOP_SOAK.md。npm test：20 文件、248 项通过；重新 npm run verify:desktop 通过，测试包 release/v0.4.0-1793588930488/OiGptPet-win32-x64/，包检查 artifacts/release-smoke/run-1793588938772/。未改产品版本或发布。
+
+- 短预检 artifacts/desktop-soak/run-1793589016345/result.json：60.49 秒、11 次选择、13 份采样、2 轮拖动/隐藏检查成功；completeHour=false。初始化内存增长触发复核提示，不能据此判断泄漏。
+- 正式一小时尝试 artifacts/desktop-soak/run-1793589190638/failure.json：在 1269.60 秒（21 分 9.6 秒）失败，完成 13 次选择、40 份采样、3 轮拖动/隐藏检查；失败是 page.waitForFunction 等待角色 ID 同步超时 60 秒。最后已记录资源计数符合当前 VRM，pageerror 列表为空，但不代表此次切换成功。尚未定位产品问题或测试问题，不算一小时通过。
+- 运行器将同步状态等待改成 polling:100，避免依赖后台 RAF，并新增失败时两窗口状态、可见性、探针和截图；保留原失败，未修改产品切换逻辑或放宽 60 秒超时。
+- 后续短复验 artifacts/desktop-soak/run-1793590555965/failure.json 又在身体拖动起始等待处超时，不能把轮询调整标为解决。该次新增现场状态和截图已保存，下一轮从这两份复现排查。
+
+PowerShell 此环境下 npm 转发自定义参数被吞掉，短测请直接运行 Node；默认 npm run test:soak 可运行一小时。长测及短复验均已结束并关闭自己的 Electron，没有留下后台测试任务。用户日常配置未使用。
+
+短窗口剩余额度已接近 25% 保留线，本轮保存工具和失败证据，停止新增范围，继续至少保留 20%。阶段五仍未完成：切换/拖动等待异常待定位，完整一小时、真实多屏/DPI/休眠、硬件耗电均未通过或未测。接续入口见 NEXT_SESSION.md。
