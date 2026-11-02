@@ -1,9 +1,11 @@
-# 接续记录：0.7.0 流式对话本地检查点
+# 接续：0.8.0 内存会话恢复本地检查点
 
-已发布 0.6.0 Preview：https://github.com/HelloWangQi/OiGptPet/releases/tag/v0.6.0 ，源码 b5ad62d。发布核验与原始附件在 artifacts/github-release-v0.6.0/，不要用其 manifest 发布后续源码。
+已发布 GitHub 0.6.0 Preview，对应 b5ad62d。后续本地检查点：0.6.1（778423e）失败恢复和取消边界、0.7.0（5d25ae1）流式回复、0.8.0 窗口生命周期中的内存会话恢复。未推送本轮改动，也未更改已有 Release。
 
-用户要求继续往后开发，目前完成两个本地检查点：0.6.1（778423e）的失败恢复、草稿保护、快捷发送、取消边界；0.7.0 的流式回复、片段显示、中断标记、请求关联和 SSE 解析。详见 CHECKPOINT_06_1.md 与 CHECKPOINT_07.md。本轮只提交本地，未推送、未更新 GitHub Release。
+当前主进程最多保留四轮成功对话和最后一次尝试，工坊刷新/关闭仅取消当前请求；重开恢复成功历史与失败/取消消息，桌宠重开读取显示状态。清空、保存设置、退出应用清除会话，没有聊天磁盘文件。未发送草稿不保留。快照与事件按序列防旧状态覆盖，完整会话 IPC 只给工坊；IPC 归属新增 null/销毁/无关窗口/子 frame 拒绝。
 
-294 项单元测试通过，完整 verify:desktop 通过。最新 EXE：release/v0.7.0-1793610500470/OiGptPet-win32-x64/OiGptPet.exe；实际包记录 artifacts/release-smoke/run-1793610510827/result.json。本地只保留最近三个 EXE 包。网络均为模拟服务，使用合成密钥；没有真实账户付费调用。
+305 项单元测试通过；完整实际 EXE 复验以 release/latest.json 和 artifacts/release-smoke/latest.json 为准，记录见 CHECKPOINT_08.md。所有服务验证是模拟网络与合成密钥，真实 API 尚未联调。本地只留最近三个 EXE 包。
 
-用户当前忙碌，不必反复要求验收。后续可先完善对话状态恢复与可复现压力检查；真实账户联调、多屏/DPI/休眠硬件矩阵和 ChatGPT 官方宠物安装仍需要用户环境。不要把以前的一小时结果当成新对话功能长测，也不要自动增加语音或切换服务商。新发布需用户明确要求，重新编译、制作对应 ZIP/manifest 并核对远端 SHA。
+本轮最终 EXE：release/v0.8.0-1793612195679/OiGptPet-win32-x64/OiGptPet.exe；实际包结果：artifacts/release-smoke/run-1793612203737/result.json。完整 verify:desktop 已通过。
+
+用户忙碌，不必反复请求验证。下一步可做模拟对话和窗口循环压力检查；真实账户、多屏/DPI/休眠和官方宠物安装仍需实际用户环境。此前一小时记录早于新增对话功能，不能替代新功能长测。未来发布需要明确要求、当前源码对应的新 ZIP/manifest，以及远端提交精确校验；不要复用 artifacts/github-release-v0.6.0/ 的原资产。

@@ -110,6 +110,7 @@ app.innerHTML = petMode ? `
             <p class="helper">Ctrl / ⌘ + Enter 发送，Enter 换行。</p>
             <button id="chat-send" class="button" type="submit">发送</button><button id="chat-cancel" class="text-button" type="button" hidden>取消请求</button><button id="chat-retry" class="text-button" type="button" hidden>重试上一条</button><button id="chat-clear" class="text-button" type="button">清空对话</button></form>
           <p class="helper" id="chat-status" role="status">请先配置对话设置。</p>
+          <p class="helper">本次对话保留到应用退出。关闭工坊会取消未完成请求；未发送草稿不保留。</p>
         </section>
         <section class="note-card"><span class="note-star">✦</span><div><strong>从一个喜欢的角色开始。</strong><p>角色和动作共用一套源资产。桌面实时互动，ChatGPT 播放导出的动画。</p></div></section>
         <details class="model-details"><summary>角色信息与使用说明</summary><div id="model-info">导入后显示角色元数据。</div><p>导出不代表已安装为 ChatGPT 宠物。不同入口可能支持不同规格；安装和预检在目标应用内完成。</p></details>
@@ -646,6 +647,7 @@ async function bootstrap() {
   libraryChannel.onmessage = () => void syncLibrary();
   desktop?.onModelChanged(() => void syncLibrary());
   desktop?.onInteractionRestored(() => { forcedInteractive = true; ignoringMouse = false; });
+  if (petMode) await chatUI.refresh();
 }
 
 if (petMode) {
@@ -724,7 +726,7 @@ if (petMode) {
   window.addEventListener('drop', (event) => { event.preventDefault(); $('#drop-zone').classList.remove('dragover'); void importFile(event.dataTransfer?.files[0]); });
 }
 
-const disposeChat = setupChat(desktop, petMode, value => {
+const chatUI = setupChat(desktop, petMode, value => {
   if (!petMode) return;
   if (value.status === 'thinking') { transientUntil = 0; status('正在思考…'); changeState('running'); }
   else if (value.status === 'streaming') { status(value.text ?? ''); }
@@ -732,7 +734,7 @@ const disposeChat = setupChat(desktop, petMode, value => {
   else { transientUntil = 0; status(value.status === 'error' ? '请求未完成，请在工坊查看。' : ''); changeState('idle'); }
 });
 window.addEventListener('beforeunload', () => {
-  disposeChat();
+  chatUI.dispose();
   closed = true; packageJob?.controller.abort();
   if (packageJob?.nativeStarted) void desktop?.cancelCharacterPackage(packageJob.id).catch(() => {});
   loadController?.abort(); libraryChannel.close(); library.close(); exportSession.reset(); stage?.dispose(); if (exportUrl) URL.revokeObjectURL(exportUrl);

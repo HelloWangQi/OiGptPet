@@ -11,6 +11,7 @@ const { createCharacterPackageSaver } = require('./character-package-save.cjs');
 const { collectDesktopDiagnostics, createDiagnosticsExporter } = require('./desktop-diagnostics.cjs');
 const os = require('node:os');
 const { createChatService } = require('./chat-service.cjs');
+const { assertTrustedSender } = require('./ipc-trust.cjs');
 
 const root = path.join(__dirname, '..');
 protocol.registerSchemesAsPrivileged([{ scheme: 'oipet', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
@@ -29,7 +30,9 @@ let quitReady = false;
 let modelBytes = null;
 const chat = createChatService({ file: path.join(app.getPath('userData'), 'chat-settings.json'), fs, safeStorage,
   fetch: (...args) => fetch(...args), onState: state => {
-    for (const win of [workshop, pet]) if (win && !win.isDestroyed()) win.webContents.send('chat:state', state);
+    for (const win of [workshop, pet]) if (win && !win.isDestroyed()) {
+      try { win.webContents.send('chat:state', state); } catch { /* A closing view must not prevent delivery to the other window. */ }
+    }
   } });
 const statePath = () => path.join(app.getPath('userData'), 'window-state.json');
 const windowState = createWindowStateStore(statePath(), { onError: error => console.error('Window position could not be saved:', error.message) });
@@ -46,9 +49,7 @@ const characterPackageSaver = createCharacterPackageSaver({ chooseFile: (owner) 
 }) });
 
 function trusted(event) {
-  const owner = BrowserWindow.fromWebContents(event.sender);
-  if (![workshop, pet].includes(owner) || event.senderFrame !== event.sender.mainFrame) throw new Error('Unknown IPC sender');
-  return owner;
+  return assertTrustedSender(event, [workshop, pet], sender => BrowserWindow.fromWebContents(sender));
 }
 
 function secureWindow(options) {
@@ -70,8 +71,8 @@ async function loadView(win, mode) {
 function openWorkshop() {
   if (workshop && !workshop.isDestroyed()) { workshop.show(); workshop.focus(); return; }
   workshop = secureWindow({ width: 1220, height: 850, minWidth: 980, minHeight: 700, backgroundColor: '#f5f4f0', title: 'OiGptPet · 角色工坊', autoHideMenuBar: true });
-  workshop.on('closed', () => { chat.clear(); workshop = null; });
-  workshop.webContents.on('did-start-navigation', (_event, _url, _inPlace, isMainFrame) => { if (isMainFrame) chat.clear(); });
+  workshop.on('closed', () => { chat.cancel(); workshop = null; });
+  workshop.webContents.on('did-start-navigation', (_event, _url, _inPlace, isMainFrame) => { if (isMainFrame) chat.cancel(); });
   loadView(workshop, 'workshop').catch(console.error);
 }
 
@@ -122,6 +123,8 @@ function makeTrayIcon() {
 function handlers() {
   const chatOwner = event => { if (trusted(event) !== workshop) throw new Error('Only the workshop can control chat'); };
   ipcMain.handle('chat:get', event => { chatOwner(event); return chat.get(); });
+  ipcMain.handle('chat:snapshot', event => { chatOwner(event); return chat.snapshot(); });
+  ipcMain.handle('chat:state-get', event => { trusted(event); return chat.getState(); });
   ipcMain.handle('chat:save', (event, value) => { chatOwner(event); return chat.save(value); });
   ipcMain.handle('chat:send', (event, text, requestId) => { chatOwner(event); return chat.send(text, requestId); });
   ipcMain.handle('chat:cancel', event => { chatOwner(event); chat.cancel(); });

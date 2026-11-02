@@ -134,8 +134,8 @@ describe('text companion service', () => {
     const f = await configured({ fetch: vi.fn().mockResolvedValueOnce(new Response(source, { headers: { 'content-type': 'text/event-stream' } })).mockImplementation(async () => answer('next')) });
     const requestId = '12345678-1234-1234-1234-123456789abc';
     expect(await f.service.send('hi', requestId)).toEqual({ text: '最终回复' });
-    expect(f.states).toContainEqual({ status: 'streaming', text: '草稿', requestId });
-    expect(f.states.at(-1)).toEqual({ status: 'reply', text: '最终回复', requestId });
+    expect(f.states).toEqual(expect.arrayContaining([expect.objectContaining({ status: 'streaming', text: '草稿', requestId })]));
+    expect(f.states.at(-1)).toMatchObject({ status: 'reply', text: '最终回复', requestId });
     await f.service.send('next'); const input = JSON.parse(f.config.fetch.mock.calls[1][1].body).input;
     expect(input[1].content).toBe('最终回复'); expect(JSON.stringify(input)).not.toContain('草稿');
     await expect(f.service.send('bad id', 'not-a-valid-id')).rejects.toThrow('标识');
@@ -151,5 +151,57 @@ describe('text companion service', () => {
     f.service.clear(); expect(await pending).toEqual({ cancelled: true });
     const count = f.states.length; await new Promise(resolve => setTimeout(resolve, 70)); expect(f.states).toHaveLength(count);
     await f.service.send('new'); expect(JSON.parse(f.config.fetch.mock.calls[1][1].body).input).toHaveLength(1);
+  });
+  it('returns bounded copies of session history without key configuration', async () => {
+    const f = await configured(); for (let i = 0; i < 6; i++) await f.service.send('私密问题' + i);
+    const snapshot = f.service.snapshot(); expect(snapshot.history).toHaveLength(8); expect(snapshot.attempt).toBeNull();
+    expect(snapshot.history[0].content).toBe('私密问题2');
+    expect(JSON.stringify(snapshot)).not.toContain('not-a-real-api-key'); expect('config' in snapshot).toBe(false);
+    snapshot.history[0].content = 'mutated'; snapshot.state.text = 'mutated';
+    expect(f.service.snapshot().history[0].content).toBe('私密问题2'); expect(f.service.getState().text).toBe('你好');
+    expect(JSON.stringify(f.service.getState())).not.toContain('私密问题');
+    expect(await fs.readFile(f.file, 'utf8')).not.toContain('私密问题');
+  });
+  it('keeps successful history and a cancelled partial available for window reopening', async () => {
+    const f = await configured(); await f.service.send('成功消息');
+    let controller;
+    f.config.fetch.mockImplementationOnce(async () => new Response(new ReadableStream({ start(value) { controller = value; } }), { headers: { 'content-type': 'text/event-stream' } }));
+    const pending = f.service.send('待恢复消息'); await vi.waitFor(() => expect(controller).toBeTruthy());
+    controller.enqueue(new TextEncoder().encode('data: {"type":"response.output_text.delta","delta":"可见片段","output_index":0,"content_index":0}\n\n'));
+    await vi.waitFor(() => expect(f.service.snapshot().attempt.partial).toBe('可见片段'));
+    f.service.cancel(); expect(await pending).toEqual({ cancelled: true });
+    const restored = f.service.snapshot(); expect(restored.history).toHaveLength(2);
+    expect(restored.attempt).toMatchObject({ text: '待恢复消息', partial: '可见片段', status: 'cancelled' });
+    restored.attempt.text = 'mutated'; expect(f.service.snapshot().attempt.text).toBe('待恢复消息');
+    await f.service.send('重试消息');
+    const input = JSON.parse(f.fetch.mock.calls.at(-1)[1].body).input;
+    expect(input).toHaveLength(3); expect(JSON.stringify(input)).not.toContain('待恢复消息');
+  });
+  it('clears history, retry state and displayed text explicitly, and after settings save', async () => {
+    const f = await configured(); await f.service.send('旧消息');
+    f.service.clear(); expect(f.service.snapshot()).toMatchObject({ history: [], attempt: null, state: { status: 'cleared' } });
+    expect(f.service.getState().text).toBeUndefined();
+    await f.service.send('新消息'); await f.service.save({ model: 'new-model' });
+    expect(f.service.snapshot().history).toEqual([]); expect(f.service.snapshot().attempt).toBeNull();
+  });
+  it('retains retryable failures with increasing event sequences', async () => {
+    const f = await configured({ fetch: async () => new Response('secret server content', { status: 429 }) });
+    await f.service.send('失败消息'); const snapshot = f.service.snapshot();
+    expect(snapshot.attempt).toMatchObject({ text: '失败消息', status: 'error' });
+    expect(snapshot.attempt.error).toContain('HTTP 429'); expect(snapshot.history).toEqual([]);
+    expect(snapshot.sequence).toBe(snapshot.state.sequence);
+    expect(f.states.map(state => state.sequence)).toEqual(f.states.map((_state, i) => i + 1));
+    expect(JSON.stringify(snapshot)).not.toContain('secret server');
+  });
+  it('does not restore in-memory conversations from the settings file after process restart', async () => {
+    const f = await configured(); await f.service.send('内存记录');
+    const restarted = chatModule.createChatService(f.config); await restarted.load();
+    expect((await restarted.get()).hasKey).toBe(true);
+    expect(restarted.snapshot()).toMatchObject({ sequence: 0, history: [], attempt: null, state: { status: 'idle' } });
+  });
+  it('cannot mutate authoritative state through an event consumer', async () => {
+    const f = await configured({ onState: state => { state.text = 'mutated'; state.sequence = -1; } });
+    await f.service.send('hello'); expect(f.service.getState()).toMatchObject({ text: '你好', status: 'reply' });
+    expect(f.service.getState().sequence).toBeGreaterThan(0);
   });
 });

@@ -18,13 +18,24 @@ function abortable(action, signal, disposeLate = () => {}) {
 }
 
 function createChatService({ file, fs, safeStorage, fetch, onState = () => {}, timeoutMs = 60000 }) {
-  let config = { model: '', key: '' }; let history = []; let active; let saving = false;
+  let config = { model: '', key: '' }; let history = []; let active; let saving = false; let attempt;
+  let sequence = 0; let state = { status: 'idle', sequence: 0 };
   const available = () => safeStorage.isAsyncEncryptionAvailable();
   const publicConfig = async () => ({ model: config.model, hasKey: Boolean(config.key), encryptionAvailable: await available() });
-  const emit = state => { try { onState(state); } catch { /* A closing view must not invalidate committed settings or replies. */ } };
+  const emit = value => {
+    state = { ...value, sequence: ++sequence };
+    if (attempt && value.requestId === attempt.requestId) {
+      attempt.status = value.status;
+      if (value.status === 'streaming') attempt.partial = value.text;
+      if (value.status === 'error') attempt.error = value.text;
+    }
+    try { onState({ ...state }); } catch { /* A closing view must not invalidate committed settings or replies. */ }
+  };
   const cancel = () => {
     if (!active) return;
-    const previous = active; active = undefined; previous.controller.abort(); clearTimeout(previous.progressTimer); emit({ status: 'cancelled', requestId: previous.id });
+    const previous = active; active = undefined;
+    if (attempt?.requestId === previous.id) attempt.partial = previous.partial;
+    previous.controller.abort(); clearTimeout(previous.progressTimer); emit({ status: 'cancelled', requestId: previous.id });
   };
   return {
     async load() {
@@ -35,6 +46,9 @@ function createChatService({ file, fs, safeStorage, fetch, onState = () => {}, t
       } catch (error) { if (error.code !== 'ENOENT') throw new Error('对话设置读取失败，请重新保存设置。'); }
     },
     get: publicConfig,
+    getState: () => ({ ...state }),
+    snapshot: () => ({ sequence, state: { ...state }, history: history.map(message => ({ ...message })),
+      attempt: attempt ? { ...attempt, ...(active?.id === attempt.requestId ? { partial: active.partial } : {}) } : null }),
     async save(value) {
       if (active || saving) throw new Error('请先结束当前对话或设置保存。');
       if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !['model', 'apiKey', 'forgetKey'].includes(key))
@@ -56,7 +70,7 @@ function createChatService({ file, fs, safeStorage, fetch, onState = () => {}, t
         await fs.mkdir(path.dirname(file), { recursive: true });
         await fs.writeFile(temporary, JSON.stringify({ version: 1, ...next }), { encoding: 'utf8', flag: 'wx' });
         await fs.rename(temporary, file);
-        config = next; history = []; emit({ status: 'cleared' });
+        config = next; history = []; attempt = undefined; emit({ status: 'cleared' });
         return { model: next.model, hasKey: Boolean(next.key), encryptionAvailable };
       } catch (error) {
         if (error.message === '系统安全存储不可用，未保存密钥。') throw error;
@@ -64,13 +78,14 @@ function createChatService({ file, fs, safeStorage, fetch, onState = () => {}, t
       } finally { await fs.unlink(temporary).catch(() => {}); saving = false; }
     },
     cancel,
-    clear() { cancel(); history = []; emit({ status: 'cleared' }); },
+    clear() { cancel(); history = []; attempt = undefined; emit({ status: 'cleared' }); },
     async send(text, requestId) {
       if (typeof text !== 'string' || !text.trim() || text.length > 2000) throw new Error('消息长度需为 1–2000 字。');
       if (requestId !== undefined && (typeof requestId !== 'string' || !/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(requestId))) throw new Error('对话请求标识无效。');
       if (active || saving) throw new Error('请等待当前操作完成。');
       if (!config.model || !config.key) throw new Error('请先保存模型 ID 和 API Key。');
       const session = { controller: new AbortController(), id: requestId ?? randomUUID(), lastProgress: 0, partial: '' }; active = session;
+      attempt = { requestId: session.id, text, status: 'thinking', partial: '' };
       const progress = text => {
         if (active !== session || session.controller.signal.aborted) return;
         session.partial = text;
@@ -101,11 +116,13 @@ function createChatService({ file, fs, safeStorage, fetch, onState = () => {}, t
         const reply = await readResponseText(response, { signal, wait: abortable, onText: progress });
         if (active !== session || session.controller.signal.aborted) return { cancelled: true };
         history = [...history, { role: 'user', content: text.trim() }, { role: 'assistant', content: reply }].slice(-8);
+        attempt = undefined;
         clearTimeout(session.progressTimer); emit({ status: 'reply', text: reply, requestId: session.id }); return { text: reply };
       } catch (error) {
         if (active !== session) return { cancelled: true };
         const message = timedOut ? '请求已超时，请重试。' : session.controller.signal.aborted ? '已取消。'
           : /^服务|^系统安全/.test(error.message) ? error.message : '连接或回复处理失败，请检查网络和配置。';
+        if (attempt?.requestId === session.id) attempt.partial = session.partial;
         clearTimeout(session.progressTimer); emit({ status: 'error', text: message, requestId: session.id }); return { error: message };
       } finally { clearTimeout(timer); clearTimeout(session.progressTimer); if (active === session) active = undefined; }
     },

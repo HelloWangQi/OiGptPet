@@ -6,6 +6,7 @@ import path from 'node:path';
 import { assertAppDistribution } from './distribution.mjs';
 import { checkPetBodyDrag } from './pet-drag-smoke-steps.mjs';
 import { checkChat } from './chat-smoke-steps.mjs';
+import { checkChatRestore } from './chat-restore-smoke-steps.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const releaseRoot = path.resolve(root, 'release');
@@ -61,7 +62,7 @@ try {
   await page.locator('#pet-scale:not([disabled])').waitFor();
   const nextWindow = desktop.waitForEvent('window');
   await page.locator('#open-pet').click();
-  const pet = await nextWindow;
+  let pet = await nextWindow;
   pet.on('pageerror', (error) => errors.push(error.message));
   await desktop.evaluate(({ BrowserWindow }) => {
     for (const win of BrowserWindow.getAllWindows()) win.webContents.setBackgroundThrottling(false);
@@ -103,6 +104,7 @@ try {
   }
   await assert.rejects(page.evaluate(() => window.petDesktop.startDrag()), /Only the pet/);
   await checkChat(desktop, page, pet);
+  ({ page, pet } = await checkChatRestore(desktop, page, pet, errors));
   await desktop.close(); desktop = undefined;
   page = await launch();
   await page.waitForFunction(() => document.body.dataset.characterKind === 'sprite', undefined, { timeout: 60000 });
@@ -111,6 +113,8 @@ try {
   assert.equal(await page.locator('#performance-mode').inputValue(), 'battery');
   assert.equal(await page.locator('#pet-scale').inputValue(), '1.2');
   assert.equal((await page.evaluate(() => window.petDesktop.getChatSettings())).hasKey, true);
+  const freshChat = await page.evaluate(() => window.petDesktop.getChatSnapshot());
+  assert.equal(freshChat.history.length, 0); assert.equal(freshChat.attempt, null);
   await page.screenshot({ path: path.join(output, 'restored-sprite-library.png') });
   assert.deepEqual(errors, []);
   await writeFile(path.join(output, 'result.json'), JSON.stringify({ ok: true, version: latest.version, directory: latest.directory, packaged, files, emptyFirstStart: true, localImport: true, persistedAfterRestart: true, spritePetRendered: true, spriteLibraryRestored: true, preferencesRestored: true, petBounds: bounds, bodyDrag, workshopDragRejected: true, rendererErrors: errors }, null, 2));
