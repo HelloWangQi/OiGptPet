@@ -41,7 +41,7 @@ app.innerHTML = petMode ? `
     <a class="brand" href="#" aria-label="OiGptPet 首页">oi<span>·</span></a>
     <div class="rail-mark selected" title="角色工坊">${icon.box}</div>
     <div class="rail-line"></div>
-    <span class="rail-bottom">0.4</span>
+    <span class="rail-bottom">${__APP_VERSION__}</span>
   </aside>
   <div class="workspace">
     <header class="topbar">
@@ -92,6 +92,8 @@ app.innerHTML = petMode ? `
           <label class="field-label" for="performance-mode">动画性能</label>
           <select id="performance-mode" disabled><option value="quality">画质优先 · 最高 60 帧</option><option value="balanced" selected>均衡 · 最高 30 帧</option><option value="battery">省电 · 最高 15 帧</option></select>
           <p class="helper">闲置 10 秒自动降低绘制频率，隐藏时停止绘制。设置在本机保存。</p>
+          <button class="text-button" id="save-diagnostics" ${desktop ? '' : 'hidden'}>保存桌面诊断</button>
+          <p class="helper" ${desktop ? '' : 'hidden'}>记录显示器、窗口位置和性能，方便排查问题；不包含角色文件和名称。</p>
           <p class="helper" id="settings-status" role="status" aria-live="polite"></p>
         </section>
         <section class="note-card"><span class="note-star">✦</span><div><strong>从一个喜欢的角色开始。</strong><p>角色和动作共用一套源资产。桌面实时互动，ChatGPT 播放导出的动画。</p></div></section>
@@ -664,6 +666,15 @@ if (petMode) {
   $('#pause-button').onclick = () => { paused = !paused; $('#pause-button').textContent = paused ? '继续动画' : '暂停动画'; };
   document.querySelectorAll<HTMLButtonElement>('[data-state]').forEach((button) => button.onclick = () => { transientUntil = 0; changeState(button.dataset.state as AnimationState); });
   if (desktop) {
+    $('#save-diagnostics').onclick = async () => {
+      const button = $<HTMLButtonElement>('#save-diagnostics');
+      button.disabled = true;
+      try {
+        const saved = await desktop.saveDiagnostics();
+        $('#settings-status').textContent = saved ? '桌面诊断已保存到所选文件。' : '已取消保存桌面诊断。';
+      } catch { $('#settings-status').textContent = '桌面诊断保存失败，请重试。'; }
+      finally { button.disabled = false; }
+    };
     $('#open-pet').onclick = () => { void desktop.openPet().catch(() => status('桌宠窗口无法打开，请从托盘重新尝试。', true)); };
   } else {
     const open = $<HTMLButtonElement>('#open-pet');

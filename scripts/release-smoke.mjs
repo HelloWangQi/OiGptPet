@@ -75,6 +75,31 @@ try {
   assert.equal(bounds.width, 384); assert.equal(bounds.height, 504);
   await pet.screenshot({ path: path.join(output, 'packaged-sprite-pet.png') });
   const bodyDrag = await checkPetBodyDrag(desktop, pet);
+  const diagnosticFile = await desktop.evaluate(({ app, dialog }) => {
+    globalThis.__diagnosticDialog = dialog.showSaveDialog;
+    dialog.showSaveDialog = async () => ({ canceled: true });
+    return app.getPath('userData') + '/desktop-diagnostics.json';
+  });
+  try {
+    await page.locator('#save-diagnostics').click();
+    await page.waitForFunction(() => document.querySelector('#settings-status').textContent.includes('已取消'));
+    await assert.rejects(readFile(diagnosticFile), { code: 'ENOENT' });
+    await pet.evaluate(() => window.petDesktop.hidePet());
+    await desktop.evaluate(({ dialog }, filePath) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath }); }, diagnosticFile);
+    await page.locator('#save-diagnostics').click();
+    await page.waitForFunction(() => document.querySelector('#settings-status').textContent.includes('诊断已保存'));
+    const diagnostic = JSON.parse(await readFile(diagnosticFile, 'utf8'));
+    assert.equal(diagnostic.format, 'oigptpet-desktop-diagnostics');
+    assert.equal(diagnostic.application.version, latest.version);
+    assert.equal(diagnostic.windows.find(win => win.role === 'pet').visible, false);
+    assert.equal(diagnostic.coordinateUnit, 'DIP');
+    assert.ok(diagnostic.displays.length > 0);
+    assert.equal(JSON.stringify(diagnostic).includes(userData), false);
+    await assert.rejects(pet.evaluate(() => window.petDesktop.saveDiagnostics()), /Only the workshop/);
+    assert.equal(await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(win => !win.isResizable()).isVisible()), false);
+  } finally {
+    await desktop.evaluate(({ dialog }) => { dialog.showSaveDialog = globalThis.__diagnosticDialog; delete globalThis.__diagnosticDialog; });
+  }
   await assert.rejects(page.evaluate(() => window.petDesktop.startDrag()), /Only the pet/);
   await desktop.close(); desktop = undefined;
   page = await launch();

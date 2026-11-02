@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('petDesktop', Object.freeze({
+  saveDiagnostics: () => ipcRenderer.invoke('diagnostics:save'),
   getModel: () => ipcRenderer.invoke('model:get'),
   setModel: (bytes) => ipcRenderer.invoke('model:set', bytes),
   openPet: () => ipcRenderer.invoke('pet:open'),

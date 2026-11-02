@@ -1,7 +1,9 @@
 declare const __WITH_DEMO__: boolean;
+declare const __APP_VERSION__: string;
 
 interface Window {
   petDesktop?: {
+    saveDiagnostics(): Promise<boolean>;
     getModel(): Promise<Uint8Array | null>;
     setModel(bytes: Uint8Array): Promise<boolean>;
     openPet(): Promise<void>;

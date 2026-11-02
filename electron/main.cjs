@@ -8,6 +8,8 @@ const { createWindowStateStore } = require('./window-state.cjs');
 const { createPetDrag } = require('./pet-drag.cjs');
 const { createPreferencesStore } = require('./preferences.cjs');
 const { createCharacterPackageSaver } = require('./character-package-save.cjs');
+const { collectDesktopDiagnostics, createDiagnosticsExporter } = require('./desktop-diagnostics.cjs');
+const os = require('node:os');
 
 const root = path.join(__dirname, '..');
 protocol.registerSchemesAsPrivileged([{ scheme: 'oipet', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
@@ -112,6 +114,16 @@ function makeTrayIcon() {
 }
 
 function handlers() {
+  const saveDiagnostics = createDiagnosticsExporter({
+    chooseFile: owner => dialog.showSaveDialog(owner, { defaultPath: 'OiGptPet-desktop-diagnostics.json', filters: [{ name: '桌面诊断 JSON', extensions: ['json'] }] }),
+    collect: () => collectDesktopDiagnostics({ app, screen, os, versions: process.versions, preferences: preferences.get(), windows: { workshop, pet } }),
+    writeFile: fs.writeFile,
+  });
+  ipcMain.handle('diagnostics:save', event => {
+    const owner = trusted(event);
+    if (owner !== workshop) throw new Error('Only the workshop can export diagnostics');
+    return saveDiagnostics(owner);
+  });
   ipcMain.handle('pet:drag-start', event => {
     if (trusted(event) !== pet) throw new Error('Only the pet can start dragging');
     return !quitting && petDrag.start();
