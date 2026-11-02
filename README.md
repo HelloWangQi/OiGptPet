@@ -24,6 +24,8 @@ npm run dev
 
 “陪伴设置”支持小/标准/大和画质/均衡/省电模式。绘制上限分别为 60/30/15 fps，闲置 10 秒降为 30/12/5 fps，隐藏时停止绘制。设置本地保存；具体 CPU、内存和耗电效果因设备而异。
 
+阶段五开发中：显示器增加/移除、工作区变化及系统恢复后重新约束桌宠窗口位置，保持隐藏状态；手动找回时也检查位置。窗口与屏幕工作区使用 Electron 的逻辑坐标，避免重复按 DPI 缩放。真实多屏/DPI/休眠验收尚未完成。
+
 新版角色库使用独立 IndexedDB。首次启动可从旧 Electron `current.vrm` 或浏览器旧数据库迁移模型，保留旧数据。浏览器按来源地址隔离存储；更换 IP、端口或协议后不会自动共享角色。默认生产桌面应用使用固定本地来源，用户数据位于 Electron 的 userData 目录；开发版数据在 `.cache/electron-user-data/`。
 
 ### 角色备份与恢复
@@ -68,6 +70,7 @@ npm run test:phase-three
 node scripts/character-package-smoke.mjs
 node scripts/web-package-smoke.mjs
 npm run test:phase-four
+node scripts/window-recovery-smoke.mjs
 ```
 
 `build:demo` 将开发示例放入独立的 `.cache/demo-dist/`，用于测试，不改变生产 `dist/`。主冒烟测试验证 v1/v2 预览、实际 PNG/报告保存与哈希一致性、异常图集保存门控、取消重开及透明桌宠。组件 smoke 单独验证解码、逐帧播放、局域网 HTTP 摘要回退和资源清理。
@@ -109,6 +112,8 @@ npm run test:release
 - [阶段三检查点](docs/CHECKPOINT_03.md)：最终交付、验证证据和未完成项。
 - [版本更新说明](docs/releases/v0.3.0.md)：0.3.0 发布内容；历史 0.1.0/0.2.0 说明位于同目录。
 - [阶段四计划](docs/PHASE_04.md)：角色备份/恢复的双轮分工与共同验收点。
+- [阶段五计划](docs/PHASE_05.md)：窗口恢复、位置持久化与实机稳定性验收。
+- [阶段五 DeepSeek 任务](docs/DEEPSEEK_PHASE_05.md)：D23–D24 的独立文件范围及接口。
 - [精灵图渲染器](docs/RENDERER_SPRITE.md)：绘制、视线、透明命中与资源生命周期。
 - [角色库](docs/CHARACTER_LIBRARY.md)：本地存储、迁移、容量限制和原子操作。
 - [DeepSeek 协作任务](docs/DEEPSEEK_HANDOFF.md)：独立文件范围和稳定接口。

@@ -1,9 +1,9 @@
-const { app, BrowserWindow, ipcMain, screen, Tray, Menu, nativeImage, globalShortcut, dialog, session, protocol, net } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, powerMonitor, Tray, Menu, nativeImage, globalShortcut, dialog, session, protocol, net } = require('electron');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
 const fs = require('node:fs/promises');
-const { fitBounds } = require('./geometry.cjs');
+const { createWindowRecovery } = require('./window-recovery.cjs');
 const { createPreferencesStore } = require('./preferences.cjs');
 const { createCharacterPackageSaver } = require('./character-package-save.cjs');
 
@@ -18,6 +18,7 @@ let pet;
 let tray;
 let savedBounds;
 let stateTimer;
+let windowRecovery;
 let quitting = false;
 let modelBytes = null;
 const statePath = () => path.join(app.getPath('userData'), 'window-state.json');
@@ -57,29 +58,20 @@ function openWorkshop() {
 }
 
 function currentBounds() {
-  let area = screen.getPrimaryDisplay().workArea;
-  if (savedBounds && Number.isFinite(savedBounds.x) && Number.isFinite(savedBounds.y)) {
-    const target = screen.getDisplayMatching({ x: savedBounds.x, y: savedBounds.y, width: 320, height: 420 });
-    area = target.workArea;
-  }
-  const scale = preferences.get().scale;
-  return fitBounds({ ...savedBounds, width: 320 * scale, height: 420 * scale }, area, { width: 320, height: 420 });
+  return windowRecovery.boundsFor(savedBounds);
 }
 
 async function updatePreferences(patch) {
   const next = await preferences.update(patch);
   if (pet && !pet.isDestroyed()) {
-    const bounds = pet.getBounds();
-    const area = screen.getDisplayMatching(bounds).workArea;
-    const nextBounds = fitBounds({ ...bounds, width: 320 * next.scale, height: 420 * next.scale }, area, { width: 320, height: 420 });
-    if (bounds.width !== nextBounds.width || bounds.height !== nextBounds.height) pet.setBounds(nextBounds);
+    windowRecovery.reconcile();
   }
   for (const win of [workshop, pet]) if (win && !win.isDestroyed()) win.webContents.send('preferences:changed', next);
   return next;
 }
 
 function openPet() {
-  if (pet && !pet.isDestroyed()) { pet.setIgnoreMouseEvents(false); pet.show(); return; }
+  if (pet && !pet.isDestroyed()) { windowRecovery.reconcile(); pet.setIgnoreMouseEvents(false); pet.show(); return; }
   pet = secureWindow({ ...currentBounds(), transparent: true, frame: false, hasShadow: false, resizable: false, alwaysOnTop: true, skipTaskbar: true, backgroundColor: '#00000000', title: 'OiGptPet' });
   pet.on('move', persistBounds);
   pet.on('resize', persistBounds);
@@ -174,6 +166,7 @@ else {
       } catch { return new Response('Invalid resource', { status: 400 }); }
     });
     await fs.mkdir(app.getPath('userData'), { recursive: true });
+    windowRecovery = createWindowRecovery({ screen, powerMonitor, getWindow: () => pet, getScale: () => preferences.get().scale });
     try { await preferences.load(); } catch (error) { console.error('Preferences could not be read:', error.message); }
     try { savedBounds = JSON.parse(await fs.readFile(statePath(), 'utf8')); } catch { /* First launch or damaged settings. */ }
     try { const bytes = await fs.readFile(modelPath()); if (bytes.length <= 64 * 1024 * 1024) modelBytes = bytes; } catch { /* No imported model yet. */ }
@@ -191,11 +184,9 @@ else {
     tray.on('double-click', openWorkshop);
     const registered = globalShortcut.register('CommandOrControl+Alt+P', recoverPet);
     if (!registered) console.warn('Ctrl+Alt+P unavailable; restore interactivity from the tray menu.');
-    screen.on('display-removed', () => pet && pet.setBounds(currentBounds()));
-    screen.on('display-metrics-changed', () => pet && pet.setBounds(currentBounds()));
     openWorkshop();
   }).catch((error) => { console.error(error); app.exit(1); });
   app.on('window-all-closed', () => { if (quitting) app.quit(); });
   app.on('before-quit', () => { quitting = true; clearTimeout(stateTimer); });
-  app.on('will-quit', () => globalShortcut.unregisterAll());
+  app.on('will-quit', () => { windowRecovery?.dispose(); globalShortcut.unregisterAll(); });
 }
