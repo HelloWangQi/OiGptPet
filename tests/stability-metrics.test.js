@@ -21,4 +21,16 @@ describe('stability measurement boundaries', () => {
     expect(result.samples).toBe(5); expect(result.slopeMiBPerMinute).toBeCloseTo(30);
     expect(result.deltaPrivateMiB).toBe(120); expect(result.needsReview).toBe(true);
   });
+  it('compares VRM and sprite memory under matching workloads', () => {
+    const samples = Array.from({ length: 12 }, (_, index) => {
+      const kind = index % 2 ? 'vrm' : 'sprite';
+      const cycle = Math.floor(index / 2);
+      const base = kind === 'vrm' ? 500 : 200;
+      return { elapsedSeconds: index * 60, kind, processes: [{ pid: 1, creationTime: 1, type: 'GPU', memory: { privateBytes: (base + cycle * 5) * 1024 } }] };
+    });
+    const result = summarizeMemory(samples, 0);
+    expect(result).toHaveLength(2);
+    expect(result.find(row => row.kind === 'vrm')).toMatchObject({ samples: 6, firstPrivateMiB: 500, lastPrivateMiB: 525, deltaPrivateMiB: 25, needsReview: false });
+    expect(result.find(row => row.kind === 'sprite')).toMatchObject({ samples: 6, firstPrivateMiB: 200, lastPrivateMiB: 225, deltaPrivateMiB: 25, needsReview: false });
+  });
 });

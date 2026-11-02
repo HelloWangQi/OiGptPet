@@ -1,20 +1,19 @@
-# 阶段五接续（2026-11-02）
+# 开发接续记录（2026-11-02）
 
-用户已确认直接拖动与鼠标转头方向改进可用，后续独立开发；DeepSeek 不再参与。每次让用户验证前按 AGENTS.md 重新 npm run verify:desktop，只保留最近 3 个 EXE 包。额度至少留 20%；本轮接近保留线停下，不自动重跑一小时或发布。
+## 当前状态
 
-## 下一步先查异常，别先加功能
+- 项目本地 `codex/desktop-prototype`；已发布版本仍为 0.4.0。
+- 阶段五软件一小时运行已通过：`artifacts/desktop-soak/run-1793598937089/result.json`，3600.51 秒、39 次角色切换、9 轮拖动/隐藏交互、119 个采样、`errors=[]`。
+- 拖动预检曾在角色画布替换后首帧绘制前读到透明画布。修复在测试助手中等待可见帧，悬停后重查视线帧像素，并轮询真实窗口坐标最多 2 秒；3 分钟高频测试 `artifacts/desktop-soak/run-1793598721673/result.json` 通过，33 次切换、8 轮交互。
+- GPU 内存按 VRM / 精灵图分开统计：基于已完成长测样本，VRM 55 点为 466.0→515.4 MiB，精灵图 53 点为 239.3→305.6 MiB；各自净增未达 100 MiB 标记门槛，但有约 1.1 MiB/min 正斜率，继续观察。原始逐样本数据保留；此软件测试使用 SwiftShader。
+- 真实多屏、DPI、显示器拔插、休眠/恢复、注销和硬件耗电未验收；ChatGPT 官方入口的安装与目标平台运行也未验收。
+- 用户希望本地提交后自行推远端，远端确认一致后再创建 GitHub 新版本。当前候选 `v0.5.0`，package、lockfile、预发布说明和发布器 `--prerelease` 支持已准备；不要在远端分支未包含最终本地提交时发布。
+- 每次让用户验证桌面前，先 `npm run verify:desktop` 重新编译并做真实 EXE smoke；本地 EXE 只留最新 3 个包。测试 VRM/图集保留在忽略目录，不进公开发布包。
 
-1. 阅读 CHECKPOINT_05.md 最后一节和 DESKTOP_SOAK.md。
-2. 第一次长测 failure：artifacts/desktop-soak/run-1793589190638/failure.json，21 分钟后角色 ID 同步等待超时；samples.ndjson 有 40 个样本，native.log、操作序列可查。初版没有失败 UI 现场，不能断言根因。
-3. 同步状态等待已改 polling:100（不用 RAF），新短测 artifacts/desktop-soak/run-1793590555965/failure.json 则在 scripts/pet-drag-smoke-steps.mjs 的 pet-body-dragging 起始等待失败；检查该目录的两窗口状态、hidden、probe、workshop-failure.png/pet-failure.png，核对浏览器/原生窗口焦点、pointer capture 与命中帧，区分测试假设和产品问题。不要简单增加超时或跳过断言。
-4. 先做确定性小复现并修复，再直接 Node 短测复验；因 PowerShell 此环境吞 npm 转发参数，不要用带自定义参数的 npm 调用。
+## 本地改动待办
 
-```powershell
-npm test
-npm run verify:desktop
-node scripts/desktop-soak.mjs --minutes 1 --switch-seconds 3 --sample-seconds 5
-# 上面完全通过，再运行正式测试；需真实一小时，失败不得标通过
-npm run test:soak
-```
+本次接续中 `scripts/pet-drag-smoke-steps.mjs`、`scripts/stability-metrics.mjs`、`tests/stability-metrics.test.js`、阶段文档、README、0.5.0 发布器和发布说明已有改动；全量测试与发布包 smoke 已通过，本地提交和 ZIP/manifest 仍待完成。先检查 `git status`，不要覆盖新的用户改动。
 
-产品运行代码在本轮没有改变；新增长测工具已做过一次成功短预检、一次正式失败和一次带现场记录的失败。248 项单元测试及基础 EXE 验收通过，不代表一小时验收完成。不要无必要重建旧版 0.1/0.2 或更改账号、许可、模型。真实多屏、DPI、休眠、注销和耗电仍留待实机矩阵。
+1. 检查最终 `git status` 和差异，确认没有并入其它人的未交付文件。
+2. 按用户已有请求创建本地提交并生成 release ZIP、SHA256、manifest；不推送、不创建公开 Release。
+3. 请用户手动推送最终提交。收到完成消息后核对 GitHub 分支 SHA 与本地提交，再创建 `v0.5.0` 预发布并核对附件 SHA256。
