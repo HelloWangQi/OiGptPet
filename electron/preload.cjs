@@ -1,6 +1,16 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('petDesktop', Object.freeze({
+  getChatSettings: () => ipcRenderer.invoke('chat:get'),
+  saveChatSettings: value => ipcRenderer.invoke('chat:save', value),
+  sendChat: text => ipcRenderer.invoke('chat:send', text),
+  cancelChat: () => ipcRenderer.invoke('chat:cancel'),
+  clearChat: () => ipcRenderer.invoke('chat:clear'),
+  onChatState: callback => {
+    const listener = (_event, state) => callback(state);
+    ipcRenderer.on('chat:state', listener);
+    return () => ipcRenderer.removeListener('chat:state', listener);
+  },
   saveDiagnostics: () => ipcRenderer.invoke('diagnostics:save'),
   getModel: () => ipcRenderer.invoke('model:get'),
   setModel: (bytes) => ipcRenderer.invoke('model:set', bytes),

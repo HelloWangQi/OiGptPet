@@ -3,6 +3,12 @@ declare const __APP_VERSION__: string;
 
 interface Window {
   petDesktop?: {
+    getChatSettings(): Promise<{ model: string; hasKey: boolean; encryptionAvailable: boolean }>;
+    saveChatSettings(value: { model: string; apiKey?: string; forgetKey?: boolean }): Promise<{ model: string; hasKey: boolean; encryptionAvailable: boolean }>;
+    sendChat(text: string): Promise<{ text?: string; error?: string; cancelled?: boolean }>;
+    cancelChat(): Promise<void>;
+    clearChat(): Promise<void>;
+    onChatState(callback: (state: { status: string; text?: string }) => void): () => void;
     saveDiagnostics(): Promise<boolean>;
     getModel(): Promise<Uint8Array | null>;
     setModel(bytes: Uint8Array): Promise<boolean>;

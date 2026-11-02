@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { assertAppDistribution } from './distribution.mjs';
 import { checkPetBodyDrag } from './pet-drag-smoke-steps.mjs';
+import { checkChat } from './chat-smoke-steps.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const releaseRoot = path.resolve(root, 'release');
@@ -101,6 +102,7 @@ try {
     await desktop.evaluate(({ dialog }) => { dialog.showSaveDialog = globalThis.__diagnosticDialog; delete globalThis.__diagnosticDialog; });
   }
   await assert.rejects(page.evaluate(() => window.petDesktop.startDrag()), /Only the pet/);
+  await checkChat(desktop, page, pet);
   await desktop.close(); desktop = undefined;
   page = await launch();
   await page.waitForFunction(() => document.body.dataset.characterKind === 'sprite', undefined, { timeout: 60000 });
@@ -108,6 +110,7 @@ try {
   assert.equal(await page.locator('#character-list .library-row').count(), 2);
   assert.equal(await page.locator('#performance-mode').inputValue(), 'battery');
   assert.equal(await page.locator('#pet-scale').inputValue(), '1.2');
+  assert.equal((await page.evaluate(() => window.petDesktop.getChatSettings())).hasKey, true);
   await page.screenshot({ path: path.join(output, 'restored-sprite-library.png') });
   assert.deepEqual(errors, []);
   await writeFile(path.join(output, 'result.json'), JSON.stringify({ ok: true, version: latest.version, directory: latest.directory, packaged, files, emptyFirstStart: true, localImport: true, persistedAfterRestart: true, spritePetRendered: true, spriteLibraryRestored: true, preferencesRestored: true, petBounds: bounds, bodyDrag, workshopDragRejected: true, rendererErrors: errors }, null, 2));

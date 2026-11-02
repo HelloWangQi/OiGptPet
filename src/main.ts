@@ -9,6 +9,7 @@ import { getSavedModel } from './model-store';
 import { DEFAULT_PREFERENCES, IDLE_AFTER_MS, PERFORMANCE_POLICIES, normalizePreferences, readPreferences, savePreferences, type DesktopPreferences } from './desktop-preferences';
 import { FramePacer } from './frame-pacer';
 import { pointerLook } from './pointer-look';
+import { setupChat } from './chat-panel';
 import { sha256Hex } from '../packages/atlas-preview/sha256';
 import { characterPackageModule, MAX_CHARACTER_BACKUP_BYTES } from './character-package-client';
 
@@ -95,6 +96,19 @@ app.innerHTML = petMode ? `
           <button class="text-button" id="save-diagnostics" ${desktop ? '' : 'hidden'}>保存桌面诊断</button>
           <p class="helper" ${desktop ? '' : 'hidden'}>记录显示器、窗口位置和性能，方便排查问题；不包含角色文件和名称。</p>
           <p class="helper" id="settings-status" role="status" aria-live="polite"></p>
+        </section>
+        <section class="detail-section chat-panel" ${desktop ? '' : 'hidden'}>
+          <h2>和伙伴聊聊</h2>
+          <details><summary>对话设置</summary>
+            <label class="field-label" for="chat-model">OpenAI 模型 ID</label><input id="chat-model" maxlength="120" placeholder="输入账户可用的模型 ID" />
+            <label class="field-label" for="chat-key">API Key</label><input id="chat-key" type="password" maxlength="512" autocomplete="off" />
+            <button id="chat-save" class="text-button" type="button">保存设置</button> <button id="chat-forget" class="text-button" type="button">移除密钥</button>
+            <p class="helper">密钥由系统加密后保存在本机。点击发送会将本次消息及最近四轮对话发送给 OpenAI API，费用由该 API 账户承担。</p>
+          </details>
+          <div id="chat-log" role="log" aria-label="本次对话"></div>
+          <form id="chat-form"><label class="field-label" for="chat-input">想说的话</label><textarea id="chat-input" maxlength="2000" rows="3"></textarea>
+            <button id="chat-send" class="button" type="submit">发送</button><button id="chat-cancel" class="text-button" type="button" hidden>取消请求</button><button id="chat-clear" class="text-button" type="button">清空对话</button></form>
+          <p class="helper" id="chat-status" role="status">请先配置对话设置。</p>
         </section>
         <section class="note-card"><span class="note-star">✦</span><div><strong>从一个喜欢的角色开始。</strong><p>角色和动作共用一套源资产。桌面实时互动，ChatGPT 播放导出的动画。</p></div></section>
         <details class="model-details"><summary>角色信息与使用说明</summary><div id="model-info">导入后显示角色元数据。</div><p>导出不代表已安装为 ChatGPT 宠物。不同入口可能支持不同规格；安装和预检在目标应用内完成。</p></details>
@@ -709,7 +723,14 @@ if (petMode) {
   window.addEventListener('drop', (event) => { event.preventDefault(); $('#drop-zone').classList.remove('dragover'); void importFile(event.dataTransfer?.files[0]); });
 }
 
+const disposeChat = setupChat(desktop, petMode, value => {
+  if (!petMode) return;
+  if (value.status === 'thinking') { transientUntil = 0; status('正在思考…'); changeState('running'); }
+  else if (value.status === 'reply') { status(value.text ?? ''); changeState('waving'); transientUntil = performance.now() + 2000; }
+  else { transientUntil = 0; status(value.status === 'error' ? '请求未完成，请在工坊查看。' : ''); changeState('idle'); }
+});
 window.addEventListener('beforeunload', () => {
+  disposeChat();
   closed = true; packageJob?.controller.abort();
   if (packageJob?.nativeStarted) void desktop?.cancelCharacterPackage(packageJob.id).catch(() => {});
   loadController?.abort(); libraryChannel.close(); library.close(); exportSession.reset(); stage?.dispose(); if (exportUrl) URL.revokeObjectURL(exportUrl);
