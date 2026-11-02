@@ -111,7 +111,7 @@ export class VrmStage {
     expressions?.setValue('blink', p.blink);
     expressions?.setValue('happy', p.happy);
     expressions?.setValue('sad', p.sad);
-    if (look) this.lookTarget.position.set(-Math.sin(look.yaw) * 3, 1.65 - Math.sin(look.pitch) * 3, 4);
+    if (look) this.lookTarget.position.set(Math.sin(look.yaw) * 3, 1.65 - Math.sin(look.pitch) * 3, 4);
     else this.lookTarget.position.set(0, 1.65, 5);
   }
 

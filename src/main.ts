@@ -8,6 +8,7 @@ import { ExportSession, type PreviewController } from './export-session';
 import { getSavedModel } from './model-store';
 import { DEFAULT_PREFERENCES, IDLE_AFTER_MS, PERFORMANCE_POLICIES, normalizePreferences, readPreferences, savePreferences, type DesktopPreferences } from './desktop-preferences';
 import { FramePacer } from './frame-pacer';
+import { pointerLook } from './pointer-look';
 import { sha256Hex } from '../packages/atlas-preview/sha256';
 import { characterPackageModule, MAX_CHARACTER_BACKUP_BYTES } from './character-package-client';
 
@@ -553,9 +554,7 @@ async function bootstrap() {
   requestAnimationFrame(frame);
   window.addEventListener('pointermove', (event) => {
     const bounds = canvasHost.getBoundingClientRect();
-    const x = event.clientX - bounds.left - bounds.width / 2;
-    const y = event.clientY - bounds.top - bounds.height / 2;
-    look = { yaw: -x / bounds.width * 0.7, pitch: y / bounds.height * 0.4, angle: (Math.atan2(x, -y) * 180 / Math.PI + 360) % 360 };
+    look = pointerLook(event.clientX, event.clientY, bounds);
     lastPointer = performance.now();
     lastInteraction = lastPointer;
     if (petMode && !forcedInteractive) {
