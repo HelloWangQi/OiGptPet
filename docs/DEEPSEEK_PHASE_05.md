@@ -1,5 +1,7 @@
 # DeepSeek 阶段五任务：D23–D24
 
+> 2026-11-02 更新：用户确认 DeepSeek 不再参与，原分工取消，由 Codex 接手。本文件保留原任务契约作为历史依据；当前实现说明见 WINDOW_STATE.md、复核与人工矩阵见 WINDOW_STABILITY_QA.md。
+
 共享目录 E:\GitWorkSpace\OiGptPet，分支 codex/desktop-prototype。先读取 PHASE_05.md。只做下述工作，完成后停止编辑、不提交、不推送。Codex 正在修改 main.cjs、window-recovery.cjs、window-recovery.test.js 和原生恢复 smoke，请勿修改这些文件、根配置和依赖。
 
 ## D23：窗口位置保存

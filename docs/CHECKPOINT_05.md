@@ -25,3 +25,26 @@
 旧位置写入仍由 main.cjs 防抖 writeFile 完成，快速退出可能丢最后一次移动。D23 将实现可 flush 的串行原子存储，Codex 收到交付后接线并验证快速退出/重启。不要把此问题视为已经修复。
 
 真实显示器拔插、100%/150%/200% DPI、真实休眠/恢复、一小时 soak、能耗、最终新版 EXE 均未验收。本轮注入测试不等于硬件测试；未改包版本、未创建 Release。本轮先保存本地开发检查点，待双方对齐再整理共同阶段提交与推送。
+
+## 同日补充：改为独立开发，完成位置持久化接线
+
+用户确认 DeepSeek 不再参与，Codex 接手原 D23–D24。本次基线为首轮检查点 98b3dde，以上“等待 D23”的描述保留为当时记录，已被本节更新。
+
+- 实现 window-state.cjs：校验/复制输入、300ms 防抖、串行 UUID 临时文件原子替换、失败回退与重试、可 await 的 flush。读取缺失/坏记录不覆盖磁盘；真实读取失败报告。
+- main.cjs 正常退出前捕获实际位置并等待 flush，期间拒绝重复退出触发新写入，冻结移动保存、释放恢复监听器。保存失败保留旧位置并记录日志后退出，不无限阻止用户关闭。
+- 补充 WINDOW_STATE.md 接口和失败边界、WINDOW_STABILITY_QA.md 实机检查矩阵及代码自查。未冒称 DeepSeek 交付或独立复核；不再等待外部协作者。
+
+| 检查 | 实际结果 |
+| --- | --- |
+| npm test | 16 文件，225 项通过（新增 17 项位置持久化检查） |
+| node --check | main.cjs、window-state.cjs 通过 |
+| 立即退出/重启及失败回退 | artifacts/window-state/run-1793585372297/result.json 通过；真实 Electron，主进程同轮 move/app.quit，延迟替换验证退出等待，重启恢复；再注入替换失败验证旧文件、错误日志、临时文件清理，再启动恢复；pageErrors 为空 |
+| 恢复接线回归 | artifacts/window-recovery/run-1793585391049/result.json 通过 |
+| 备份完整回归 | 重建测试 demo 后，artifacts/phase-04/run-1793585531937/result.json 通过；跨 profile、别名/无效内容、故障注入、20 次双窗口切换、资源探针和重启 |
+| 构建/分发 | npm run build:demo 通过；此前 C5 生产构建未改变 renderer；node scripts/package.mjs --stage-only 通过生产分发白名单（.cache/package-1793585626802/） |
+
+验证中的失败均保留：新位置 smoke 最初在 Playwright evaluate 环境中使用 require、动态 import 均不受支持；改为 .cache 下独立测试入口暴露主进程 fs 对象进行注入，不新增应用 IPC 或 preload 权限。失败目录为 artifacts/window-state/run-1793585158554/ 与 run-1793585283844/。
+
+第一次备份回归 artifacts/phase-04/run-1793585410047/ 加载了 2026-10-23 的旧 .cache/demo-dist，该目录中没有已提交的 addAndActivate 修复，故原子回退断言失败。核对生产 dist 含该实现后重建 demo，再完整复验通过；将 npm run test:phase-four 改为先 build:demo，防止缓存旧产物再次误导。未修改角色库/恢复实现或放宽其断言。
+
+第一轮软件开发与自动化验收已完成，仍未做真实显示器/DPI/休眠、系统注销/关机、一小时 soak、耗电及新版 EXE。正常 app.quit 不代表强杀/崩溃/断电也能保存。版本仍为 0.4.0，暂不发布 Release；本次保存本地检查点，下一轮从上述实机及长期验证继续。额度检查：短窗口剩余约 88%、周剩余约 42%，继续至少保留 20%。

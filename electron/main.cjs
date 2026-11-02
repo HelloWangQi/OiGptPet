@@ -4,6 +4,7 @@ const { createHash } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
 const fs = require('node:fs/promises');
 const { createWindowRecovery } = require('./window-recovery.cjs');
+const { createWindowStateStore } = require('./window-state.cjs');
 const { createPreferencesStore } = require('./preferences.cjs');
 const { createCharacterPackageSaver } = require('./character-package-save.cjs');
 
@@ -17,11 +18,13 @@ let workshop;
 let pet;
 let tray;
 let savedBounds;
-let stateTimer;
 let windowRecovery;
 let quitting = false;
+let quitFlush;
+let quitReady = false;
 let modelBytes = null;
 const statePath = () => path.join(app.getPath('userData'), 'window-state.json');
+const windowState = createWindowStateStore(statePath(), { onError: error => console.error('Window position could not be saved:', error.message) });
 const modelPath = () => path.join(app.getPath('userData'), 'current.vrm');
 const preferences = createPreferencesStore(path.join(app.getPath('userData'), 'preferences.json'));
 const characterPackageSaver = createCharacterPackageSaver({ chooseFile: (owner) => dialog.showSaveDialog(owner, {
@@ -75,15 +78,16 @@ function openPet() {
   pet = secureWindow({ ...currentBounds(), transparent: true, frame: false, hasShadow: false, resizable: false, alwaysOnTop: true, skipTaskbar: true, backgroundColor: '#00000000', title: 'OiGptPet' });
   pet.on('move', persistBounds);
   pet.on('resize', persistBounds);
+  pet.on('close', persistBounds);
   pet.on('closed', () => { pet = null; });
+  persistBounds();
   loadView(pet, 'pet').catch(console.error);
 }
 
 function persistBounds() {
-  if (!pet || pet.isDestroyed()) return;
+  if (quitting || !pet || pet.isDestroyed()) return;
   savedBounds = pet.getBounds();
-  clearTimeout(stateTimer);
-  stateTimer = setTimeout(() => fs.writeFile(statePath(), JSON.stringify(savedBounds)).catch(console.error), 300);
+  windowState.schedule(savedBounds);
 }
 
 function recoverPet() { openPet(); pet.setIgnoreMouseEvents(false); pet.show(); pet.focus(); pet.webContents.send('pet:interactive'); }
@@ -168,7 +172,7 @@ else {
     await fs.mkdir(app.getPath('userData'), { recursive: true });
     windowRecovery = createWindowRecovery({ screen, powerMonitor, getWindow: () => pet, getScale: () => preferences.get().scale });
     try { await preferences.load(); } catch (error) { console.error('Preferences could not be read:', error.message); }
-    try { savedBounds = JSON.parse(await fs.readFile(statePath(), 'utf8')); } catch { /* First launch or damaged settings. */ }
+    try { savedBounds = await windowState.load(); } catch (error) { console.error('Window position could not be read:', error.message); }
     try { const bytes = await fs.readFile(modelPath()); if (bytes.length <= 64 * 1024 * 1024) modelBytes = bytes; } catch { /* No imported model yet. */ }
     session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
     session.defaultSession.setPermissionCheckHandler(() => false);
@@ -179,7 +183,7 @@ else {
       { label: '打开角色工坊', click: openWorkshop },
       { label: '显示桌宠 / 恢复互动', click: recoverPet },
       { label: '隐藏桌宠', click: () => pet?.hide() },
-      { type: 'separator' }, { label: '退出 OiGptPet', click: () => { quitting = true; app.quit(); } },
+      { type: 'separator' }, { label: '退出 OiGptPet', click: () => app.quit() },
     ]));
     tray.on('double-click', openWorkshop);
     const registered = globalShortcut.register('CommandOrControl+Alt+P', recoverPet);
@@ -187,6 +191,17 @@ else {
     openWorkshop();
   }).catch((error) => { console.error(error); app.exit(1); });
   app.on('window-all-closed', () => { if (quitting) app.quit(); });
-  app.on('before-quit', () => { quitting = true; clearTimeout(stateTimer); });
+  app.on('before-quit', event => {
+    if (quitReady) return;
+    event.preventDefault();
+    if (quitFlush) return;
+    // Capture the live bounds before freezing move/resize persistence during shutdown.
+    persistBounds();
+    quitting = true;
+    windowRecovery?.dispose();
+    quitFlush = windowState.flush()
+      .catch(error => console.error('Last window position could not be saved:', error.message))
+      .finally(() => { quitReady = true; app.quit(); });
+  });
   app.on('will-quit', () => { windowRecovery?.dispose(); globalShortcut.unregisterAll(); });
 }

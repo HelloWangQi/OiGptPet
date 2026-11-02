@@ -15,7 +15,7 @@
     "test": "vitest run --exclude \"**/.cache/**\"",
     "test:smoke": "node scripts/smoke.mjs",
     "test:phase-three": "node scripts/phase-three-smoke.mjs",
-    "test:phase-four": "node scripts/phase-four-smoke.mjs",
+    "test:phase-four": "npm run build:demo && node scripts/phase-four-smoke.mjs",
     "test:release": "node scripts/release-smoke.mjs",
     "demo:fetch": "node scripts/fetch-demo.mjs",
     "package": "npm run build && node scripts/package.mjs"
