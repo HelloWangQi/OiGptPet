@@ -107,7 +107,8 @@ app.innerHTML = petMode ? `
           </details>
           <div id="chat-log" role="log" aria-label="本次对话"></div>
           <form id="chat-form"><label class="field-label" for="chat-input">想说的话</label><textarea id="chat-input" maxlength="2000" rows="3"></textarea>
-            <button id="chat-send" class="button" type="submit">发送</button><button id="chat-cancel" class="text-button" type="button" hidden>取消请求</button><button id="chat-clear" class="text-button" type="button">清空对话</button></form>
+            <p class="helper">Ctrl / ⌘ + Enter 发送，Enter 换行。</p>
+            <button id="chat-send" class="button" type="submit">发送</button><button id="chat-cancel" class="text-button" type="button" hidden>取消请求</button><button id="chat-retry" class="text-button" type="button" hidden>重试上一条</button><button id="chat-clear" class="text-button" type="button">清空对话</button></form>
           <p class="helper" id="chat-status" role="status">请先配置对话设置。</p>
         </section>
         <section class="note-card"><span class="note-star">✦</span><div><strong>从一个喜欢的角色开始。</strong><p>角色和动作共用一套源资产。桌面实时互动，ChatGPT 播放导出的动画。</p></div></section>

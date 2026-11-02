@@ -29,5 +29,7 @@
 .chat-panel input,.chat-panel textarea { width:100%; padding:8px; border:1px solid var(--line); border-radius:6px; background:#fafaf7; color:var(--ink); font:12px inherit; }
 #chat-log { max-height:210px; overflow:auto; font-size:12px; line-height:1.7; overflow-wrap:anywhere; white-space:pre-wrap; }
 #chat-log:empty { display:none; }
+#chat-log [data-delivery="failed"]::after { content:'（未发送成功）'; color:#a34f38; }
+#chat-log [data-delivery="cancelled"]::after { content:'（已取消）'; color:#777; }
 #chat-form .button { display:inline-flex; margin:8px 10px 0 0; background:#dfe6d7; }
 #pet-message { max-height:145px; overflow:auto; overflow-wrap:anywhere; white-space:pre-wrap; }

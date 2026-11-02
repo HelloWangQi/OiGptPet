@@ -83,4 +83,47 @@ describe('text companion service', () => {
     const f = await configured({ fetch: async () => new Response('x'.repeat(256 * 1024 + 1)) });
     expect((await f.service.send('hi')).error).toContain('大小限制');
   });
+  it('settles cancellation even when a network adapter ignores AbortSignal, and closes its late body', async () => {
+    let resolve; const fetch = vi.fn(() => new Promise(done => { resolve = done; }));
+    const f = await configured({ fetch }); const pending = f.service.send('cancel');
+    await vi.waitFor(() => expect(resolve).toBeTypeOf('function'));
+    f.service.cancel();
+    expect(await pending).toEqual({ cancelled: true });
+    const close = vi.fn(); const response = new Response(new ReadableStream({ cancel: close }));
+    resolve(response); await vi.waitFor(() => expect(close).toHaveBeenCalled());
+    expect(f.states.some(state => state.status === 'reply')).toBe(false);
+  });
+  it('times out stalled native decryption without making a request', async () => {
+    const f = await configured({ timeoutMs: 20 });
+    f.config.safeStorage.decryptStringAsync = () => new Promise(() => {});
+    expect((await f.service.send('timeout')).error).toContain('超时');
+    expect(f.fetch).not.toHaveBeenCalled();
+  });
+  it('can cancel a response stream and allow another request', async () => {
+    const cancel = vi.fn();
+    const f = await configured({ fetch: vi.fn().mockResolvedValueOnce(new Response(new ReadableStream({ cancel }))).mockImplementation(async () => answer('新回复')) });
+    const pending = f.service.send('waiting');
+    await vi.waitFor(() => expect(f.config.fetch).toHaveBeenCalled());
+    f.service.cancel(); expect(await pending).toEqual({ cancelled: true });
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalled());
+    expect(await f.service.send('new')).toEqual({ text: '新回复' });
+  });
+  it('removes an existing key even with invalid unsaved fields and unavailable encryption', async () => {
+    const f = await configured(); f.config.safeStorage.isAsyncEncryptionAvailable = () => { throw new Error('unavailable'); };
+    expect(await f.service.save({ model: 'invalid model!', apiKey: 'invalid key\n', forgetKey: true }))
+      .toEqual({ model: 'test-model', hasKey: false, encryptionAvailable: false });
+    expect(JSON.parse(await fs.readFile(f.file, 'utf8')).key).toBe('');
+  });
+  it('does not query native encryption availability again after committing settings', async () => {
+    const f = await fixture();
+    f.config.safeStorage.isAsyncEncryptionAvailable = vi.fn().mockResolvedValueOnce(true).mockRejectedValue(new Error('native closed'));
+    expect(await f.service.save({ model: 'test-model', apiKey: 'test-key' })).toEqual({ model: 'test-model', hasKey: true, encryptionAvailable: true });
+    expect(f.config.safeStorage.isAsyncEncryptionAvailable).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(await fs.readFile(f.file, 'utf8')).model).toBe('test-model');
+  });
+  it('a destroyed event consumer cannot turn a committed save into a reported failure', async () => {
+    const f = await fixture({ onState: () => { throw new Error('window closed'); } });
+    expect((await f.service.save({ model: 'test-model', apiKey: 'test-key' })).hasKey).toBe(true);
+    expect(await f.service.send('hi')).toEqual({ text: '你好' });
+  });
 });

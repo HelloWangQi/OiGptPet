@@ -7,44 +7,70 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
   const model = $<HTMLInputElement>('chat-model'); const key = $<HTMLInputElement>('chat-key');
   const input = $<HTMLTextAreaElement>('chat-input'); const send = $<HTMLButtonElement>('chat-send');
   const cancel = $<HTMLButtonElement>('chat-cancel'); const save = $<HTMLButtonElement>('chat-save');
-  const forget = $<HTMLButtonElement>('chat-forget'); const status = $('chat-status'); const log = $('chat-log');
-  let busy = false; let saving = false; let revision = 0; let closed = false;
+  const forget = $<HTMLButtonElement>('chat-forget'); const retry = $<HTMLButtonElement>('chat-retry');
+  const clear = $<HTMLButtonElement>('chat-clear'); const status = $('chat-status'); const log = $('chat-log');
+  let busy = false; let saving = false; let initializing = true; let configured = false; let revision = 0; let closed = false;
+  let failed: { text: string; row: HTMLElement } | undefined;
   const append = (role: string, text: string) => {
     const row = document.createElement('p'); row.textContent = `${role}：${text}`; log.append(row);
     while (log.children.length > 12) log.firstElementChild?.remove();
-    log.scrollTop = log.scrollHeight;
+    log.scrollTop = log.scrollHeight; return row;
   };
-  const controls = () => { send.disabled = busy; save.disabled = busy; forget.disabled = busy; model.disabled = busy; key.disabled = busy; cancel.hidden = !busy || saving; $<HTMLButtonElement>('chat-clear').disabled = saving; };
+  const controls = () => {
+    send.disabled = busy || initializing || !configured;
+    save.disabled = forget.disabled = model.disabled = key.disabled = busy || initializing;
+    clear.disabled = saving || initializing; cancel.hidden = !busy || saving;
+    retry.hidden = !failed; retry.disabled = busy || initializing || !configured;
+  };
   const configure = (value: { model: string; hasKey: boolean; encryptionAvailable: boolean }) => {
-    model.value = value.model; key.value = '';
+    model.value = value.model; key.value = ''; configured = Boolean(value.model && value.hasKey && value.encryptionAvailable);
     key.placeholder = value.hasKey ? '已保存；留空保留原密钥' : '输入 API Key';
     status.textContent = !value.encryptionAvailable ? '系统安全存储不可用。' : value.hasKey ? '配置已保存，可以开始对话。' : '请设置模型 ID 和 API Key。';
   };
-  void api.getChatSettings().then(value => { if (!closed) configure(value); }).catch(() => { status.textContent = '配置读取失败，请重试保存。'; });
+  controls();
+  void api.getChatSettings().then(value => { if (!closed) configure(value); })
+    .catch(() => { if (!closed) status.textContent = '配置读取失败，请重试保存。'; })
+    .finally(() => { if (!closed) { initializing = false; controls(); } });
   const saveSettings = async (forgetKey = false) => {
-    if (busy) return; busy = true; saving = true; controls();
+    if (busy || initializing) return; busy = true; saving = true; controls();
     const apiKey = key.value; key.value = '';
-    try { configure(await api.saveChatSettings({ model: model.value, ...(apiKey ? { apiKey } : {}), forgetKey })); log.replaceChildren(); }
-    catch { status.textContent = '设置保存失败，请检查模型 ID、密钥和系统安全存储。'; }
-    finally { busy = false; saving = false; controls(); }
+    try { const value = await api.saveChatSettings({ model: model.value, ...(apiKey ? { apiKey } : {}), forgetKey });
+      if (!closed) { configure(value); log.replaceChildren(); failed = undefined; }
+    } catch { if (!closed) status.textContent = '设置保存失败，请检查模型 ID、密钥和系统安全存储。'; }
+    finally { if (!closed) { busy = false; saving = false; controls(); } }
   };
   save.onclick = () => void saveSettings(); forget.onclick = () => void saveSettings(true);
-  $('chat-form').onsubmit = async event => {
-    event.preventDefault(); if (busy || !input.value.trim()) return;
-    const text = input.value; input.value = ''; const run = ++revision; busy = true; controls();
-    append('你', text); status.textContent = '正在思考…';
+  const submit = async (text: string, previous?: HTMLElement) => {
+    if (busy || initializing || !configured || !text.trim()) return;
+    const run = ++revision; busy = true; failed = undefined; controls();
+    // Only clear the draft being sent. A newer draft remains available while retrying.
+    if (input.value === text) input.value = '';
+    const row = previous ?? append('你', text); row.dataset.delivery = 'pending'; status.textContent = '正在思考…';
+    const restore = (message: string, delivery: string) => {
+      row.dataset.delivery = delivery; failed = { text, row };
+      if (!input.value) input.value = text;
+      status.textContent = message;
+    };
     try {
       const result = await api.sendChat(text);
       if (run !== revision || closed) return;
-      if (result.text) { append('伙伴', result.text); status.textContent = '回复完成。'; }
-      else status.textContent = result.error ?? '已取消。';
-    } catch { if (run === revision) status.textContent = '请求失败，请检查配置或等待当前请求结束。'; }
-    finally { if (run === revision) { busy = false; controls(); } }
+      if (result.text) { row.dataset.delivery = 'sent'; append('伙伴', result.text); status.textContent = '回复完成。'; }
+      else restore(result.error ?? '已取消，可修改原消息或重试。', result.cancelled ? 'cancelled' : 'failed');
+    } catch { if (run === revision && !closed) restore('请求失败，原消息已保留，可以重试。', 'failed'); }
+    finally { if (run === revision && !closed) { busy = false; controls(); } }
   };
-  cancel.onclick = () => { void api.cancelChat().catch(() => { status.textContent = '取消失败，请重试。'; }); };
-  $('chat-clear').onclick = async () => {
-    try { await api.clearChat(); ++revision; busy = false; log.replaceChildren(); controls(); status.textContent = '本次对话已清空。'; }
-    catch { status.textContent = '清空失败，请重试。'; }
+  $('chat-form').onsubmit = event => { event.preventDefault(); void submit(input.value); };
+  input.onkeydown = event => {
+    if (event.key === 'Enter' && (event.ctrlKey || event.metaKey) && !event.isComposing && !event.repeat) {
+      event.preventDefault(); void submit(input.value);
+    }
+  };
+  retry.onclick = () => { if (failed) void submit(failed.text, failed.row); };
+  cancel.onclick = () => { void api.cancelChat().catch(() => { if (!closed) status.textContent = '取消失败，请重试。'; }); };
+  clear.onclick = async () => {
+    if (saving || initializing) return;
+    try { await api.clearChat(); if (!closed) { ++revision; busy = false; failed = undefined; log.replaceChildren(); controls(); status.textContent = '本次对话已清空。'; } }
+    catch { if (!closed) status.textContent = '清空失败，请重试。'; }
   };
   return () => { closed = true; ++revision; unsubscribe(); };
 }
