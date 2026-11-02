@@ -49,7 +49,8 @@ describe('text companion service', () => {
     const [url, request] = f.fetch.mock.calls.at(-1); const body = JSON.parse(request.body);
     expect(url).toBe('https://api.openai.com/v1/responses'); expect(request.redirect).toBe('error');
     expect(body.store).toBe(false); expect(body.input).toHaveLength(9); expect(body.max_output_tokens).toBe(600);
-    expect(f.states.at(-1)).toEqual({ status: 'reply', text: '你好' });
+    expect(body.stream).toBe(true);
+    expect(f.states.at(-1)).toMatchObject({ status: 'reply', text: '你好' });
   });
   it('does not show or remember a late reply after clear and permits a new request', async () => {
     let resolve; const f = await configured({ fetch: vi.fn().mockImplementationOnce(() => new Promise(done => { resolve = done; })).mockImplementation(async () => answer('新回复')) });
@@ -125,5 +126,30 @@ describe('text companion service', () => {
     const f = await fixture({ onState: () => { throw new Error('window closed'); } });
     expect((await f.service.save({ model: 'test-model', apiKey: 'test-key' })).hasKey).toBe(true);
     expect(await f.service.send('hi')).toEqual({ text: '你好' });
+  });
+  it('streams correlated partial text but only stores the completed response', async () => {
+    const frame = value => 'data: ' + JSON.stringify(value) + '\n\n';
+    const source = frame({ type: 'response.output_text.delta', delta: '草稿', output_index: 0, content_index: 0 })
+      + frame({ type: 'response.completed', response: { status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: '最终回复' }] }] } });
+    const f = await configured({ fetch: vi.fn().mockResolvedValueOnce(new Response(source, { headers: { 'content-type': 'text/event-stream' } })).mockImplementation(async () => answer('next')) });
+    const requestId = '12345678-1234-1234-1234-123456789abc';
+    expect(await f.service.send('hi', requestId)).toEqual({ text: '最终回复' });
+    expect(f.states).toContainEqual({ status: 'streaming', text: '草稿', requestId });
+    expect(f.states.at(-1)).toEqual({ status: 'reply', text: '最终回复', requestId });
+    await f.service.send('next'); const input = JSON.parse(f.config.fetch.mock.calls[1][1].body).input;
+    expect(input[1].content).toBe('最终回复'); expect(JSON.stringify(input)).not.toContain('草稿');
+    await expect(f.service.send('bad id', 'not-a-valid-id')).rejects.toThrow('标识');
+  });
+  it('cancels pending progress notifications and never stores an interrupted partial', async () => {
+    let controller;
+    const f = await configured({ fetch: vi.fn().mockImplementationOnce(async () => new Response(new ReadableStream({ start(value) { controller = value; } }), { headers: { 'content-type': 'text/event-stream' } })).mockImplementation(async () => answer('new reply')) });
+    const pending = f.service.send('cancel me');
+    await vi.waitFor(() => expect(controller).toBeTruthy());
+    controller.enqueue(new TextEncoder().encode('data: {"type":"response.output_text.delta","delta":"first","output_index":0,"content_index":0}\n\n'));
+    await vi.waitFor(() => expect(f.states.some(state => state.status === 'streaming')).toBe(true));
+    controller.enqueue(new TextEncoder().encode('data: {"type":"response.output_text.delta","delta":" second","output_index":0,"content_index":0}\n\n'));
+    f.service.clear(); expect(await pending).toEqual({ cancelled: true });
+    const count = f.states.length; await new Promise(resolve => setTimeout(resolve, 70)); expect(f.states).toHaveLength(count);
+    await f.service.send('new'); expect(JSON.parse(f.config.fetch.mock.calls[1][1].body).input).toHaveLength(1);
   });
 });

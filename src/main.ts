@@ -727,6 +727,7 @@ if (petMode) {
 const disposeChat = setupChat(desktop, petMode, value => {
   if (!petMode) return;
   if (value.status === 'thinking') { transientUntil = 0; status('正在思考…'); changeState('running'); }
+  else if (value.status === 'streaming') { status(value.text ?? ''); }
   else if (value.status === 'reply') { status(value.text ?? ''); changeState('waving'); transientUntil = performance.now() + 2000; }
   else { transientUntil = 0; status(value.status === 'error' ? '请求未完成，请在工坊查看。' : ''); changeState('idle'); }
 });

@@ -1,5 +1,6 @@
 const { randomUUID } = require('node:crypto');
 const path = require('node:path');
+const { readResponseText } = require('./response-stream.cjs');
 
 // Race every awaited step, including native decryption and response reads.
 // Some providers/adapters can ignore AbortSignal; they must not lock the UI.
@@ -23,7 +24,7 @@ function createChatService({ file, fs, safeStorage, fetch, onState = () => {}, t
   const emit = state => { try { onState(state); } catch { /* A closing view must not invalidate committed settings or replies. */ } };
   const cancel = () => {
     if (!active) return;
-    const previous = active; active = undefined; previous.controller.abort(); emit({ status: 'cancelled' });
+    const previous = active; active = undefined; previous.controller.abort(); clearTimeout(previous.progressTimer); emit({ status: 'cancelled', requestId: previous.id });
   };
   return {
     async load() {
@@ -64,14 +65,26 @@ function createChatService({ file, fs, safeStorage, fetch, onState = () => {}, t
     },
     cancel,
     clear() { cancel(); history = []; emit({ status: 'cleared' }); },
-    async send(text) {
+    async send(text, requestId) {
       if (typeof text !== 'string' || !text.trim() || text.length > 2000) throw new Error('消息长度需为 1–2000 字。');
+      if (requestId !== undefined && (typeof requestId !== 'string' || !/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(requestId))) throw new Error('对话请求标识无效。');
       if (active || saving) throw new Error('请等待当前操作完成。');
       if (!config.model || !config.key) throw new Error('请先保存模型 ID 和 API Key。');
-      const session = { controller: new AbortController() }; active = session;
+      const session = { controller: new AbortController(), id: requestId ?? randomUUID(), lastProgress: 0, partial: '' }; active = session;
+      const progress = text => {
+        if (active !== session || session.controller.signal.aborted) return;
+        session.partial = text;
+        const publish = () => {
+          session.progressTimer = undefined;
+          if (active !== session || session.controller.signal.aborted) return;
+          session.lastProgress = Date.now(); emit({ status: 'streaming', text: session.partial, requestId: session.id });
+        };
+        if (Date.now() - session.lastProgress >= 50) { clearTimeout(session.progressTimer); publish(); }
+        else if (!session.progressTimer) session.progressTimer = setTimeout(publish, 50);
+      };
       let timedOut = false;
       const timer = setTimeout(() => { timedOut = true; session.controller.abort(); }, timeoutMs);
-      emit({ status: 'thinking' });
+      emit({ status: 'thinking', requestId: session.id });
       try {
         const signal = session.controller.signal;
         if (!await abortable(available, signal)) throw new Error('系统安全存储不可用。');
@@ -80,35 +93,21 @@ function createChatService({ file, fs, safeStorage, fetch, onState = () => {}, t
         const response = await abortable(() => fetch('https://api.openai.com/v1/responses', {
           method: 'POST', redirect: 'error', signal: session.controller.signal,
           headers: { Authorization: `Bearer ${key}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ model: config.model, store: false, max_output_tokens: 600,
+          body: JSON.stringify({ model: config.model, store: false, stream: true, max_output_tokens: 600,
             instructions: '你是一位友善的桌面动漫伙伴。用用户的语言简短自然地交流。不要声称能操作电脑或读取文件。',
             input: [...history, { role: 'user', content: text.trim() }] }),
         }), signal, late => { void late.body?.cancel().catch(() => {}); });
-        if (!response.ok) throw new Error(`服务请求失败（HTTP ${response.status}）。请检查密钥、模型权限或余额。`);
-        const reader = response.body.getReader(); const chunks = []; let size = 0;
-        const cancelReader = () => { void reader.cancel().catch(() => {}); };
-        signal.addEventListener('abort', cancelReader, { once: true });
-        try {
-          while (true) {
-            const { done, value } = await abortable(() => reader.read(), signal); if (done) break;
-            size += value.length; if (size > 256 * 1024) { cancelReader(); throw new Error('服务回复超过大小限制。'); }
-            chunks.push(Buffer.from(value));
-          }
-        } finally { signal.removeEventListener('abort', cancelReader); reader.releaseLock(); }
-        const data = JSON.parse(Buffer.concat(chunks).toString('utf8'));
-        if (data.status !== 'completed') throw new Error('服务未完成回复，请重试。');
-        const reply = (data.output ?? []).filter(item => item.type === 'message').flatMap(item => item.content ?? [])
-          .filter(item => item.type === 'output_text' && typeof item.text === 'string').map(item => item.text).join('\n').trim();
-        if (!reply || reply.length > 8000) throw new Error('服务未返回有效文本。');
+        if (!response.ok) { void response.body?.cancel().catch(() => {}); throw new Error(`服务请求失败（HTTP ${response.status}）。请检查密钥、模型权限或余额。`); }
+        const reply = await readResponseText(response, { signal, wait: abortable, onText: progress });
         if (active !== session || session.controller.signal.aborted) return { cancelled: true };
         history = [...history, { role: 'user', content: text.trim() }, { role: 'assistant', content: reply }].slice(-8);
-        emit({ status: 'reply', text: reply }); return { text: reply };
+        clearTimeout(session.progressTimer); emit({ status: 'reply', text: reply, requestId: session.id }); return { text: reply };
       } catch (error) {
         if (active !== session) return { cancelled: true };
         const message = timedOut ? '请求已超时，请重试。' : session.controller.signal.aborted ? '已取消。'
           : /^服务|^系统安全/.test(error.message) ? error.message : '连接或回复处理失败，请检查网络和配置。';
-        emit({ status: 'error', text: message }); return { error: message };
-      } finally { clearTimeout(timer); if (active === session) active = undefined; }
+        clearTimeout(session.progressTimer); emit({ status: 'error', text: message, requestId: session.id }); return { error: message };
+      } finally { clearTimeout(timer); clearTimeout(session.progressTimer); if (active === session) active = undefined; }
     },
   };
 }

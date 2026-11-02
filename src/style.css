@@ -31,5 +31,7 @@
 #chat-log:empty { display:none; }
 #chat-log [data-delivery="failed"]::after { content:'（未发送成功）'; color:#a34f38; }
 #chat-log [data-delivery="cancelled"]::after { content:'（已取消）'; color:#777; }
+#chat-log [data-reply-state="partial"]::after { content:'（生成中…）'; color:#777; }
+#chat-log [data-reply-state="incomplete"]::after { content:'（未完成，未加入上下文）'; color:#a34f38; }
 #chat-form .button { display:inline-flex; margin:8px 10px 0 0; background:#dfe6d7; }
 #pet-message { max-height:145px; overflow:auto; overflow-wrap:anywhere; white-space:pre-wrap; }

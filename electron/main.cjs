@@ -123,7 +123,7 @@ function handlers() {
   const chatOwner = event => { if (trusted(event) !== workshop) throw new Error('Only the workshop can control chat'); };
   ipcMain.handle('chat:get', event => { chatOwner(event); return chat.get(); });
   ipcMain.handle('chat:save', (event, value) => { chatOwner(event); return chat.save(value); });
-  ipcMain.handle('chat:send', (event, text) => { chatOwner(event); return chat.send(text); });
+  ipcMain.handle('chat:send', (event, text, requestId) => { chatOwner(event); return chat.send(text, requestId); });
   ipcMain.handle('chat:cancel', event => { chatOwner(event); chat.cancel(); });
   ipcMain.handle('chat:clear', event => { chatOwner(event); chat.clear(); });
   const saveDiagnostics = createDiagnosticsExporter({

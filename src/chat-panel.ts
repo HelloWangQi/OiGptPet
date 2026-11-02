@@ -1,7 +1,9 @@
 type Desktop = NonNullable<Window['petDesktop']>;
-export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (state: { status: string; text?: string }) => void) {
+type ChatState = { status: string; text?: string; requestId?: string };
+export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (state: ChatState) => void) {
   if (!api) return () => {};
-  const unsubscribe = api.onChatState(onState);
+  let receive = onState;
+  const unsubscribe = api.onChatState(value => receive(value));
   if (petMode) return unsubscribe;
   const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
   const model = $<HTMLInputElement>('chat-model'); const key = $<HTMLInputElement>('chat-key');
@@ -10,11 +12,21 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
   const forget = $<HTMLButtonElement>('chat-forget'); const retry = $<HTMLButtonElement>('chat-retry');
   const clear = $<HTMLButtonElement>('chat-clear'); const status = $('chat-status'); const log = $('chat-log');
   let busy = false; let saving = false; let initializing = true; let configured = false; let revision = 0; let closed = false;
-  let failed: { text: string; row: HTMLElement } | undefined;
+  let failed: { text: string; row: HTMLElement; partial?: HTMLElement } | undefined;
+  let pending: { run: number; requestId: string; partial?: HTMLElement } | undefined;
   const append = (role: string, text: string) => {
     const row = document.createElement('p'); row.textContent = `${role}：${text}`; log.append(row);
     while (log.children.length > 12) log.firstElementChild?.remove();
     log.scrollTop = log.scrollHeight; return row;
+  };
+  receive = value => {
+    onState(value);
+    if (closed || !busy || saving || !pending || pending.run !== revision || value.requestId !== pending.requestId) return;
+    if (value.status === 'streaming' && value.text) {
+      pending.partial ??= append('伙伴', '');
+      pending.partial.textContent = `伙伴：${value.text}`; pending.partial.dataset.replyState = 'partial';
+      status.textContent = '正在回复…'; log.scrollTop = log.scrollHeight;
+    }
   };
   const controls = () => {
     send.disabled = busy || initializing || !configured;
@@ -42,22 +54,30 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
   save.onclick = () => void saveSettings(); forget.onclick = () => void saveSettings(true);
   const submit = async (text: string, previous?: HTMLElement) => {
     if (busy || initializing || !configured || !text.trim()) return;
-    const run = ++revision; busy = true; failed = undefined; controls();
+    const run = ++revision; const requestId = crypto.randomUUID();
+    if (previous && failed?.partial) failed.partial.remove();
+    busy = true; failed = undefined; pending = { run, requestId }; controls();
     // Only clear the draft being sent. A newer draft remains available while retrying.
     if (input.value === text) input.value = '';
     const row = previous ?? append('你', text); row.dataset.delivery = 'pending'; status.textContent = '正在思考…';
     const restore = (message: string, delivery: string) => {
-      row.dataset.delivery = delivery; failed = { text, row };
+      row.dataset.delivery = delivery;
+      const partial = pending?.partial; if (partial) partial.dataset.replyState = 'incomplete';
+      failed = { text, row, partial };
       if (!input.value) input.value = text;
       status.textContent = message;
     };
     try {
-      const result = await api.sendChat(text);
+      const result = await api.sendChat(text, requestId);
       if (run !== revision || closed) return;
-      if (result.text) { row.dataset.delivery = 'sent'; append('伙伴', result.text); status.textContent = '回复完成。'; }
+      if (result.text) {
+        row.dataset.delivery = 'sent';
+        const reply = pending?.partial ?? append('伙伴', ''); reply.textContent = `伙伴：${result.text}`; delete reply.dataset.replyState;
+        status.textContent = '回复完成。';
+      }
       else restore(result.error ?? '已取消，可修改原消息或重试。', result.cancelled ? 'cancelled' : 'failed');
     } catch { if (run === revision && !closed) restore('请求失败，原消息已保留，可以重试。', 'failed'); }
-    finally { if (run === revision && !closed) { busy = false; controls(); } }
+    finally { if (run === revision && !closed) { busy = false; pending = undefined; controls(); } }
   };
   $('chat-form').onsubmit = event => { event.preventDefault(); void submit(input.value); };
   input.onkeydown = event => {
@@ -69,7 +89,7 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
   cancel.onclick = () => { void api.cancelChat().catch(() => { if (!closed) status.textContent = '取消失败，请重试。'; }); };
   clear.onclick = async () => {
     if (saving || initializing) return;
-    try { await api.clearChat(); if (!closed) { ++revision; busy = false; failed = undefined; log.replaceChildren(); controls(); status.textContent = '本次对话已清空。'; } }
+    try { await api.clearChat(); if (!closed) { ++revision; busy = false; pending = undefined; failed = undefined; log.replaceChildren(); controls(); status.textContent = '本次对话已清空。'; } }
     catch { if (!closed) status.textContent = '清空失败，请重试。'; }
   };
   return () => { closed = true; ++revision; unsubscribe(); };
