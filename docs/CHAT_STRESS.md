@@ -15,6 +15,9 @@ npm run test:chat-stress
 # 0.8.1 增加：VRM/精灵图、隐藏和回复混合负载
 node scripts/chat-stress.mjs --mixed --cycles 4
 npm run test:chat-mixed
+
+# 固定两个窗口，八轮切换，每次等待 5 秒再记录回收后的样本
+npm run test:chat-memory
 ```
 
 `--cycles` 接受 4–200 的整数。本机需有 `artifacts/animation-fixes/run-04/atlas-v2.png`；资源不随公开包分发。每轮通过真实 UI 发送，测试服务校验请求上下文；不是直接调用服务层代替窗口交互。启动前检查包内所有 Electron 模块和前端文件与当前本地编译结果逐字节相同、版本相同，并检查分发白名单。运行中不要操作测试窗口。
@@ -40,3 +43,13 @@ npm run test:chat-mixed
 启动前注入资源探针，每次切换和每轮结束检查两个窗口的上下文/bitmap 计数：只保留当前角色的一个 WebGL 上下文或一个图集 bitmap。探针只计应用创建及释放调用，不能作为实际显存释放证明。每个类型分别采样进程指标，避免用 VRM 的内存基线与精灵图直接相减。
 
 混合模式产物在 `artifacts/chat-mixed/run-*/`，profile 仍使用隔离的 `.cache/chat-stress-*`。成功报告含 `mixed=true` 和每轮两次切换及一次隐藏恢复的 `mixedActions`，样本含两个窗口的资源计数。本模式仍是按轮数运行，不以执行时间不足 3600 秒的结果冒充满小时；GPU/CPU 资源开销受到软件渲染影响。隐藏判断采用原生窗口可见性与实际绘制计数，不依赖隐藏窗口的定时器是否被调度。
+
+## 固定窗口与内存回收采样（0.8.2）
+
+`--mixed --fixed-windows --cycles 8 --settle-seconds 5` 是一轮有界定位检查。加载就绪后固定工坊和桌宠窗口，不在循环中刷新/销毁重建；取消方式轮换为显式取消和清空，仍检查流式回复、重试、隐藏、改名和迟到响应。每次角色切换后分别记录 `memoryPhase=post-load` 和等待后的 `settled`，每轮结束再记 `cycle-end`。最后仍退出并重启验证配置/会话边界，不计入固定窗口采样。等待时间为 0–30 秒整数，不保证 5 秒后已经进入稳态。
+
+`artifacts/chat-memory/run-*/` 保存固定窗口结果，`windows` 中包括窗口角色、原生 PID、窗口 ID、原生可见性；进程样本增加 `roles`，共享 PID 不拆分或重复计算内存。按 PID+进程创建时间+角色类型分组，PID 不会被当作永久身份。`mainMemory` 是 Node 内存字节数，`workshopHeap` / `petHeap` 是 Chromium `performance.memory` 的近似字节数，不等于精确保留堆或原生内存。
+
+资源探针增加已知回归资源的非图集 ImageBitmap 创建/关闭计数 `textureBitmaps` / `textureClosed`（图集仍按尺寸单独计数）。切回精灵图后，两个窗口的非图集位图差必须为零。它验证显式 `close()`，不追踪 GC，也不证明操作系统立即归还内存；尺寸分类只用于这组已知测试资源。
+
+报告继续保留包含初始化/加载样本的原始 `memory` 与 `memoryNeedsReview`，另给仅 `settled` 样本的 `settledMemory` / `settledMemoryNeedsReview`。两者使用相同阈值，绝不通过隐藏原始增长或强制 GC 判定通过。固定窗口短测只有定位意义，不替代预热后的真实满小时、实际 GPU 或用户账户验收。

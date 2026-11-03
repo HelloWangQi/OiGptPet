@@ -1,6 +1,6 @@
 // Serialized by Playwright before the page loads. No application APIs are added.
 export function installStabilityProbe() {
-  const probe = { contexts: 0, lost: 0, bitmaps: 0, closed: 0, glDraws: 0, spriteDraws: 0 };
+  const probe = { contexts: 0, lost: 0, bitmaps: 0, closed: 0, textureBitmaps: 0, textureClosed: 0, glDraws: 0, spriteDraws: 0 };
   window.__stabilityProbe = probe;
   const seen = new WeakSet();
   const context = HTMLCanvasElement.prototype.getContext;
@@ -32,10 +32,10 @@ export function installStabilityProbe() {
   const bitmap = window.createImageBitmap;
   window.createImageBitmap = async (...args) => {
     const result = await bitmap(...args);
-    if (result.width === 1536 && [1872, 2288].includes(result.height)) {
-      probe.bitmaps++; const close = result.close.bind(result); let closed = false;
-      result.close = () => { if (!closed) { closed = true; probe.closed++; } close(); };
-    }
+    const atlas = result.width === 1536 && [1872, 2288].includes(result.height);
+    const created = atlas ? 'bitmaps' : 'textureBitmaps'; const released = atlas ? 'closed' : 'textureClosed';
+    probe[created]++; const close = result.close.bind(result); let closed = false;
+    result.close = () => { if (!closed) { closed = true; probe[released]++; } close(); };
     return result;
   };
 }
