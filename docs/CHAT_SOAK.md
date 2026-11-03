@@ -37,3 +37,7 @@ npm run test:chat-soak
 `rawMemory` 包含初始化及过渡数据；`memory` 仅使用预热后的 stable 独立样本。两者都按 PID+进程创建时间+角色类型分组，并使用既有阈值（至少 5 样本、净增超过 100 MiB 且斜率超过 1 MiB/min）。不修改阈值或强制 GC。近似 JS 堆不是精确保留堆，资源 close 调用不代表操作系统立即归还所有内存。
 
 `ok=true` / `completeHour=true` 表示该配置的功能与时长检查完成；若 memoryNeedsReview 为 true，内存稳定性仍需复核。即便没有提示，也不能证明任意设备上永无泄漏。SwiftShader 软件渲染和模拟服务不替代真实账户、GPU/能耗、多屏/DPI/休眠或 ChatGPT 官方宠物安装验收。
+
+## 2026-11-03 正式记录
+
+源码 2526a24，实际观察 3600.50 秒通过；32 个完整循环、185 次模拟请求、261 次定时采样，未跳过采样，最大间隔 19.73 秒。预热后 memoryNeedsReview=false；包含预热及过渡的 rawMemoryNeedsReview=true，GPU 正斜率继续保留为观察项。详细数据、范围及产物见 [CHECKPOINT_08_SOAK.md](CHECKPOINT_08_SOAK.md)。
