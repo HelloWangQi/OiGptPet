@@ -8,11 +8,14 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { assertAppDistribution } from './distribution.mjs';
 import { summarizeMemory } from './stability-metrics.mjs';
+import { installStabilityProbe } from './stability-probe.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const args = process.argv.slice(2);
-const cycles = args.length === 0 ? 24 : args.length === 2 && args[0] === '--cycles' ? Number(args[1]) : NaN;
-if (!Number.isInteger(cycles) || cycles < 4 || cycles > 200) throw new Error('Use --cycles N (integer, 4–200; default 24).');
+const mixed = args.includes('--mixed');
+const cycleArgs = args.filter(arg => arg !== '--mixed');
+const cycles = cycleArgs.length === 0 ? 24 : cycleArgs.length === 2 && cycleArgs[0] === '--cycles' ? Number(cycleArgs[1]) : NaN;
+if (args.filter(arg => arg === '--mixed').length > 1 || !Number.isInteger(cycles) || cycles < 4 || cycles > 200) throw new Error('Use [--mixed] [--cycles N] (integer, 4–200; default 24).');
 const latest = JSON.parse(await readFile(path.join(root, 'release/latest.json'), 'utf8'));
 const releaseRoot = path.resolve(root, 'release');
 assert.equal(typeof latest.directory, 'string');
@@ -35,7 +38,7 @@ assert.equal(latest.version, version);
 const git = args => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
 const source = { commit: git(['rev-parse', 'HEAD']), dirty: Boolean(git(['status', '--porcelain'])), runtimeSha256: digests };
 const run = Date.now();
-const outputRoot = path.join(root, 'artifacts/chat-stress');
+const outputRoot = path.join(root, mixed ? 'artifacts/chat-mixed' : 'artifacts/chat-stress');
 const output = path.join(outputRoot, `run-${run}`);
 const profile = path.join(root, `.cache/chat-stress-${run}`);
 await mkdir(output, { recursive: true });
@@ -44,10 +47,11 @@ for (const name of ['ELECTRON_RUN_AS_NODE', 'OIGPTPET_DEV_URL', 'OIGPTPET_SMOKE_
 const errors = []; const samples = []; const actions = [];
 const began = performance.now();
 let desktop; let page; let pet; let closing = false; let interrupted = false; let expected = []; let requests = 0;
+let currentKind = 'sprite'; const characters = {}; const mixedActions = [];
 const stop = () => { interrupted = true; };
 process.once('SIGINT', stop); process.once('SIGTERM', stop);
 const elapsed = () => (performance.now() - began) / 1000;
-const ready = target => target.waitForFunction(() => document.body.dataset.characterKind === 'sprite' && !document.querySelector('#chat-model').disabled, undefined, { timeout: 60000, polling: 100 });
+const ready = target => target.waitForFunction(kind => document.body.dataset.characterKind === kind && !document.querySelector('#chat-model').disabled, currentKind, { timeout: 60000, polling: 100 });
 const snapshot = () => page.evaluate(() => window.petDesktop.getChatSnapshot());
 function attach(target) {
   target.on('pageerror', error => errors.push(error.message));
@@ -82,11 +86,52 @@ async function launch() {
   });
   page = await desktop.firstWindow(); attach(page);
   await page.locator('#import-button').waitFor();
+  if (mixed) { await desktop.context().addInitScript(installStabilityProbe); await page.reload(); await page.locator('#import-button').waitFor(); }
 }
 async function openPet() {
   const opening = desktop.waitForEvent('window');
   await page.evaluate(() => window.petDesktop.openPet()); pet = await opening; attach(pet);
-  await pet.waitForFunction(() => document.body.dataset.characterKind === 'sprite', undefined, { timeout: 60000, polling: 100 });
+  await pet.waitForFunction(kind => document.body.dataset.characterKind === kind, currentKind, { timeout: 60000, polling: 100 });
+}
+async function probe(target) { return target.evaluate(() => ({ ...window.__stabilityProbe })); }
+async function measure(label, extra = {}) {
+  const row = { label, ...extra, elapsedSeconds: elapsed(), kind: currentKind, processes: await desktop.evaluate(({ app }) => app.getAppMetrics()) };
+  if (mixed) {
+    for (const [name, target] of [['workshop', page], ['pet', pet]]) {
+      const value = await probe(target); row[name] = value;
+      assert.equal(value.contexts - value.lost, currentKind === 'vrm' ? 1 : 0, `${name}: only the current VRM context may remain`);
+      assert.equal(value.bitmaps - value.closed, currentKind === 'sprite' ? 1 : 0, `${name}: only the current atlas bitmap may remain`);
+    }
+  }
+  samples.push(row); await appendFile(path.join(output, 'samples.ndjson'), JSON.stringify(row) + '\n');
+}
+async function switchCharacter(kind, message, cycle, phase) {
+  const before = await snapshot(); const started = performance.now();
+  await page.locator(`[data-select-character="${characters[kind]}"]`).click(); currentKind = kind;
+  for (const target of [page, pet]) await target.waitForFunction(id => document.body.dataset.characterId === id, characters[kind], { timeout: 60000, polling: 100 });
+  await page.locator('#import-button:not([disabled])').waitFor();
+  assert.deepEqual(await snapshot(), before, 'Changing character must not change conversation state');
+  // No further deltas are emitted here: the latest bubble must survive loading.
+  await pet.waitForFunction(message => document.querySelector('#pet-message').textContent === message, message, { timeout: 5000, polling: 100 });
+  await measure('character-switch', { cycle, phase });
+  mixedActions.push({ cycle, phase, kind, durationMs: performance.now() - started });
+}
+async function hideDuringReply() {
+  await pet.evaluate(() => window.petDesktop.hidePet());
+  assert.equal(await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(win => !win.isResizable()).isVisible()), false);
+  // Hidden renderer timers can be suspended. Use native visibility and drawing
+  // counters from explicit evaluations, rather than scheduling a hidden timer.
+  await page.waitForTimeout(700);
+  return probe(pet);
+}
+async function resumeAfterReply(hidden, cycle) {
+  assert.equal(await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(win => !win.isResizable()).isVisible()), false, 'A reply must not reveal the hidden pet');
+  await page.waitForTimeout(350);
+  const after = await probe(pet);
+  assert.equal(after.glDraws + after.spriteDraws, hidden.glDraws + hidden.spriteDraws, 'Hidden reply must not draw');
+  await page.evaluate(() => window.petDesktop.openPet());
+  await pet.waitForFunction(draws => !document.hidden && window.__stabilityProbe.glDraws + window.__stabilityProbe.spriteDraws > draws, after.glDraws + after.spriteDraws, { timeout: 10000, polling: 100 });
+  mixedActions.push({ cycle, phase: 'hidden-reply-resume', kind: currentKind, hiddenDrawingStopped: true });
 }
 async function reopenWorkshop() {
   const closed = page.waitForEvent('close');
@@ -143,19 +188,26 @@ async function record(cycle, mode) {
   assert.equal(native.cancelled, requests - cycle, 'Each streaming body must be released, including completed but still-open connections');
   assert.deepEqual(native.faults, []); assert.deepEqual(errors, []);
   const state = await snapshot(); assert.deepEqual(state.history, expected); assert.ok(state.history.length <= 8);
-  const row = { cycle, mode, elapsedSeconds: elapsed(), kind: 'sprite', ...native, historyMessages: state.history.length, visibleRows: await page.locator('#chat-log p').count() };
-  samples.push(row); await appendFile(path.join(output, 'samples.ndjson'), JSON.stringify(row) + '\n');
+  await measure('cycle-end', { cycle, mode, ...native, historyMessages: state.history.length, visibleRows: await page.locator('#chat-log p').count() });
   await writeFile(path.join(output, 'progress.json'), JSON.stringify({ cycles: cycle, requestedCycles: cycles, requests, elapsedSeconds: elapsed(), errors }, null, 2));
   console.log(`Chat stress ${cycle}/${cycles}; ${requests} mock requests; ${Math.round(elapsed())}s`);
 }
 try {
   await launch();
   assert.equal(await desktop.evaluate(({ app }) => app.isPackaged), true);
+  if (mixed) {
+    await page.locator('#model-file').setInputFiles(path.join(root, 'public/models/demo.vrm'));
+    await page.waitForFunction(() => document.body.dataset.characterKind === 'vrm', undefined, { timeout: 60000, polling: 100 });
+    await page.locator('#import-button:not([disabled])').waitFor();
+    characters.vrm = await page.locator('body').getAttribute('data-character-id');
+  }
   await page.locator('#model-file').setInputFiles(path.join(root, 'artifacts/animation-fixes/run-04/atlas-v2.png')); await ready(page);
+  await page.locator('#import-button:not([disabled])').waitFor();
+  characters.sprite = await page.locator('body').getAttribute('data-character-id');
   await page.evaluate(() => window.petDesktop.saveChatSettings({ model: 'stress-model', apiKey: 'stress-key-not-real' }));
   await page.reload(); await ready(page); await openPet();
   const conditions = await desktop.evaluate(({ app, screen }) => ({ electron: process.versions.electron, os: process.platform, arch: process.arch, packaged: app.isPackaged, displays: screen.getAllDisplays().map(({ bounds, workArea, scaleFactor }) => ({ bounds, workArea, scaleFactor })) }));
-  await writeFile(path.join(output, 'conditions.json'), JSON.stringify({ ...conditions, cycles, version, packageDirectory: latest.directory, source, rendering: 'SwiftShader; mock service; isolated synthetic configuration; no real API calls', startedAt: new Date().toISOString() }, null, 2));
+  await writeFile(path.join(output, 'conditions.json'), JSON.stringify({ ...conditions, cycles, mixed, version, packageDirectory: latest.directory, source, rendering: 'SwiftShader; mock service; isolated synthetic configuration; no real API calls', startedAt: new Date().toISOString() }, null, 2));
   await record(0, 'initial');
   for (let cycle = 1; cycle <= cycles; cycle++) {
     assert.equal(interrupted, false, 'Interrupted before all cycles completed');
@@ -163,15 +215,38 @@ try {
     for (let turn = 0; turn < 2; turn++) {
       const text = `消息 ${cycle}.${turn}`; const reply = `回复 ${cycle}.${turn}`;
       await send(text);
+      let hidden;
       if (turn === 0) {
-        if (cycle % 2) { await pet.reload(); await pet.waitForFunction(() => document.body.dataset.characterKind === 'sprite', undefined, { polling: 100 }); }
+        if (mixed) await switchCharacter('vrm', '片段：' + text, cycle, 'streaming');
+        if (cycle % 2) { await pet.reload(); await pet.waitForFunction(kind => document.body.dataset.characterKind === kind, currentKind, { timeout: 60000, polling: 100 }); }
         else {
           const closed = pet.waitForEvent('close');
           await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(win => !win.isResizable()).close()); await closed; await openPet();
         }
         await pet.waitForFunction(text => document.querySelector('#pet-message').textContent === '片段：' + text, text, { polling: 100 });
+        if (mixed) hidden = await hideDuringReply();
       }
       await finish(text, reply);
+      if (hidden) {
+        await resumeAfterReply(hidden, cycle);
+        await switchCharacter('sprite', reply, cycle, 'completed');
+        const beforeRename = await snapshot();
+        // Wait for metadata application in the pet, rather than mistaking its
+        // unchanged pre-sync bubble for successful name synchronization.
+        await pet.evaluate(() => {
+          window.__renameObserved = false;
+          window.__renameObserver = new MutationObserver(() => { window.__renameObserved = true; window.__renameObserver.disconnect(); });
+          window.__renameObserver.observe(document.body, { attributes: true, attributeFilter: ['data-character-id'] });
+        });
+        try {
+          await page.locator('#character-alias').fill(`混合负载角色 ${cycle}`); await page.locator('#rename-character').click();
+          await page.waitForFunction(name => document.querySelector('#character-name').textContent === name, `混合负载角色 ${cycle}`, { polling: 100 });
+          await pet.waitForFunction(reply => window.__renameObserved && document.querySelector('#pet-message').textContent === reply, reply, { polling: 100 });
+          assert.deepEqual(await snapshot(), beforeRename, 'Renaming must preserve the conversation');
+        } finally {
+          await pet.evaluate(() => { window.__renameObserver?.disconnect(); delete window.__renameObserver; delete window.__renameObserved; });
+        }
+      }
     }
     const text = `中断 ${cycle}`; await send(text);
     const mode = ['cancel', 'reload', 'reopen', 'clear'][(cycle - 1) % 4];
@@ -221,7 +296,7 @@ try {
   assert.equal(await desktop.evaluate(() => globalThis.__chatStress.calls.length), 0, 'Restart must not send a request');
   assert.deepEqual(errors, []);
   const memory = summarizeMemory(samples, 0);
-  const result = { ok: true, version, packageDirectory: latest.directory, source, cycles, requests, elapsedSeconds: elapsed(), actions, samples: samples.length, memory, memoryNeedsReview: memory.some(row => row.needsReview), restartClearedHistory: true, errors, limitations: 'Bounded synthetic chat/window stress, sprite only, software rendering. Not one-hour, real API, hardware DPI/sleep or energy acceptance. Memory includes initialization and renderer restarts; no forced GC or leak conclusion.' };
+  const result = { ok: true, version, packageDirectory: latest.directory, source, mixed, cycles, requests, elapsedSeconds: elapsed(), actions, mixedActions, samples: samples.length, memory, memoryNeedsReview: memory.some(row => row.needsReview), restartClearedHistory: true, errors, limitations: `Bounded synthetic chat/window stress, ${mixed ? 'VRM/sprite switches and hidden replies' : 'sprite only'}, software rendering. Not one-hour, real API, hardware DPI/sleep or energy acceptance. Memory includes initialization and renderer restarts; no forced GC or leak conclusion.` };
   await writeFile(path.join(output, 'result.json'), JSON.stringify(result, null, 2));
   await writeFile(path.join(outputRoot, 'latest.json'), JSON.stringify({ directory: path.basename(output), version }, null, 2));
   console.log(`Chat stress passed: ${output}`);
@@ -229,10 +304,10 @@ try {
   const windows = [];
   for (const [name, target] of [['workshop', page], ['pet', pet]]) {
     if (!target || target.isClosed()) continue;
-    windows.push({ name, state: await target.evaluate(() => ({ status: document.querySelector('#chat-status, #pet-message')?.textContent, rows: document.querySelector('#chat-log')?.textContent })).catch(() => null) });
+    windows.push({ name, state: await target.evaluate(() => ({ hidden: document.hidden, kind: document.body.dataset.characterKind, status: document.querySelector('#chat-status, #pet-message')?.textContent, rows: document.querySelector('#chat-log')?.textContent, probe: window.__stabilityProbe })).catch(() => null) });
     await target.screenshot({ path: path.join(output, `${name}-failure.png`), timeout: 5000 }).catch(() => {});
   }
-  await writeFile(path.join(output, 'failure.json'), JSON.stringify({ message: error.message, stack: error.stack, elapsedSeconds: elapsed(), cyclesCompleted: actions.length, requests, source, errors, windows }, null, 2));
+  await writeFile(path.join(output, 'failure.json'), JSON.stringify({ message: error.message, stack: error.stack, elapsedSeconds: elapsed(), cyclesCompleted: actions.length, requests, mixed, mixedActions, source, errors, windows }, null, 2));
   throw error;
 } finally {
   closing = true; if (desktop) await desktop.close();

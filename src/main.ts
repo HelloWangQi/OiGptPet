@@ -10,6 +10,7 @@ import { DEFAULT_PREFERENCES, IDLE_AFTER_MS, PERFORMANCE_POLICIES, normalizePref
 import { FramePacer } from './frame-pacer';
 import { pointerLook } from './pointer-look';
 import { setupChat } from './chat-panel';
+import { PetChatPresentation } from './pet-chat-presentation';
 import { sha256Hex } from '../packages/atlas-preview/sha256';
 import { characterPackageModule, MAX_CHARACTER_BACKUP_BYTES } from './character-package-client';
 
@@ -153,6 +154,7 @@ let preferences: DesktopPreferences = { ...DEFAULT_PREFERENCES };
 const framePacer = new FramePacer();
 let resizeStage = () => {};
 let transientUntil = 0;
+const petChat = new PetChatPresentation();
 let look: { yaw: number; pitch: number; angle: number } | undefined;
 let lastPointer = 0;
 const exportSession = new ExportSession();
@@ -190,6 +192,14 @@ function status(message: string, error = false) {
   const target = petMode ? $('#pet-message') : $('#status');
   target.textContent = message;
   target.classList.toggle('error', error);
+}
+function restorePetChat() {
+  const view = petChat.current(performance.now());
+  status(view?.text ?? '');
+  if (view) {
+    transientUntil = view.until;
+    if (state !== view.animation) changeState(view.animation);
+  }
 }
 function packageStatus(message: string, error = false) {
   if (petMode || closed) return;
@@ -281,7 +291,7 @@ async function restoreCharacter(file?: File) {
   } finally { finishPackage(job); }
 }
 function showInfo(value: ModelInfo) {
-  if (petMode) { status(''); return; }
+  if (petMode) return;
   $('#character-name').textContent = value.name.replaceAll('_', ' ');
   $('#character-author').textContent = `模型作者 · ${value.authors.join(' / ') || '未提供'}`;
   $('#stage-empty').hidden = true;
@@ -301,7 +311,7 @@ function showCharacter(summary: CharacterSummary | null, value: ModelInfo | null
   document.body.dataset.characterKind = input.kind;
   document.body.dataset.characterId = summary?.id ?? '';
   if (value) showInfo(value);
-  if (petMode) { status(''); return; }
+  if (petMode) { restorePetChat(); return; }
   $('#stage-empty').hidden = true;
   $('#format-badge').textContent = input.kind === 'vrm' ? 'VRM 1.0' : `SPRITE ${input.profile}`;
   $('#character-name').textContent = summary?.name ?? value?.name ?? '本地精灵图';
@@ -372,7 +382,7 @@ async function load(input: CompanionInput, persist: boolean, origin: 'local-impo
     animationTime = 0; changeState('idle'); framePacer.reset(); resizeStage();
     showCharacter(summary, info, input);
     if (persist) notifyLibrary();
-    status(petMode ? '' : '角色已就绪 · 点击动作试试看。');
+    if (!petMode) status('角色已就绪 · 点击动作试试看。');
     return true;
   } catch (error) {
     status(controller.signal.aborted ? '加载已取消，保留原角色。' : `${error instanceof Error ? error.message : '角色加载失败。'}${stage.loaded ? ' 已保留原角色。' : ''}`, true);
@@ -728,10 +738,7 @@ if (petMode) {
 
 const chatUI = setupChat(desktop, petMode, value => {
   if (!petMode) return;
-  if (value.status === 'thinking') { transientUntil = 0; status('正在思考…'); changeState('running'); }
-  else if (value.status === 'streaming') { status(value.text ?? ''); }
-  else if (value.status === 'reply') { status(value.text ?? ''); changeState('waving'); transientUntil = performance.now() + 2000; }
-  else { transientUntil = 0; status(value.status === 'error' ? '请求未完成，请在工坊查看。' : ''); changeState('idle'); }
+  petChat.update(value, performance.now()); restorePetChat();
 });
 window.addEventListener('beforeunload', () => {
   chatUI.dispose();

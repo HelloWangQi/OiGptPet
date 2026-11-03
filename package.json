@@ -1,6 +1,6 @@
 {
   "name": "oigptpet",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "private": true,
   "description": "A VRM anime desktop companion with ChatGPT sprite export",
   "type": "module",
@@ -20,6 +20,7 @@
     "verify:desktop": "npm run package && npm run test:release",
     "test:soak": "node scripts/desktop-soak.mjs",
     "test:chat-stress": "node scripts/chat-stress.mjs",
+    "test:chat-mixed": "node scripts/chat-stress.mjs --mixed",
     "demo:fetch": "node scripts/fetch-demo.mjs",
     "package": "npm run build && node scripts/package.mjs"
   },

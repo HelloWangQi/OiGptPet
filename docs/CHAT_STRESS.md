@@ -11,6 +11,10 @@ node scripts/chat-stress.mjs --cycles 4
 
 # 默认 24 轮，138 次模拟请求
 npm run test:chat-stress
+
+# 0.8.1 增加：VRM/精灵图、隐藏和回复混合负载
+node scripts/chat-stress.mjs --mixed --cycles 4
+npm run test:chat-mixed
 ```
 
 `--cycles` 接受 4–200 的整数。本机需有 `artifacts/animation-fixes/run-04/atlas-v2.png`；资源不随公开包分发。每轮通过真实 UI 发送，测试服务校验请求上下文；不是直接调用服务层代替窗口交互。启动前检查包内所有 Electron 模块和前端文件与当前本地编译结果逐字节相同、版本相同，并检查分发白名单。运行中不要操作测试窗口。
@@ -28,3 +32,11 @@ npm run test:chat-stress
 产物保存在 `artifacts/chat-stress/run-*/`：`conditions.json` 记录环境、包目录、运行前提交及工作区是否有改动、所有运行时代码 SHA-256；`samples.ndjson` 保存各轮窗口数、请求数、流释放数及原始进程指标；`progress.json` 保存进度；成功写 `result.json` 并更新 `latest.json`，失败写 `failure.json` 和可获取的截图。Ctrl+C 请求中断后不计成功，强制终止可能只有进度。产物和测试 profile 均被 Git 忽略。
 
 内存按 PID、进程创建时间和角色类型分组，采用既有 `stability-metrics.mjs` 汇总。该短测包含初始化、渲染器反复重建和延迟回收，没有强制 GC；`memoryNeedsReview` 只提示复核，不能证明泄漏或无泄漏。这不是满小时稳定性、VRM 切换、真实 API、多屏/DPI/休眠或能耗验收。
+
+## 混合模式
+
+`--mixed` 复用上述请求与窗口检查，另需本地 `public/models/demo.vrm`。每轮从精灵图开始，在第一条流式回复期间切换到 VRM；服务此时不再发新片段，以便确定加载本身不会清空气泡。轮流刷新/销毁重开桌宠后隐藏，隐藏中完成回复。检查原生窗口仍隐藏、实际 draw 计数停止，重新显示后恢复绘制。随后切回精灵图并改名，已完成气泡和主进程会话快照必须保持不变。恢复和角色操作不允许多发请求。
+
+启动前注入资源探针，每次切换和每轮结束检查两个窗口的上下文/bitmap 计数：只保留当前角色的一个 WebGL 上下文或一个图集 bitmap。探针只计应用创建及释放调用，不能作为实际显存释放证明。每个类型分别采样进程指标，避免用 VRM 的内存基线与精灵图直接相减。
+
+混合模式产物在 `artifacts/chat-mixed/run-*/`，profile 仍使用隔离的 `.cache/chat-stress-*`。成功报告含 `mixed=true` 和每轮两次切换及一次隐藏恢复的 `mixedActions`，样本含两个窗口的资源计数。本模式仍是按轮数运行，不以执行时间不足 3600 秒的结果冒充满小时；GPU/CPU 资源开销受到软件渲染影响。隐藏判断采用原生窗口可见性与实际绘制计数，不依赖隐藏窗口的定时器是否被调度。

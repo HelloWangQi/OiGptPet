@@ -1,13 +1,13 @@
-# 接续：0.8.0 发布后的对话压力回归
+# 接续：0.8.1 对话与角色混合负载
 
-GitHub 已发布 [v0.8.0 Preview](https://github.com/HelloWangQi/OiGptPet/releases/tag/v0.8.0)，标签提交为 682348199db6af727fa7ea9fc8494163df8f0b39，Windows ZIP 与 SHA-256 文件均核验通过。用户手动推送远端代码，代理只在明确要求后发布 Release。本轮继续开发的范围是补齐对话和窗口循环检查，不改产品版本、不更新已发布附件，完成后保存本地检查点。
+GitHub 已发布 [v0.8.0 Preview](https://github.com/HelloWangQi/OiGptPet/releases/tag/v0.8.0)，标签提交 682348199db6af727fa7ea9fc8494163df8f0b39。本轮在本地检查点 07df332 上开发 0.8.1，修复混合回归复现的切换角色/名称同步清空气泡问题；没有推送或更新 GitHub 附件。用户手动推送远端代码，代理只在明确要求后发布 Release。
 
 当前主进程最多保留四轮成功对话和最后一次尝试，工坊刷新/关闭仅取消当前请求；重开恢复成功历史与失败/取消消息，桌宠重开读取显示状态。清空、保存设置、退出应用清除会话，没有聊天磁盘文件。未发送草稿不保留。快照与事件按序列防旧状态覆盖，完整会话 IPC 只给工坊；IPC 归属新增 null/销毁/无关窗口/子 frame 拒绝。
 
-新增 `npm run test:chat-stress`，默认在当前实际 EXE 上执行 24 轮、138 次模拟请求。覆盖成功回复、四种中断、重试保留新草稿、工坊与桌宠刷新/销毁重开、四轮成功上下文滚动、迟到响应隔离、所有 SSE reader 释放，以及退出重启会话清空。只允许显式发送对应的请求，恢复不能多发请求。记录窗口数、进程内存和运行时文件 SHA-256；详见 CHAT_STRESS.md 和 CHECKPOINT_08_STRESS.md。
+新增 `PetChatPresentation`：桌宠缓存当前显示状态与原有挥手截止时间，成功换画布或同步元数据后恢复气泡/动作，不延长挥手，不在每次流式增量时重置动画时间。新增 `npm run test:chat-mixed`（chat-stress --mixed），复用既有四种中断、取消重试、窗口重开、上下文滚动和迟到响应检查，每轮增加流中切到 VRM、隐藏接收回复、显示恢复、切回精灵图和名称同步。所有请求使用合成设置和模拟服务；双窗口上下文/bitmap 计数必须只保留当前角色资源。
 
-本轮 `npm test`：24 文件、305 项通过；`npm run verify:desktop` 完整通过。新包 `release/v0.8.0-1793668558899/OiGptPet-win32-x64/OiGptPet.exe`，基础验收 `artifacts/release-smoke/run-1793668568256/result.json`；完整对话循环 `artifacts/chat-stress/run-1793668609127/result.json`：24 轮、138 请求、41.83 秒、25 样本、errors=[]。没有发现需修改运行时代码的问题，本轮保持 0.8.0。运行记录基线是 6823481、dirty=true；修改仅涉及测试脚本、npm 测试入口和文档，包内 Electron 与前端代码已逐字节核对，最终本地提交包含这些改动。
+`npm test`：25 文件、311 项通过；最终 `npm run verify:desktop` 完整通过。新包 `release/v0.8.1-1793669273758/OiGptPet-win32-x64/OiGptPet.exe`，基础包验收 `artifacts/release-smoke/run-1793669279832/result.json`。完整混合记录 `artifacts/chat-mixed/run-1793669328229/result.json`：24 轮、138 请求、439.74 秒、73 样本、48 次角色切换、24 次隐藏恢复、errors=[]。测试基线 07df332、dirty=true，各包内 Electron/前端文件与本地运行时代码逐字节核对并保存摘要。加严改名同步异步确认后的四轮补验 `artifacts/chat-mixed/run-1793669788328/result.json` 通过：23 请求、69.98 秒。最终源码保存本地提交，详见 CHECKPOINT_08_1.md。
 
-下一阶段可将对话循环扩展到 VRM/精灵图角色切换和隐藏恢复，并在修订计时与采样后安排真正满小时的混合负载。现有 41.83 秒结果只有高频有界回归意义；初始化和渲染器重建造成的内存变化不能用来宣称无泄漏。旧的阶段五满小时记录发生在对话功能之前。真实 API、真实多屏/DPI/休眠、能耗和 ChatGPT 官方宠物安装仍待实际环境验收。
+内存复核未完成：24 轮 `memoryNeedsReview=true`，两个 Tab PID 在精灵图阶段分别净增 124.09 / 109.05 MiB。初始化、角色加载和窗口重建混在短测中，不能据此证明泄漏或无泄漏。下一阶段先为窗口角色标记 PID、区分预热和加载后的回收时序，再做固定窗口/固定切换间隔的真正满小时混合负载；不要通过调整阈值或强制 GC 来消除提示。旧的阶段五满小时记录早于对话功能。真实 API、真实多屏/DPI/休眠、能耗和 ChatGPT 官方宠物安装仍待实际环境。
 
 用户忙碌，不必反复请求验证；需要用户体验新功能前先运行 verify:desktop，提供新 EXE 与对应提交。本地仅保留最近三个包。后续推送/发布按用户当次要求，不能因为旧授权自动发布下一版本。
