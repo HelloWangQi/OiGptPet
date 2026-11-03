@@ -19,6 +19,7 @@
     "test:release": "node scripts/release-smoke.mjs",
     "verify:desktop": "npm run package && npm run test:release",
     "test:soak": "node scripts/desktop-soak.mjs",
+    "test:chat-stress": "node scripts/chat-stress.mjs",
     "demo:fetch": "node scripts/fetch-demo.mjs",
     "package": "npm run build && node scripts/package.mjs"
   },
