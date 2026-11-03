@@ -10,16 +10,14 @@ import { assertAppDistribution } from './distribution.mjs';
 import { summarizeMemory } from './stability-metrics.mjs';
 import { installStabilityProbe } from './stability-probe.mjs';
 import { readProcessMetrics } from './process-metrics.mjs';
+import { chatStressOptions, SwitchSchedule, soakDuration, sampleCoverage } from './chat-stress-options.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
-const args = process.argv.slice(2);
-const mixed = args.includes('--mixed');
-const fixedWindows = args.includes('--fixed-windows');
-const settleIndex = args.indexOf('--settle-seconds');
-const settleSeconds = settleIndex < 0 ? 0 : Number(args[settleIndex + 1]);
-const cycleArgs = args.filter((arg, index) => !['--mixed', '--fixed-windows'].includes(arg) && (settleIndex < 0 || (index !== settleIndex && index !== settleIndex + 1)));
-const cycles = cycleArgs.length === 0 ? 24 : cycleArgs.length === 2 && cycleArgs[0] === '--cycles' ? Number(cycleArgs[1]) : NaN;
-if (['--mixed', '--fixed-windows', '--settle-seconds'].some(flag => args.filter(arg => arg === flag).length > 1) || !Number.isInteger(cycles) || cycles < 4 || cycles > 200 || !Number.isInteger(settleSeconds) || settleSeconds < 0 || settleSeconds > 30 || (!mixed && (fixedWindows || settleSeconds))) throw new Error('Use [--mixed [--fixed-windows] [--settle-seconds 0–30]] [--cycles 4–200].');
+const options = chatStressOptions(process.argv.slice(2));
+const { mixed, fixedWindows, settleSeconds, cycles } = options;
+const timed = options.minutes !== null;
+const totalSeconds = timed ? options.warmupSeconds + options.minutes * 60 : 0;
+const schedule = new SwitchSchedule(options.switchSeconds, totalSeconds);
 const latest = JSON.parse(await readFile(path.join(root, 'release/latest.json'), 'utf8'));
 const releaseRoot = path.resolve(root, 'release');
 assert.equal(typeof latest.directory, 'string');
@@ -42,22 +40,55 @@ assert.equal(latest.version, version);
 const git = args => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
 const source = { commit: git(['rev-parse', 'HEAD']), dirty: Boolean(git(['status', '--porcelain'])), runtimeSha256: digests };
 const run = Date.now();
-const outputRoot = path.join(root, fixedWindows ? 'artifacts/chat-memory' : mixed ? 'artifacts/chat-mixed' : 'artifacts/chat-stress');
+const outputRoot = path.join(root, timed ? 'artifacts/chat-soak' : fixedWindows ? 'artifacts/chat-memory' : mixed ? 'artifacts/chat-mixed' : 'artifacts/chat-stress');
 const output = path.join(outputRoot, `run-${run}`);
 const profile = path.join(root, `.cache/chat-stress-${run}`);
 await mkdir(output, { recursive: true });
 const env = { ...process.env, OIGPTPET_TEST: '1', OIGPTPET_TEST_USER_DATA: profile };
 for (const name of ['ELECTRON_RUN_AS_NODE', 'OIGPTPET_DEV_URL', 'OIGPTPET_SMOKE_DEMO']) delete env[name];
 const errors = []; const samples = []; const actions = [];
-const began = performance.now();
-let desktop; let page; let pet; let closing = false; let interrupted = false; let expected = []; let requests = 0;
+let began = performance.now();
+let desktop; let page; let pet; let closing = false; let interrupted = false; let expected = []; let requests = 0; let lateRequests = 0;
 let currentKind = 'sprite'; const characters = {}; const mixedActions = [];
 let windowIds;
+let switchGeneration = 0; let switching = false;
+let sampleTimer; let samplePending; let sampleFailure; let sampleSkipped = 0; let sampleTick = 0;
+const scheduledSamples = []; const switchSlots = [];
 const stop = () => { interrupted = true; };
 process.once('SIGINT', stop); process.once('SIGTERM', stop);
 const elapsed = () => (performance.now() - began) / 1000;
 const ready = target => target.waitForFunction(kind => document.body.dataset.characterKind === kind && !document.querySelector('#chat-model').disabled, currentKind, { timeout: 60000, polling: 100 });
 const snapshot = () => page.evaluate(() => window.petDesktop.getChatSnapshot());
+const checkRunning = () => { assert.equal(interrupted, false, 'Run interrupted'); if (sampleFailure) throw sampleFailure; assert.deepEqual(errors, []); };
+async function waitUntil(seconds) {
+  while (elapsed() < seconds) { checkRunning(); await new Promise(resolve => setTimeout(resolve, Math.min(500, (seconds - elapsed()) * 1000))); }
+  checkRunning();
+}
+async function waitSwitchSlot() {
+  const slot = schedule.reserve(elapsed());
+  if (!slot) { await waitUntil(totalSeconds); return false; }
+  await waitUntil(slot.atSeconds);
+  switchSlots.push({ ...slot, actualSeconds: elapsed(), latenessSeconds: Math.max(0, elapsed() - slot.atSeconds) });
+  return true;
+}
+async function sampleScheduled(scheduledSeconds) {
+  const generation = switchGeneration; const wasSwitching = switching;
+  const row = { elapsedSeconds: elapsed(), scheduledSeconds, ...await readProcessMetrics(desktop) };
+  for (const [role, target] of [['workshop', page], ['pet', pet]]) row[role] = await target.evaluate(() => {
+    const memory = performance.memory;
+    return { kind: document.body.dataset.characterKind, probe: { ...window.__stabilityProbe },
+      heap: memory ? { usedJSHeapSize: memory.usedJSHeapSize, totalJSHeapSize: memory.totalJSHeapSize } : null };
+  });
+  row.stable = !wasSwitching && !switching && generation === switchGeneration && row.workshop.kind === row.pet.kind;
+  row.kind = row.stable ? row.pet.kind : 'transition';
+  row.collectedSeconds = elapsed();
+  scheduledSamples.push(row); await appendFile(path.join(output, 'scheduled-samples.ndjson'), JSON.stringify(row) + '\n');
+  await writeFile(path.join(output, 'progress.json'), JSON.stringify({ elapsedSeconds: elapsed(), warmupSeconds: options.warmupSeconds, observationSeconds: Math.max(0, elapsed() - options.warmupSeconds), requestedObservationSeconds: options.minutes * 60, cycles: actions.length, requests, scheduledSamples: scheduledSamples.length, sampleSkipped, errors }, null, 2));
+}
+async function stopSampling() {
+  clearInterval(sampleTimer); sampleTimer = undefined;
+  await samplePending; if (sampleFailure) throw sampleFailure;
+}
 function attach(target) {
   target.on('pageerror', error => errors.push(error.message));
   target.on('crash', () => errors.push('Renderer crashed'));
@@ -122,12 +153,14 @@ async function measure(label, extra = {}) {
 }
 async function switchCharacter(kind, message, cycle, phase) {
   const before = await snapshot(); const started = performance.now();
+  switching = true; ++switchGeneration;
   await page.locator(`[data-select-character="${characters[kind]}"]`).click(); currentKind = kind;
   for (const target of [page, pet]) await target.waitForFunction(id => document.body.dataset.characterId === id, characters[kind], { timeout: 60000, polling: 100 });
   await page.locator('#import-button:not([disabled])').waitFor();
   assert.deepEqual(await snapshot(), before, 'Changing character must not change conversation state');
   // No further deltas are emitted here: the latest bubble must survive loading.
   await pet.waitForFunction(message => document.querySelector('#pet-message').textContent === message, message, { timeout: 5000, polling: 100 });
+  switching = false; ++switchGeneration;
   await measure('character-switch', { cycle, phase, memoryPhase: 'post-load' });
   if (settleSeconds) {
     await page.waitForTimeout(settleSeconds * 1000);
@@ -179,6 +212,7 @@ async function checkRequest(text) {
   assert.fail('Expected mock request was not received');
 }
 async function send(text, kind = 'stream', partial = '片段：' + text) {
+  if (kind === 'late') lateRequests++;
   await plan(kind, partial); await page.locator('#chat-input').fill(text); await page.locator('#chat-send').click(); await checkRequest(text);
   if (kind === 'stream') await page.waitForFunction(text => document.querySelector('#chat-log [data-reply-state="partial"]')?.textContent === '伙伴：' + text, partial, { polling: 100 });
 }
@@ -204,12 +238,12 @@ async function record(cycle, mode) {
   }));
   assert.equal(native.windows.length, 2); assert.equal(native.windows.filter(win => win.workshop).length, 1);
   assert.equal(native.calls, requests); assert.equal(native.openStream, false); assert.equal(native.pendingPlan, false);
-  assert.equal(native.cancelled, requests - cycle, 'Each streaming body must be released, including completed but still-open connections');
+  assert.equal(native.cancelled, requests - lateRequests, 'Each streaming body must be released, including completed but still-open connections');
   assert.deepEqual(native.faults, []); assert.deepEqual(errors, []);
   const state = await snapshot(); assert.deepEqual(state.history, expected); assert.ok(state.history.length <= 8);
   await measure('cycle-end', { cycle, mode, ...native, memoryPhase: fixedWindows ? 'cycle-end' : 'post-window-reload', historyMessages: state.history.length, visibleRows: await page.locator('#chat-log p').count() });
-  await writeFile(path.join(output, 'progress.json'), JSON.stringify({ cycles: cycle, requestedCycles: cycles, requests, elapsedSeconds: elapsed(), errors }, null, 2));
-  console.log(`Chat stress ${cycle}/${cycles}; ${requests} mock requests; ${Math.round(elapsed())}s`);
+  if (!timed) await writeFile(path.join(output, 'progress.json'), JSON.stringify({ cycles: cycle, requestedCycles: cycles, requests, elapsedSeconds: elapsed(), errors }, null, 2));
+  console.log(`Chat ${timed ? 'soak' : 'stress'} ${cycle}/${timed ? 'timed' : cycles}; ${requests} mock requests; ${Math.round(elapsed())}s${timed ? '/' + totalSeconds + 's' : ''}`);
 }
 try {
   await launch();
@@ -225,13 +259,24 @@ try {
   characters.sprite = await page.locator('body').getAttribute('data-character-id');
   await page.evaluate(() => window.petDesktop.saveChatSettings({ model: 'stress-model', apiKey: 'stress-key-not-real' }));
   await page.reload(); await ready(page); await openPet();
+  if (timed) began = performance.now();
   const conditions = await desktop.evaluate(({ app, screen }) => ({ electron: process.versions.electron, os: process.platform, arch: process.arch, packaged: app.isPackaged, displays: screen.getAllDisplays().map(({ bounds, workArea, scaleFactor }) => ({ bounds, workArea, scaleFactor })) }));
-  await writeFile(path.join(output, 'conditions.json'), JSON.stringify({ ...conditions, cycles, mixed, fixedWindows, settleSeconds, version, packageDirectory: latest.directory, source, heapUnits: 'performance.memory fields in bytes; approximate Chromium measurement, not precise retained heap or native memory', rendering: 'SwiftShader; mock service; isolated synthetic configuration; no real API calls; no forced GC', startedAt: new Date().toISOString() }, null, 2));
+  await writeFile(path.join(output, 'conditions.json'), JSON.stringify({ ...conditions, cycles, mixed, fixedWindows, settleSeconds, options, version, packageDirectory: latest.directory, source, harnessSha256: createHash('sha256').update(await readFile(fileURLToPath(import.meta.url))).digest('hex'), heapUnits: 'performance.memory fields in bytes; approximate Chromium measurement, not precise retained heap or native memory', rendering: 'SwiftShader; mock service; isolated synthetic configuration; no real API calls; no forced GC', startedAt: new Date().toISOString() }, null, 2));
   await record(0, 'initial');
-  for (let cycle = 1; cycle <= cycles; cycle++) {
+  if (timed) {
+    await sampleScheduled(0);
+    sampleTimer = setInterval(() => {
+      const scheduledSeconds = ++sampleTick * options.sampleSeconds;
+      if (samplePending) { sampleSkipped++; return; }
+      samplePending = sampleScheduled(scheduledSeconds).catch(error => { sampleFailure = error; }).finally(() => { samplePending = undefined; });
+    }, options.sampleSeconds * 1000);
+  }
+  cycleLoop: for (let cycle = 1; timed || cycle <= cycles; cycle++) {
+    checkRunning();
     assert.equal(interrupted, false, 'Interrupted before all cycles completed');
     // Repeated success without clearing fills and rolls the four-turn context.
     for (let turn = 0; turn < 2; turn++) {
+      if (timed && turn === 0 && !await waitSwitchSlot()) break cycleLoop;
       const text = `消息 ${cycle}.${turn}`; const reply = `回复 ${cycle}.${turn}`;
       await send(text);
       let hidden;
@@ -248,6 +293,7 @@ try {
       await finish(text, reply);
       if (hidden) {
         await resumeAfterReply(hidden, cycle);
+        if (timed && !await waitSwitchSlot()) break cycleLoop;
         await switchCharacter('sprite', reply, cycle, 'completed');
         const beforeRename = await snapshot();
         // Wait for metadata application in the pet, rather than mistaking its
@@ -305,7 +351,18 @@ try {
     if (!fixedWindows) assert.equal(await page.locator('#chat-log p').count(), expected.length);
     await record(cycle, mode); actions.push({ cycle, mode, requests });
   }
+  if (timed) { await stopSampling(); await sampleScheduled(elapsed()); await record(actions.length, 'timed-final'); }
   assert.equal(interrupted, false, 'Interrupted before all cycles completed');
+  const measuredElapsed = elapsed();
+  const duration = timed ? soakDuration(options, measuredElapsed) : { observationSeconds: null, completeHour: false };
+  const coverage = sampleCoverage(scheduledSamples, options.sampleSeconds);
+  if (timed && options.minutes >= 60) {
+    assert.equal(duration.completeHour, true, 'Full hour requires five minutes warmup plus 3600 observed seconds');
+    assert.ok(actions.length >= 20, 'Full hour must complete at least 20 mixed cycles');
+    assert.ok(scheduledSamples.filter(row => row.stable && row.kind === 'vrm' && row.elapsedSeconds >= options.warmupSeconds).length >= 5);
+    assert.ok(scheduledSamples.filter(row => row.stable && row.kind === 'sprite' && row.elapsedSeconds >= options.warmupSeconds).length >= 5);
+    assert.equal(coverage.continuous, true, 'Missing/suspended sampling must not count as a continuous hour');
+  }
   assert.ok(expected.length > 0);
   closing = true; await desktop.close(); desktop = undefined;
   await launch(); await ready(page);
@@ -314,22 +371,25 @@ try {
   assert.equal((await page.evaluate(() => window.petDesktop.getChatSettings())).hasKey, true);
   assert.equal(await desktop.evaluate(() => globalThis.__chatStress.calls.length), 0, 'Restart must not send a request');
   assert.deepEqual(errors, []);
-  const memory = summarizeMemory(samples, 0);
+  const rawMemory = summarizeMemory(timed ? scheduledSamples : samples, 0);
+  const memory = timed ? summarizeMemory(scheduledSamples.filter(row => row.stable), options.warmupSeconds) : rawMemory;
   const settledMemory = summarizeMemory(samples.filter(row => row.memoryPhase === 'settled'), 0);
-  const result = { ok: true, version, packageDirectory: latest.directory, source, mixed, fixedWindows, settleSeconds, cycles, requests, elapsedSeconds: elapsed(), actions, mixedActions, samples: samples.length, memory, settledMemory, memoryNeedsReview: memory.some(row => row.needsReview), settledMemoryNeedsReview: settledMemory.some(row => row.needsReview), restartClearedHistory: true, errors, limitations: `Bounded synthetic chat stress, ${mixed ? 'VRM/sprite switches and hidden replies' : 'sprite only'}, ${fixedWindows ? 'fixed windows until final restart' : 'window reload/recreation'}, software rendering. Not one-hour, real API, hardware DPI/sleep or energy acceptance. Raw and settled summaries retain the same growth thresholds; no forced GC or leak conclusion.` };
+  const result = { ok: true, version, packageDirectory: latest.directory, source, mixed, fixedWindows, settleSeconds, options, ...duration, coverage, cycles: actions.length, requests, elapsedSeconds: measuredElapsed, actions, mixedActions, switchSlots, scheduledSamples: scheduledSamples.length, sampleSkipped, samples: samples.length, rawMemory, memory, settledMemory, rawMemoryNeedsReview: rawMemory.some(row => row.needsReview), memoryNeedsReview: memory.some(row => row.needsReview), settledMemoryNeedsReview: settledMemory.some(row => row.needsReview), restartClearedHistory: true, errors, limitations: `Synthetic chat stress; ${duration.completeHour ? 'full hour after warmup' : 'not full-hour acceptance'}, ${mixed ? 'VRM/sprite switches and hidden replies' : 'sprite only'}, ${fixedWindows ? 'fixed windows until final restart' : 'window reload/recreation'}, software rendering. Not real API, hardware DPI/sleep or energy acceptance. Raw and warmup-excluded summaries retain the same growth thresholds; no forced GC or leak conclusion.` };
   await writeFile(path.join(output, 'result.json'), JSON.stringify(result, null, 2));
   await writeFile(path.join(outputRoot, 'latest.json'), JSON.stringify({ directory: path.basename(output), version }, null, 2));
   console.log(`Chat stress passed: ${output}`);
 } catch (error) {
+  clearInterval(sampleTimer); await samplePending;
   const windows = [];
   for (const [name, target] of [['workshop', page], ['pet', pet]]) {
     if (!target || target.isClosed()) continue;
     windows.push({ name, state: await target.evaluate(() => ({ hidden: document.hidden, kind: document.body.dataset.characterKind, status: document.querySelector('#chat-status, #pet-message')?.textContent, rows: document.querySelector('#chat-log')?.textContent, probe: window.__stabilityProbe })).catch(() => null) });
     await target.screenshot({ path: path.join(output, `${name}-failure.png`), timeout: 5000 }).catch(() => {});
   }
-  await writeFile(path.join(output, 'failure.json'), JSON.stringify({ message: error.message, stack: error.stack, elapsedSeconds: elapsed(), cyclesCompleted: actions.length, requests, mixed, mixedActions, source, errors, windows }, null, 2));
+  await writeFile(path.join(output, 'failure.json'), JSON.stringify({ message: error.message, stack: error.stack, elapsedSeconds: elapsed(), cyclesCompleted: actions.length, requests, options, mixedActions, switchSlots, scheduledSamples: scheduledSamples.length, sampleSkipped, source, errors, windows }, null, 2));
   throw error;
 } finally {
+  clearInterval(sampleTimer);
   closing = true; if (desktop) await desktop.close();
   process.removeListener('SIGINT', stop); process.removeListener('SIGTERM', stop);
 }
