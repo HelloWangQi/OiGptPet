@@ -13,6 +13,7 @@ import { setupChat } from './chat-panel';
 import { PetChatPresentation } from './pet-chat-presentation';
 import { sha256Hex } from '../packages/atlas-preview/sha256';
 import { characterPackageModule, MAX_CHARACTER_BACKUP_BYTES } from './character-package-client';
+import { motionCapabilityRows } from './motion-capabilities-view';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 const desktop = window.petDesktop;
@@ -117,7 +118,11 @@ app.innerHTML = petMode ? `
           <p class="helper" id="chat-status" role="status">请先配置对话设置。</p>
           <p class="helper">本次对话保留到应用退出。关闭工坊会取消未完成请求；未发送草稿不保留。</p>
         </section>
-        <section class="note-card"><span class="note-star">✦</span><div><strong>从一个喜欢的角色开始。</strong><p>角色和动作共用一套源资产。桌面实时互动，ChatGPT 播放导出的动画。</p></div></section>
+          <section id="model-capabilities" class="detail-section" hidden><h2>动作适配检查</h2>
+            <details class="model-details"><summary id="motion-summary"></summary><div id="motion-capability-rows"></div></details>
+            <p class="helper">根据实际加载结果检查当前动作所用能力。动作是否自然、头发遮挡和裁切仍需播放确认；检查结果会附在导出报告中。</p>
+          </section>
+          <section class="note-card"><span class="note-star">✦</span><div><strong>从一个喜欢的角色开始。</strong><p>角色和动作共用一套源资产。桌面实时互动，ChatGPT 播放导出的动画。</p></div></section>
         <details class="model-details"><summary>角色信息与使用说明</summary><div id="model-info">导入后显示角色元数据。</div><p>导出不代表已安装为 ChatGPT 宠物。不同入口可能支持不同规格；安装和预检在目标应用内完成。</p></details>
       </aside>
     </main>
@@ -310,6 +315,19 @@ function showInfo(value: ModelInfo) {
     paragraph.textContent = `${label}：${text}`;
     $('#model-info').append(paragraph);
   }
+  const capabilities = value.motionCapabilities;
+  $('#model-capabilities').hidden = !capabilities;
+  const host = $('#motion-capability-rows'); host.replaceChildren();
+  if (capabilities) {
+    const rows = motionCapabilityRows(capabilities);
+    const warnings = rows.filter(row => row.warning).length;
+    $('#motion-summary').textContent = warnings ? `${warnings} 项能力缺失或受限，展开查看` : '所检查的能力已加载，展开查看';
+    $<HTMLDetailsElement>('#model-capabilities details').open = warnings > 0;
+    for (const row of rows) {
+      const p = document.createElement('p'); p.dataset.warning = String(row.warning);
+      p.textContent = `${row.label}：${row.text}`; host.append(p);
+    }
+  }
 }
 function showCharacter(summary: CharacterSummary | null, value: ModelInfo | null, input: CompanionInput) {
   document.body.dataset.characterKind = input.kind;
@@ -320,6 +338,7 @@ function showCharacter(summary: CharacterSummary | null, value: ModelInfo | null
   $('#format-badge').textContent = input.kind === 'vrm' ? 'VRM 1.0' : `SPRITE ${input.profile}`;
   $('#character-name').textContent = summary?.name ?? value?.name ?? '本地精灵图';
   if (!value) {
+    $('#model-capabilities').hidden = true; $('#motion-capability-rows').replaceChildren(); $('#motion-summary').textContent = '';
     $('#character-author').textContent = '精灵图角色 · 原文件保存在本机';
     $('#model-info').textContent = `精灵图 ${input.kind === 'sprite' ? input.profile : ''}；可用于桌宠播放。作者和使用许可请核对原始文件说明。`;
   }

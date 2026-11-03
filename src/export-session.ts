@@ -32,6 +32,7 @@ export function createExportReport(result: CheckedAtlas, provenance: ModelProven
       name: provenance.model.name, authors: [...provenance.model.authors], vrmVersion: provenance.model.version,
       source: provenance.source, sourceUrl: webLink(provenance.sourceUrl), licenseUrl: webLink(provenance.model.licenseUrl),
     },
+    ...(provenance.model.motionCapabilities ? { modelCapabilities: structuredClone(provenance.model.motionCapabilities) } : {}),
     localInspection: structuredClone(result.inspection),
     platformPreflight: { status: 'not-run' },
     platformInstallation: { status: 'not-run' },

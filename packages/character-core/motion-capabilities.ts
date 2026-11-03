@@ -1,0 +1,30 @@
+// Only the bones and expressions used by this application's procedural motions.
+// Presence is not a VRM conformance test or a judgement of animation quality.
+export const MOTION_BONES = ['leftUpperArm', 'rightUpperArm', 'leftLowerArm', 'rightLowerArm', 'leftUpperLeg', 'rightUpperLeg', 'spine', 'chest', 'neck', 'head'] as const;
+export const MOTION_EXPRESSIONS = ['blink', 'happy', 'sad'] as const;
+export type MotionBone = typeof MOTION_BONES[number];
+export type MotionExpression = typeof MOTION_EXPRESSIONS[number];
+
+export interface MotionCapabilities {
+  schemaVersion: 1;
+  source: 'loaded-vrm';
+  bones: { present: MotionBone[]; missing: MotionBone[] };
+  expressions: { present: MotionExpression[]; missing: MotionExpression[] };
+  lookAtController: boolean;
+  visualReview: 'not-reviewed';
+}
+
+export function inspectMotionCapabilities(probe: {
+  hasBone(name: MotionBone): boolean;
+  hasExpression(name: MotionExpression): boolean;
+  lookAtController: boolean;
+}): MotionCapabilities {
+  const bones = MOTION_BONES.filter(name => probe.hasBone(name));
+  const expressions = MOTION_EXPRESSIONS.filter(name => probe.hasExpression(name));
+  return {
+    schemaVersion: 1, source: 'loaded-vrm',
+    bones: { present: bones, missing: MOTION_BONES.filter(name => !bones.includes(name)) },
+    expressions: { present: expressions, missing: MOTION_EXPRESSIONS.filter(name => !expressions.includes(name)) },
+    lookAtController: probe.lookAtController, visualReview: 'not-reviewed',
+  };
+}

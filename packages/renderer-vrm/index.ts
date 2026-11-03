@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRM, VRMLoaderPlugin } from '@pixiv/three-vrm';
 import { disposeVrmScene } from './dispose';
+import { inspectMotionCapabilities } from '../character-core/motion-capabilities';
 import { sampleMotion, sampleLook } from '../character-core';
 import { inspectVrmFile, type ModelInfo } from '../character-core/vrm-file';
 import type { AnimationState } from '../target-chatgpt/contract';
@@ -75,7 +76,11 @@ export class VrmStage {
     // Re-capture the rest state in world space so the first atlas frame starts settled.
     candidate.springBoneManager?.reset();
     candidate.springBoneManager?.setInitState();
-    return info;
+    return { ...info, motionCapabilities: inspectMotionCapabilities({
+      hasBone: name => Boolean(candidate.humanoid.getNormalizedBoneNode(name)),
+      hasExpression: name => Boolean(candidate.expressionManager?.getExpression(name)),
+      lookAtController: Boolean(candidate.lookAt),
+    }) };
   }
 
   resize(width: number, height: number, pixelRatio?: number) {

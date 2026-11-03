@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { ExportSession, createExportReport, type CheckedAtlas, type PreviewController } from '../src/export-session';
+import { inspectMotionCapabilities } from '../packages/character-core/motion-capabilities';
 
 const provenance = { source: 'local-import' as const, model: { name: 'Character', authors: ['Artist'], version: '1.0', expressions: [], licenseUrl: 'https://example.org/license', avatarPermission: 'everyone', allowRedistribution: false } };
 function result(blob: Blob, valid = true): CheckedAtlas {
@@ -12,6 +13,20 @@ function deferred<T>() { let resolve!: (value: T) => void; const promise = new P
 const blob = () => new Blob(['encoded test bytes'], { type: 'image/png' });
 
 describe('checked export lifetime', () => {
+  it('snapshots loaded model capabilities before asynchronous export and keeps platform status separate', async () => {
+    const capabilities = inspectMotionCapabilities({ hasBone: () => true, hasExpression: () => false, lookAtController: false });
+    const model = { ...provenance, model: { ...provenance.model, motionCapabilities: capabilities } };
+    const pending = deferred<Blob>(); const session = new ExportSession();
+    const job = session.run('v2', model, () => pending.promise, () => preview());
+    capabilities.expressions.missing.splice(0); capabilities.lookAtController = true;
+    pending.resolve(blob()); const { report } = await job;
+    expect(report.modelCapabilities?.expressions.missing).toEqual(['blink', 'happy', 'sad']);
+    expect(report.modelCapabilities?.lookAtController).toBe(false);
+    expect(report.modelCapabilities?.visualReview).toBe('not-reviewed');
+    expect(report.platformPreflight.status).toBe('not-run');
+    const legacy = createExportReport(result(blob()), provenance);
+    expect('modelCapabilities' in legacy).toBe(false);
+  });
   it('retains the exact encoded Blob and snapshots model metadata', async () => {
     const session = new ExportSession();
     const source = blob();

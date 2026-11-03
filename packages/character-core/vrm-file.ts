@@ -1,3 +1,5 @@
+import type { MotionCapabilities } from './motion-capabilities';
+
 export const MAX_MODEL_BYTES = 64 * 1024 * 1024;
 export interface ModelInfo {
   name: string;
@@ -7,6 +9,7 @@ export interface ModelInfo {
   licenseUrl: string;
   avatarPermission: string;
   allowRedistribution: boolean;
+  motionCapabilities?: MotionCapabilities;
 }
 
 /** Reject external references before GLTFLoader can issue a request. */
