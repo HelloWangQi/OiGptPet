@@ -46,3 +46,5 @@ npm run test:chat-soak-default
 ## 2026-11-03 正式记录
 
 源码 2526a24，实际观察 3600.50 秒通过；32 个完整循环、185 次模拟请求、261 次定时采样，未跳过采样，最大间隔 19.73 秒。预热后 memoryNeedsReview=false；包含预热及过渡的 rawMemoryNeedsReview=true，GPU 正斜率继续保留为观察项。详细数据、范围及产物见 [CHECKPOINT_08_SOAK.md](CHECKPOINT_08_SOAK.md)。
+
+随后完成默认后端对照（源码 862faca），WebGL 探针为 Intel UHD Graphics 630 / D3D11；预热后观察 3600.04 秒、32 个完整循环、185 次请求、261 次采样通过。该轮原始和预热后内存提示均未触发，不覆盖软件基线的提示记录。条件匹配、趋势对照及局限见 [默认图形后端检查点](CHECKPOINT_08_GPU_COMPARE.md)。
