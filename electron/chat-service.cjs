@@ -1,6 +1,7 @@
 const { randomUUID } = require('node:crypto');
 const path = require('node:path');
 const { readResponseText } = require('./response-stream.cjs');
+const { describeHttpError } = require('./chat-errors.cjs');
 
 // Race every awaited step, including native decryption and response reads.
 // Some providers/adapters can ignore AbortSignal; they must not lock the UI.
@@ -17,8 +18,8 @@ function abortable(action, signal, disposeLate = () => {}) {
   });
 }
 
-function createChatService({ file, fs, safeStorage, fetch, onState = () => {}, timeoutMs = 60000 }) {
-  let config = { model: '', key: '' }; let history = []; let active; let saving = false; let attempt;
+function createChatService({ file, fs, safeStorage, fetch, onState = () => {}, timeoutMs = 60000, checkTimeoutMs = 5000 }) {
+  let config = { model: '', key: '' }; let history = []; let active; let saving = false; let attempt; let checking;
   let sequence = 0; let state = { status: 'idle', sequence: 0 };
   const available = () => safeStorage.isAsyncEncryptionAvailable();
   const publicConfig = async () => ({ model: config.model, hasKey: Boolean(config.key), encryptionAvailable: await available() });
@@ -32,6 +33,7 @@ function createChatService({ file, fs, safeStorage, fetch, onState = () => {}, t
     try { onState({ ...state }); } catch { /* A closing view must not invalidate committed settings or replies. */ }
   };
   const cancel = () => {
+    checking?.controller.abort();
     if (!active) return;
     const previous = active; active = undefined;
     if (attempt?.requestId === previous.id) attempt.partial = previous.partial;
@@ -46,11 +48,31 @@ function createChatService({ file, fs, safeStorage, fetch, onState = () => {}, t
       } catch (error) { if (error.code !== 'ENOENT') throw new Error('对话设置读取失败，请重新保存设置。'); }
     },
     get: publicConfig,
+    async check() {
+      if (active || saving || checking) return { ready: false, code: 'busy' };
+      const probe = { controller: new AbortController() }; checking = probe;
+      let timedOut = false; let stage = 'availability';
+      const timer = setTimeout(() => { timedOut = true; probe.controller.abort(); }, checkTimeoutMs);
+      const result = code => ({ ready: code === 'ready', code });
+      try {
+        if (!config.model) return result('missing_model');
+        if (!/^[a-zA-Z0-9._:/-]{1,120}$/.test(config.model)) return result('invalid_model');
+        if (!config.key) return result('missing_key');
+        const signal = probe.controller.signal;
+        if (!await abortable(available, signal)) return result('unavailable');
+        stage = 'decryption';
+        const decrypted = await abortable(() => safeStorage.decryptStringAsync(Buffer.from(config.key, 'base64')), signal);
+        const key = decrypted?.result;
+        return result(typeof key === 'string' && key.length > 0 && key.length <= 512 && !/[^\x21-\x7e]/.test(key) ? 'ready' : 'unreadable_key');
+      } catch {
+        return result(probe.controller.signal.aborted ? timedOut ? 'timeout' : 'cancelled' : stage === 'decryption' ? 'unreadable_key' : 'unavailable');
+      } finally { clearTimeout(timer); if (checking === probe) checking = undefined; }
+    },
     getState: () => ({ ...state }),
     snapshot: () => ({ sequence, state: { ...state }, history: history.map(message => ({ ...message })),
       attempt: attempt ? { ...attempt, ...(active?.id === attempt.requestId ? { partial: active.partial } : {}) } : null }),
     async save(value) {
-      if (active || saving) throw new Error('请先结束当前对话或设置保存。');
+      if (active || saving || checking) throw new Error('请先结束当前对话、设置保存或本地检查。');
       if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some(key => !['model', 'apiKey', 'forgetKey'].includes(key))
         || typeof value.model !== 'string' || (!value.forgetKey && !/^[a-zA-Z0-9._:/-]{1,120}$/.test(value.model.trim()))
         || (!value.forgetKey && value.apiKey !== undefined && (typeof value.apiKey !== 'string' || value.apiKey.length > 512 || /[^\x21-\x7e]/.test(value.apiKey)))
@@ -82,7 +104,7 @@ function createChatService({ file, fs, safeStorage, fetch, onState = () => {}, t
     async send(text, requestId) {
       if (typeof text !== 'string' || !text.trim() || text.length > 2000) throw new Error('消息长度需为 1–2000 字。');
       if (requestId !== undefined && (typeof requestId !== 'string' || !/^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(requestId))) throw new Error('对话请求标识无效。');
-      if (active || saving) throw new Error('请等待当前操作完成。');
+      if (active || saving || checking) throw new Error('请等待当前操作完成。');
       if (!config.model || !config.key) throw new Error('请先保存模型 ID 和 API Key。');
       const session = { controller: new AbortController(), id: requestId ?? randomUUID(), lastProgress: 0, partial: '' }; active = session;
       attempt = { requestId: session.id, text, status: 'thinking', partial: '' };
@@ -103,7 +125,13 @@ function createChatService({ file, fs, safeStorage, fetch, onState = () => {}, t
       try {
         const signal = session.controller.signal;
         if (!await abortable(available, signal)) throw new Error('系统安全存储不可用。');
-        const key = await abortable(() => safeStorage.decryptStringAsync(Buffer.from(config.key, 'base64')), signal);
+        let key;
+        try {
+          const decrypted = await abortable(() => safeStorage.decryptStringAsync(Buffer.from(config.key, 'base64')), signal);
+          key = decrypted?.result;
+          if (typeof key !== 'string' || !key || key.length > 512 || /[^\x21-\x7e]/.test(key)) throw new Error('Invalid decrypted key');
+        }
+        catch (error) { if (signal.aborted) throw error; throw new Error('系统安全存储无法解密已保存密钥，请在本机重新保存 API Key。'); }
         if (active !== session) return { cancelled: true };
         const response = await abortable(() => fetch('https://api.openai.com/v1/responses', {
           method: 'POST', redirect: 'error', signal: session.controller.signal,
@@ -112,7 +140,7 @@ function createChatService({ file, fs, safeStorage, fetch, onState = () => {}, t
             instructions: '你是一位友善的桌面动漫伙伴。用用户的语言简短自然地交流。不要声称能操作电脑或读取文件。',
             input: [...history, { role: 'user', content: text.trim() }] }),
         }), signal, late => { void late.body?.cancel().catch(() => {}); });
-        if (!response.ok) { void response.body?.cancel().catch(() => {}); throw new Error(`服务请求失败（HTTP ${response.status}）。请检查密钥、模型权限或余额。`); }
+        if (!response.ok) throw new Error(await describeHttpError(response, { signal, wait: abortable }));
         const reply = await readResponseText(response, { signal, wait: abortable, onText: progress });
         if (active !== session || session.controller.signal.aborted) return { cancelled: true };
         history = [...history, { role: 'user', content: text.trim() }, { role: 'assistant', content: reply }].slice(-8);

@@ -12,6 +12,7 @@ const { collectDesktopDiagnostics, createDiagnosticsExporter } = require('./desk
 const os = require('node:os');
 const { createChatService } = require('./chat-service.cjs');
 const { assertTrustedSender } = require('./ipc-trust.cjs');
+const { createRenderMetricsStore } = require('./render-metrics.cjs');
 
 const root = path.join(__dirname, '..');
 protocol.registerSchemesAsPrivileged([{ scheme: 'oipet', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
@@ -28,6 +29,7 @@ let quitting = false;
 let quitFlush;
 let quitReady = false;
 let modelBytes = null;
+const renderMetrics = createRenderMetricsStore();
 const chat = createChatService({ file: path.join(app.getPath('userData'), 'chat-settings.json'), fs, safeStorage,
   fetch: (...args) => fetch(...args), onState: state => {
     for (const win of [workshop, pet]) if (win && !win.isDestroyed()) {
@@ -60,6 +62,16 @@ function secureWindow(options) {
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (event) => event.preventDefault());
   win.webContents.on('will-attach-webview', (event) => event.preventDefault());
+  const contentId = win.webContents.id;
+  const clearRenderMetrics = () => renderMetrics.clear(contentId);
+  win.webContents.on('did-start-navigation', (_event, _url, _inPlace, isMainFrame) => { if (isMainFrame) clearRenderMetrics(); });
+  win.webContents.on('render-process-gone', clearRenderMetrics);
+  win.webContents.on('destroyed', clearRenderMetrics);
+  const reportVisibility = () => {
+    clearRenderMetrics();
+    if (!win.webContents.isDestroyed()) win.webContents.send('window:visibility', win.isVisible());
+  };
+  win.on('hide', reportVisibility); win.on('show', reportVisibility);
   return win;
 }
 
@@ -121,8 +133,11 @@ function makeTrayIcon() {
 }
 
 function handlers() {
+  ipcMain.handle('window:visibility-get', event => trusted(event).isVisible());
+  ipcMain.handle('render:metrics', (event, value) => { const owner = trusted(event); renderMetrics.update(owner.webContents.id, value); });
   const chatOwner = event => { if (trusted(event) !== workshop) throw new Error('Only the workshop can control chat'); };
   ipcMain.handle('chat:get', event => { chatOwner(event); return chat.get(); });
+  ipcMain.handle('chat:check', event => { chatOwner(event); return chat.check(); });
   ipcMain.handle('chat:snapshot', event => { chatOwner(event); return chat.snapshot(); });
   ipcMain.handle('chat:state-get', event => { trusted(event); return chat.getState(); });
   ipcMain.handle('chat:save', (event, value) => { chatOwner(event); return chat.save(value); });
@@ -131,7 +146,8 @@ function handlers() {
   ipcMain.handle('chat:clear', event => { chatOwner(event); chat.clear(); });
   const saveDiagnostics = createDiagnosticsExporter({
     chooseFile: owner => dialog.showSaveDialog(owner, { defaultPath: 'OiGptPet-desktop-diagnostics.json', filters: [{ name: '桌面诊断 JSON', extensions: ['json'] }] }),
-    collect: () => collectDesktopDiagnostics({ app, screen, os, versions: process.versions, preferences: preferences.get(), windows: { workshop, pet } }),
+    collect: () => collectDesktopDiagnostics({ app, screen, os, versions: process.versions, preferences: preferences.get(), windows: { workshop, pet },
+      renderMetrics: win => win.isVisible() ? renderMetrics.read(win.webContents.id) : { status: 'hidden', sample: null } }),
     writeFile: fs.writeFile,
   });
   ipcMain.handle('diagnostics:save', event => {

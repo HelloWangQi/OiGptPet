@@ -1,0 +1,50 @@
+# 预热后的满小时混合检查
+
+用于 0.8.2 位图释放修复后的模拟对话、VRM/精灵图切换及内存趋势检查。使用新编译的真实 EXE、隔离 profile 和合成配置，主进程 fetch 不向真实服务转发。测试模型仅从本地导入，不随公开包分发。
+
+```powershell
+npm run verify:desktop
+
+# 65 秒工具预检：5 秒预热 + 60 秒观察，不能算满小时
+node scripts/chat-stress.mjs --minutes 1 --warmup-seconds 5 --switch-seconds 10 --sample-seconds 2
+
+# 正式：300 秒预热 + 3600 秒观察，约 65 分钟
+npm run test:chat-soak
+
+# 默认图形后端对照；是否硬件加速以实际 rendererProbe 为准
+npm run test:chat-soak-default
+```
+
+`--minutes` 自动启用 mixed 和 fixed-windows，不与 `--cycles` 混用。默认预热 300 秒、每 60 秒切换一次角色、每 15 秒独立采样；整个计时从两个角色与对话配置准备就绪后开始。窗口在观察中不刷新/销毁，最后另做退出重启验证。运行时不要操作测试窗口；Ctrl+C 中断保存失败记录，不能算成功。
+
+`--renderer software`（缺省）显式启用 SwiftShader；`--renderer default` 不强制后端，记录实际 WebGL unmasked renderer/vendor、Electron GPU feature 状态及 basic GPU 信息。默认模式可能回退到软件，不能仅凭参数名宣称硬件加速。图形探针使用临时上下文并显式释放，不改变产品的渲染设置。默认模式产物单独写入 `artifacts/chat-soak-default/`，不覆盖软件基线。两组按相同周期、预热与阈值观察，比较各自的变化和斜率，不把不同后端的常驻内存直接相减。
+
+## 时钟和检查边界
+
+以 performance.now 的单调时钟计时。切换时刻相对起点固定，不使用“上次操作结束后再等 60 秒”；迟到记录实际时间、延迟和跳过的时刻，不连发补做。每个循环含两次切换，VRM 与精灵图各停留约一个间隔。为避免长等待引起请求本身超时，先完成该阶段回复，再等下一个切换时刻。
+
+每轮保留流式回复、角色切换/改名后气泡、隐藏接收回复及绘制暂停/恢复、显式取消/清空和重试、成功历史滚动、迟到连接响应释放等断言。资源在切换和每轮结束时严格检查：只保留当前角色的上下文或图集 bitmap，离开 VRM 后已知回归资源的解码位图创建/关闭数相等。
+
+独立 Node 定时器采集进程、窗口/PID 角色、近似 renderer 堆和资源探针，不依赖对话或切换动作触发。采集跨越角色替换时标记为 transition；只有两个窗口一致且采集未跨越切换的样本才列为 stable。收集中的错误会中止主循环，采集太慢会记录跳过计数。正式满小时还要求相邻采样间隔不超过 max(45 秒, 3×采样周期)，防止睡眠或长暂停被误算为连续观察。
+
+`completeHour=true` 只在请求观察时长至少一小时、预热至少 300 秒、预热后真实观察至少 3600 秒时成立；正式运行还要求完成至少 20 个混合循环、预热后两种角色各至少 5 个 stable 定时样本及连续采样检查通过。短预检即使碰巧运行超过一小时也不能升级为正式验收。
+
+## 产物和解读
+
+产物位于 `artifacts/chat-soak/run-*/`；只有成功才更新该目录的 latest.json。
+
+- `conditions.json`：源码提交与 dirty 状态、包目录、包内 Electron/前端文件 SHA-256、测试脚本 SHA-256、参数和环境。
+- `scheduled-samples.ndjson`：独立定时样本，保留计划与实际采样时刻、稳定/过渡标记、工坊/桌宠 PID 及指标。
+- `samples.ndjson`：原有动作边界资源检查样本，不与独立采样混作趋势来源。
+- `progress.json`：预热/观察实际时间、已完成循环、模拟请求、采样与跳过计数。
+- `result.json`：完整成功流程、计时、切换时刻、采样覆盖、退出重启结果和内存汇总；失败写 failure.json 与可获取的截图。
+
+`rawMemory` 包含初始化及过渡数据；`memory` 仅使用预热后的 stable 独立样本。两者都按 PID+进程创建时间+角色类型分组，并使用既有阈值（至少 5 样本、净增超过 100 MiB 且斜率超过 1 MiB/min）。不修改阈值或强制 GC。近似 JS 堆不是精确保留堆，资源 close 调用不代表操作系统立即归还所有内存。
+
+`ok=true` / `completeHour=true` 表示该配置的功能与时长检查完成；若 memoryNeedsReview 为 true，内存稳定性仍需复核。即便没有提示，也不能证明任意设备上永无泄漏。SwiftShader 软件渲染和模拟服务不替代真实账户、GPU/能耗、多屏/DPI/休眠或 ChatGPT 官方宠物安装验收。
+
+## 2026-11-03 正式记录
+
+源码 2526a24，实际观察 3600.50 秒通过；32 个完整循环、185 次模拟请求、261 次定时采样，未跳过采样，最大间隔 19.73 秒。预热后 memoryNeedsReview=false；包含预热及过渡的 rawMemoryNeedsReview=true，GPU 正斜率继续保留为观察项。详细数据、范围及产物见 [CHECKPOINT_08_SOAK.md](CHECKPOINT_08_SOAK.md)。
+
+随后完成默认后端对照（源码 862faca），WebGL 探针为 Intel UHD Graphics 630 / D3D11；预热后观察 3600.04 秒、32 个完整循环、185 次请求、261 次采样通过。该轮原始和预热后内存提示均未触发，不覆盖软件基线的提示记录。条件匹配、趋势对照及局限见 [默认图形后端检查点](CHECKPOINT_08_GPU_COMPARE.md)。

@@ -3,7 +3,10 @@ import { readFile } from 'node:fs/promises';
 export async function checkChat(desktop, page, pet) {
   const file = await desktop.evaluate(({ app }) => {
     globalThis.__chatOriginalFetch = globalThis.fetch;
+    globalThis.__chatRequestCount = 0;
     globalThis.fetch = async (url, options) => {
+      globalThis.__chatRequestCount++;
+      if (options.headers.Authorization !== 'Bearer smoke-key-not-real') throw new Error('Unexpected auth format');
       const body = JSON.parse(options.body);
       if (url !== 'https://api.openai.com/v1/responses' || body.store !== false || body.stream !== true) throw new Error('Unexpected request');
       return new Response(new ReadableStream({ start(controller) {
@@ -14,14 +17,31 @@ export async function checkChat(desktop, page, pet) {
     return app.getPath('userData') + '/chat-settings.json';
   });
   try {
-    await page.locator('.chat-panel details summary').click();
+    assert.equal(await page.locator('.chat-panel details').evaluate(panel => panel.open), true);
     assert.equal(await page.locator('#chat-send').isDisabled(), true);
+    await page.locator('#chat-check').click();
+    await page.waitForFunction(() => document.querySelector('#chat-check-status').textContent.includes('请先填写'));
+    await page.locator('#chat-model').fill('invalid model!'); await page.locator('#chat-key').fill('smoke-key-not-real');
+    await page.locator('#chat-save').click();
+    await page.waitForFunction(() => document.querySelector('#chat-status').textContent.includes('模型 ID'));
+    await assert.rejects(readFile(file), { code: 'ENOENT' });
     await page.locator('#chat-model').fill('test-model'); await page.locator('#chat-key').fill('smoke-key-not-real');
     await page.locator('#chat-save').click();
     await page.waitForFunction(() => document.querySelector('#chat-status').textContent.includes('配置已保存'));
     assert.equal(await page.locator('#chat-key').inputValue(), '');
     assert.equal((await readFile(file, 'utf8')).includes('smoke-key-not-real'), false);
     const settings = await page.evaluate(() => window.petDesktop.getChatSettings()); assert.equal('apiKey' in settings, false); assert.equal('key' in settings, false);
+    const beforeCheck = await page.evaluate(() => window.petDesktop.getChatSnapshot());
+    const saved = await readFile(file, 'utf8');
+    await page.locator('#chat-check').click();
+    await page.waitForFunction(() => document.querySelector('#chat-check-status').textContent.includes('本地检查通过'));
+    assert.deepEqual(await page.evaluate(() => window.petDesktop.getChatSnapshot()), beforeCheck);
+    assert.equal(await readFile(file, 'utf8'), saved);
+    assert.equal(await desktop.evaluate(() => globalThis.__chatRequestCount), 0, 'Saving/checking configuration must not send a request');
+    await assert.rejects(pet.evaluate(() => window.petDesktop.checkChatSettings()), /Only the workshop/);
+    await page.locator('#chat-model').fill('unsaved-model'); await page.locator('#chat-check').click();
+    await page.waitForFunction(() => document.querySelector('#chat-check-status').textContent.includes('请先保存'));
+    await page.locator('#chat-model').fill('test-model');
     await page.locator('#chat-input').fill('你好'); await page.locator('#chat-send').click();
     await page.waitForFunction(() => document.querySelector('#chat-log [data-reply-state="partial"]')?.textContent.includes('你好，'));
     assert.equal(await page.locator('#chat-send').isDisabled(), true);
@@ -61,6 +81,10 @@ export async function checkChat(desktop, page, pet) {
     await page.waitForFunction(() => document.querySelector('#chat-status').textContent.includes('HTTP 429'));
     assert.equal(await page.locator('#chat-input').inputValue(), '失败草稿');
     assert.equal(await page.locator('#chat-log [data-delivery="failed"]').count(), 1);
+    await desktop.evaluate(() => { globalThis.fetch = async () => new Response(JSON.stringify({ error: { code: 'credit_balance_exhausted', message: 'private billing details' } }), { status: 429 }); });
+    await page.locator('#chat-retry').click();
+    await page.waitForFunction(() => document.querySelector('#chat-status').textContent.includes('额度或限额不足'));
+    assert.equal((await page.locator('#chat-status').textContent()).includes('private billing'), false);
     await desktop.evaluate(() => { globalThis.fetch = async (_url, options) => new Response(JSON.stringify({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: '重试成功：' + JSON.parse(options.body).input.at(-1).content }] }] })); });
     await page.locator('#chat-input').fill('后续草稿'); await page.locator('#chat-retry').click();
     await page.waitForFunction(() => document.querySelector('#chat-log').textContent.includes('重试成功：失败草稿'));
@@ -98,5 +122,6 @@ export async function checkChat(desktop, page, pet) {
   } finally { await desktop.evaluate(() => {
     for (const key of ['__chatStream', '__chatBrokenStream', '__chatCancelStream']) { try { globalThis[key]?.error(new Error('test cleanup')); } catch {} delete globalThis[key]; }
     globalThis.fetch = globalThis.__chatOriginalFetch; delete globalThis.__chatOriginalFetch;
+    delete globalThis.__chatRequestCount;
   }); }
 }

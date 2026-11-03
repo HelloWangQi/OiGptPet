@@ -21,7 +21,7 @@ export function summarizeMemory(samples, warmupSeconds = 300) {
       // sizes. Compare each process under the same renderer workload so the
       // first/last samples do not accidentally compare different model types.
       const key = `${process.pid}:${process.creationTime ?? ''}:${workload}`;
-      if (!groups.has(key)) groups.set(key, { pid: process.pid, type: process.type, kind: workload, points: [] });
+      if (!groups.has(key)) groups.set(key, { pid: process.pid, type: process.type, roles: process.roles ?? [], kind: workload, points: [] });
       groups.get(key).points.push({ x: sample.elapsedSeconds / 60, y: process.memory.privateBytes / 1024 });
     }
   }

@@ -35,3 +35,17 @@
 #chat-log [data-reply-state="incomplete"]::after { content:'（未完成，未加入上下文）'; color:#a34f38; }
 #chat-form .button { display:inline-flex; margin:8px 10px 0 0; background:#dfe6d7; }
 #pet-message { max-height:145px; overflow:auto; overflow-wrap:anywhere; white-space:pre-wrap; }
+
+/* Desktop workshop: settings scroll within the viewport beside the preview. */
+@media (min-width:781px) {
+  body:not(.pet-mode) { overflow:hidden; }
+  .workspace { height:100dvh; display:flex; flex-direction:column; overflow:hidden; }
+  .workspace>.topbar,.workspace>footer { flex-shrink:0; }
+  .workshop-grid { flex:1; min-height:0; grid-template-rows:minmax(0,1fr); }
+  .preview-column { min-height:0; min-width:0; display:flex; flex-direction:column; overflow-y:auto; overscroll-behavior:contain; }
+  .preview-column>.section-heading,.preview-column>.motion-panel,.preview-column>.status-line { flex-shrink:0; }
+  .preview-column>.preview-stage { flex:1 1 200px; height:auto; min-height:200px; }
+  .preview-column>.status-line { max-height:4.5em; overflow-y:auto; }
+  .detail-column { height:100%; min-height:0; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; scrollbar-gutter:stable; padding-right:10px; padding-bottom:16px; }
+  .detail-column:focus-visible { outline:2px solid #96b1df; outline-offset:2px; }
+}

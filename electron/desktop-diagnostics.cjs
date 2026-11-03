@@ -1,7 +1,7 @@
 const rect = value => ({ x: value.x, y: value.y, width: value.width, height: value.height });
 
 // Select fields explicitly: never serialize Electron objects, paths or assets.
-function collectDesktopDiagnostics({ app, screen, os, versions, preferences, windows, now = () => new Date() }) {
+function collectDesktopDiagnostics({ app, screen, os, versions, preferences, windows, renderMetrics = () => ({ status: 'not-sampled', sample: null }), now = () => new Date() }) {
   const primary = screen.getPrimaryDisplay().id;
   return {
     format: 'oigptpet-desktop-diagnostics', version: 1,
@@ -13,7 +13,7 @@ function collectDesktopDiagnostics({ app, screen, os, versions, preferences, win
     windows: Object.entries(windows).map(([role, win]) => {
       if (!win || win.isDestroyed()) return { role, exists: false };
       const bounds = win.getBounds();
-      return { role, exists: true, bounds: rect(bounds), visible: win.isVisible(), focused: win.isFocused(), displayId: screen.getDisplayMatching(bounds).id };
+      return { role, exists: true, bounds: rect(bounds), visible: win.isVisible(), focused: win.isFocused(), displayId: screen.getDisplayMatching(bounds).id, rendering: renderMetrics(win) };
     }),
     processes: app.getAppMetrics().map(p => ({ type: p.type, cpuPercent: p.cpu?.percentCPUUsage ?? null,
       privateKiB: p.memory?.privateBytes ?? null, workingSetKiB: p.memory?.workingSetSize ?? null })),

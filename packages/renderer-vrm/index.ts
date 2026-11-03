@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { VRM, VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+import { VRM, VRMLoaderPlugin } from '@pixiv/three-vrm';
+import { disposeVrmScene } from './dispose';
+import { inspectMotionCapabilities } from '../character-core/motion-capabilities';
 import { sampleMotion, sampleLook } from '../character-core';
 import { inspectVrmFile, type ModelInfo } from '../character-core/vrm-file';
 import type { AnimationState } from '../target-chatgpt/contract';
@@ -43,9 +45,9 @@ export class VrmStage {
     loader.register((parser) => new VRMLoaderPlugin(parser));
     const gltf = await loader.parseAsync(buffer, '');
     const candidate = gltf.userData.vrm as VRM | undefined;
-    if (!candidate) { VRMUtils.deepDispose(gltf.scene); throw new Error('文件没有可用的 VRM 人形角色。'); }
+    if (!candidate) { disposeVrmScene(gltf.scene); throw new Error('文件没有可用的 VRM 人形角色。'); }
     if (this.disposed || generation !== this.generation) {
-      VRMUtils.deepDispose(candidate.scene);
+      disposeVrmScene(candidate.scene);
       throw new Error('角色加载已取消。');
     }
     this.releaseModel();
@@ -74,7 +76,11 @@ export class VrmStage {
     // Re-capture the rest state in world space so the first atlas frame starts settled.
     candidate.springBoneManager?.reset();
     candidate.springBoneManager?.setInitState();
-    return info;
+    return { ...info, motionCapabilities: inspectMotionCapabilities({
+      hasBone: name => Boolean(candidate.humanoid.getNormalizedBoneNode(name)),
+      hasExpression: name => Boolean(candidate.expressionManager?.getExpression(name)),
+      lookAtController: Boolean(candidate.lookAt),
+    }) };
   }
 
   resize(width: number, height: number, pixelRatio?: number) {
@@ -156,7 +162,7 @@ export class VrmStage {
   private releaseModel() {
     if (this.vrm) {
       this.root.remove(this.vrm.scene);
-      VRMUtils.deepDispose(this.vrm.scene);
+      disposeVrmScene(this.vrm.scene);
       this.vrm = undefined;
     }
   }

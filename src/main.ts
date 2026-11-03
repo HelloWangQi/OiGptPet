@@ -10,8 +10,11 @@ import { DEFAULT_PREFERENCES, IDLE_AFTER_MS, PERFORMANCE_POLICIES, normalizePref
 import { FramePacer } from './frame-pacer';
 import { pointerLook } from './pointer-look';
 import { setupChat } from './chat-panel';
+import { PetChatPresentation } from './pet-chat-presentation';
 import { sha256Hex } from '../packages/atlas-preview/sha256';
 import { characterPackageModule, MAX_CHARACTER_BACKUP_BYTES } from './character-package-client';
+import { motionCapabilityRows } from './motion-capabilities-view';
+import { RenderMonitor, renderSampleText, type RenderContext } from './render-monitor';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 const desktop = window.petDesktop;
@@ -63,7 +66,7 @@ app.innerHTML = petMode ? `
         <div class="motion-panel"><div class="motion-heading"><h2>今天是什么心情？</h2><button id="pause-button" class="text-button">暂停动画</button></div><div class="motion-list">${ANIMATION_ROWS.map((row, i) => `<button class="motion-button ${i === 0 ? 'active' : ''}" data-state="${row.state}"><span class="motion-index">${String(i + 1).padStart(2, '0')}</span>${row.label}</button>`).join('')}</div></div>
         <p class="status-line" id="status" role="status" aria-live="polite">正在准备角色工坊…</p>
       </section>
-      <aside class="detail-column">
+      <aside class="detail-column" tabindex="0" aria-label="角色和陪伴设置">
         <section class="detail-section"><div class="section-heading"><div><span class="section-number">02</span><h2>你的角色</h2></div><span class="tag">VRM</span></div>
           <button class="character-card" id="load-demo" ${__WITH_DEMO__ ? '' : 'hidden'}><div class="avatar-monogram">S<span>✦</span></div><div><strong>官方示例角色</strong><span>pixiv · VRM 1.0</span></div><span class="card-arrow">↗</span></button>
           <button class="import-zone" id="import-button" disabled>${icon.plus}<strong>导入我的角色</strong><span>VRM 1.0 ≤64 MiB · PNG / WebP ≤20 MiB</span></button>
@@ -93,6 +96,8 @@ app.innerHTML = petMode ? `
           <label class="field-label" for="performance-mode">动画性能</label>
           <select id="performance-mode" disabled><option value="quality">画质优先 · 最高 60 帧</option><option value="balanced" selected>均衡 · 最高 30 帧</option><option value="battery">省电 · 最高 15 帧</option></select>
           <p class="helper">闲置 10 秒自动降低绘制频率，隐藏时停止绘制。设置在本机保存。</p>
+          <p class="helper" id="render-performance">本窗口：正在准备采样…</p>
+          <p class="helper">每两秒更新绘制调用采样；不等同于屏幕呈现帧率或 GPU 耗时。桌面诊断分别记录工坊和桌宠。</p>
           <button class="text-button" id="save-diagnostics" ${desktop ? '' : 'hidden'}>保存桌面诊断</button>
           <p class="helper" ${desktop ? '' : 'hidden'}>记录显示器、窗口位置和性能，方便排查问题；不包含角色文件和名称。</p>
           <p class="helper" id="settings-status" role="status" aria-live="polite"></p>
@@ -100,9 +105,13 @@ app.innerHTML = petMode ? `
         <section class="detail-section chat-panel" ${desktop ? '' : 'hidden'}>
           <h2>和伙伴聊聊</h2>
           <details><summary>对话设置</summary>
+            <ol class="helper"><li>填写账户可用的模型 ID 和 API Key。</li><li>保存设置，再检查本地配置。</li><li>在下方发送一条消息验证网络和模型权限（可能计费）。</li></ol>
             <label class="field-label" for="chat-model">OpenAI 模型 ID</label><input id="chat-model" maxlength="120" placeholder="输入账户可用的模型 ID" />
             <label class="field-label" for="chat-key">API Key</label><input id="chat-key" type="password" maxlength="512" autocomplete="off" />
             <button id="chat-save" class="text-button" type="button">保存设置</button> <button id="chat-forget" class="text-button" type="button">移除密钥</button>
+            <button id="chat-check" class="text-button" type="button">检查本地配置</button>
+            <p class="helper" id="chat-check-status" role="status" aria-live="polite"></p>
+            <p class="helper">保存和本地检查不会联网。保存设置会清空本次对话，本地检查保留对话。更换电脑或系统账户后，如无法解密密钥，请重新保存。</p>
             <p class="helper">密钥由系统加密后保存在本机。点击发送会将本次消息及最近四轮对话发送给 OpenAI API，费用由该 API 账户承担。</p>
           </details>
           <div id="chat-log" role="log" aria-label="本次对话"></div>
@@ -112,7 +121,11 @@ app.innerHTML = petMode ? `
           <p class="helper" id="chat-status" role="status">请先配置对话设置。</p>
           <p class="helper">本次对话保留到应用退出。关闭工坊会取消未完成请求；未发送草稿不保留。</p>
         </section>
-        <section class="note-card"><span class="note-star">✦</span><div><strong>从一个喜欢的角色开始。</strong><p>角色和动作共用一套源资产。桌面实时互动，ChatGPT 播放导出的动画。</p></div></section>
+          <section id="model-capabilities" class="detail-section" hidden><h2>动作适配检查</h2>
+            <details class="model-details"><summary id="motion-summary"></summary><div id="motion-capability-rows"></div></details>
+            <p class="helper">根据实际加载结果检查当前动作所用能力。动作是否自然、头发遮挡和裁切仍需播放确认；检查结果会附在导出报告中。</p>
+          </section>
+          <section class="note-card"><span class="note-star">✦</span><div><strong>从一个喜欢的角色开始。</strong><p>角色和动作共用一套源资产。桌面实时互动，ChatGPT 播放导出的动画。</p></div></section>
         <details class="model-details"><summary>角色信息与使用说明</summary><div id="model-info">导入后显示角色元数据。</div><p>导出不代表已安装为 ChatGPT 宠物。不同入口可能支持不同规格；安装和预检在目标应用内完成。</p></details>
       </aside>
     </main>
@@ -151,8 +164,38 @@ let animationTime = 0;
 let lastInteraction = performance.now();
 let preferences: DesktopPreferences = { ...DEFAULT_PREFERENCES };
 const framePacer = new FramePacer();
+const renderMonitor = new RenderMonitor();
+let renderReportPending = false;
+let nativeVisible = true;
+function renderContext(now: number): RenderContext {
+  const activity = document.hidden || !nativeVisible ? 'hidden' : now - lastInteraction >= IDLE_AFTER_MS ? 'idle' : 'active';
+  const policy = PERFORMANCE_POLICIES[preferences.performance];
+  return { kind: stage?.loaded ? stage.sourceKind : 'empty', mode: preferences.performance, activity,
+    targetFps: activity === 'hidden' ? 0 : activity === 'idle' ? policy.idleFps : policy.activeFps, paused };
+}
+function publishRenderMetrics() {
+  if (closed) return;
+  const now = performance.now(); renderMonitor.setContext(renderContext(now), now);
+  const sample = renderMonitor.sample(now); if (!sample) return;
+  if (!petMode) {
+    const output = $('#render-performance'); output.textContent = renderSampleText(sample);
+    output.dataset.kind = sample.kind; output.dataset.activity = sample.activity;
+    output.dataset.targetFps = String(sample.targetFps); output.dataset.fps = sample.fps === null ? '' : String(sample.fps);
+  }
+  if (desktop && !renderReportPending) {
+    renderReportPending = true;
+    void desktop.reportRenderSample(sample).catch(() => {}).finally(() => { renderReportPending = false; });
+  }
+}
+let renderReportTimer: number | undefined;
+function scheduleRenderReports() {
+  clearInterval(renderReportTimer);
+  renderReportTimer = !document.hidden && nativeVisible && !closed ? window.setInterval(publishRenderMetrics, 2000) : undefined;
+}
+scheduleRenderReports();
 let resizeStage = () => {};
 let transientUntil = 0;
+const petChat = new PetChatPresentation();
 let look: { yaw: number; pitch: number; angle: number } | undefined;
 let lastPointer = 0;
 const exportSession = new ExportSession();
@@ -165,6 +208,7 @@ let ignoringMouse = false;
 function applyPreferences(value: DesktopPreferences) {
   preferences = normalizePreferences(value);
   framePacer.reset();
+  publishRenderMetrics();
   resizeStage();
   if (!petMode) {
     $<HTMLSelectElement>('#pet-scale').value = String(preferences.scale);
@@ -190,6 +234,14 @@ function status(message: string, error = false) {
   const target = petMode ? $('#pet-message') : $('#status');
   target.textContent = message;
   target.classList.toggle('error', error);
+}
+function restorePetChat() {
+  const view = petChat.current(performance.now());
+  status(view?.text ?? '');
+  if (view) {
+    transientUntil = view.until;
+    if (state !== view.animation) changeState(view.animation);
+  }
 }
 function packageStatus(message: string, error = false) {
   if (petMode || closed) return;
@@ -281,7 +333,7 @@ async function restoreCharacter(file?: File) {
   } finally { finishPackage(job); }
 }
 function showInfo(value: ModelInfo) {
-  if (petMode) { status(''); return; }
+  if (petMode) return;
   $('#character-name').textContent = value.name.replaceAll('_', ' ');
   $('#character-author').textContent = `模型作者 · ${value.authors.join(' / ') || '未提供'}`;
   $('#stage-empty').hidden = true;
@@ -296,16 +348,30 @@ function showInfo(value: ModelInfo) {
     paragraph.textContent = `${label}：${text}`;
     $('#model-info').append(paragraph);
   }
+  const capabilities = value.motionCapabilities;
+  $('#model-capabilities').hidden = !capabilities;
+  const host = $('#motion-capability-rows'); host.replaceChildren();
+  if (capabilities) {
+    const rows = motionCapabilityRows(capabilities);
+    const warnings = rows.filter(row => row.warning).length;
+    $('#motion-summary').textContent = warnings ? `${warnings} 项能力缺失或受限，展开查看` : '所检查的能力已加载，展开查看';
+    $<HTMLDetailsElement>('#model-capabilities details').open = warnings > 0;
+    for (const row of rows) {
+      const p = document.createElement('p'); p.dataset.warning = String(row.warning);
+      p.textContent = `${row.label}：${row.text}`; host.append(p);
+    }
+  }
 }
 function showCharacter(summary: CharacterSummary | null, value: ModelInfo | null, input: CompanionInput) {
   document.body.dataset.characterKind = input.kind;
   document.body.dataset.characterId = summary?.id ?? '';
   if (value) showInfo(value);
-  if (petMode) { status(''); return; }
+  if (petMode) { restorePetChat(); return; }
   $('#stage-empty').hidden = true;
   $('#format-badge').textContent = input.kind === 'vrm' ? 'VRM 1.0' : `SPRITE ${input.profile}`;
   $('#character-name').textContent = summary?.name ?? value?.name ?? '本地精灵图';
   if (!value) {
+    $('#model-capabilities').hidden = true; $('#motion-capability-rows').replaceChildren(); $('#motion-summary').textContent = '';
     $('#character-author').textContent = '精灵图角色 · 原文件保存在本机';
     $('#model-info').textContent = `精灵图 ${input.kind === 'sprite' ? input.profile : ''}；可用于桌宠播放。作者和使用许可请核对原始文件说明。`;
   }
@@ -370,9 +436,10 @@ async function load(input: CompanionInput, persist: boolean, origin: 'local-impo
     currentCharacter = summary;
     info = prepared.info; source = nextSource; modelSource = origin;
     animationTime = 0; changeState('idle'); framePacer.reset(); resizeStage();
+    renderMonitor.reset(performance.now()); publishRenderMetrics();
     showCharacter(summary, info, input);
     if (persist) notifyLibrary();
-    status(petMode ? '' : '角色已就绪 · 点击动作试试看。');
+    if (!petMode) status('角色已就绪 · 点击动作试试看。');
     return true;
   } catch (error) {
     status(controller.signal.aborted ? '加载已取消，保留原角色。' : `${error instanceof Error ? error.message : '角色加载失败。'}${stage.loaded ? ' 已保留原角色。' : ''}`, true);
@@ -559,13 +626,15 @@ async function bootstrap() {
   new ResizeObserver(resize).observe(canvasHost);
   resize();
   const frame = (now: number) => {
-    const policy = PERFORMANCE_POLICIES[preferences.performance];
-    const fps = now - lastInteraction >= IDLE_AFTER_MS ? policy.idleFps : policy.activeFps;
-    const delta = framePacer.tick(now, fps, document.hidden);
+    if (closed) return;
+    const context = renderContext(now); renderMonitor.setContext(context, now);
+    const delta = framePacer.tick(now, context.targetFps, context.activity === 'hidden');
     if (delta !== null) {
       if (!paused) animationTime += delta;
       if (transientUntil && now > transientUntil) { transientUntil = 0; changeState('idle'); }
+      const started = performance.now();
       stage.render(state, animationTime, paused ? 0 : delta, now - lastPointer < 1800 ? look : undefined);
+      renderMonitor.record(performance.now() - started);
     }
     requestAnimationFrame(frame);
   };
@@ -626,7 +695,7 @@ async function bootstrap() {
   const markActive = () => { lastInteraction = performance.now(); };
   window.addEventListener('pointerdown', markActive);
   window.addEventListener('keydown', markActive);
-  document.addEventListener('visibilitychange', () => { framePacer.reset(); markActive(); });
+  document.addEventListener('visibilitychange', () => { framePacer.reset(); markActive(); publishRenderMetrics(); scheduleRenderReports(); });
   canvasHost.addEventListener('click', (event) => {
     if ((event.target as HTMLElement).id !== 'character-canvas') return;
     if (petMode && !stage.hitTest(event.clientX, event.clientY)) return;
@@ -728,12 +797,22 @@ if (petMode) {
 
 const chatUI = setupChat(desktop, petMode, value => {
   if (!petMode) return;
-  if (value.status === 'thinking') { transientUntil = 0; status('正在思考…'); changeState('running'); }
-  else if (value.status === 'streaming') { status(value.text ?? ''); }
-  else if (value.status === 'reply') { status(value.text ?? ''); changeState('waving'); transientUntil = performance.now() + 2000; }
-  else { transientUntil = 0; status(value.status === 'error' ? '请求未完成，请在工坊查看。' : ''); changeState('idle'); }
+  petChat.update(value, performance.now()); restorePetChat();
 });
+let visibilityRevision = 0;
+const applyNativeVisibility = (visible: boolean) => {
+  if (closed) return;
+  nativeVisible = visible; framePacer.reset(); lastInteraction = performance.now();
+  publishRenderMetrics(); scheduleRenderReports();
+};
+const stopVisibility = desktop?.onWindowVisibility(visible => { ++visibilityRevision; applyNativeVisibility(visible); });
+if (desktop) {
+  const revision = visibilityRevision;
+  void desktop.getWindowVisibility().then(visible => { if (revision === visibilityRevision) applyNativeVisibility(visible); }).catch(() => {});
+}
 window.addEventListener('beforeunload', () => {
+  clearInterval(renderReportTimer);
+  stopVisibility?.();
   chatUI.dispose();
   closed = true; packageJob?.controller.abort();
   if (packageJob?.nativeStarted) void desktop?.cancelCharacterPackage(packageJob.id).catch(() => {});

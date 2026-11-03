@@ -24,6 +24,13 @@ describe('desktop diagnostics', () => {
     const input = fixture(); input.windows.pet = { isDestroyed: () => true };
     expect(diagnostics.collectDesktopDiagnostics(input).windows[1]).toEqual({ role: 'pet', exists: false });
   });
+  it('attaches separate rendering samples to each live window without collecting missing windows', () => {
+    const input = fixture(); const renderMetrics = vi.fn(() => ({ status: 'hidden', sample: null }));
+    const result = diagnostics.collectDesktopDiagnostics({ ...input, renderMetrics });
+    expect(renderMetrics).toHaveBeenCalledTimes(1); expect(renderMetrics).toHaveBeenCalledWith(input.windows.pet);
+    expect(result.windows[1].rendering).toEqual({ status: 'hidden', sample: null });
+    expect(result.windows[0]).not.toHaveProperty('rendering');
+  });
   it('cancel and closed owners do not collect or write', async () => {
     const collect = vi.fn(); const writeFile = vi.fn();
     const chooseFile = vi.fn().mockResolvedValueOnce({ canceled: true }).mockResolvedValueOnce({ filePath: 'test.json' });

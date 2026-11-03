@@ -1,6 +1,7 @@
 declare const __WITH_DEMO__: boolean;
 declare const __APP_VERSION__: string;
 interface CompanionChatState { status: string; text?: string; requestId?: string; sequence: number }
+interface ChatReadiness { ready: boolean; code: 'ready' | 'missing_model' | 'invalid_model' | 'missing_key' | 'unavailable' | 'unreadable_key' | 'busy' | 'timeout' | 'cancelled' }
 interface CompanionChatSnapshot {
   sequence: number;
   state: CompanionChatState;
@@ -11,6 +12,7 @@ interface CompanionChatSnapshot {
 interface Window {
   petDesktop?: {
     getChatSettings(): Promise<{ model: string; hasKey: boolean; encryptionAvailable: boolean }>;
+    checkChatSettings(): Promise<ChatReadiness>;
     getChatSnapshot(): Promise<CompanionChatSnapshot>;
     getChatState(): Promise<CompanionChatState>;
     saveChatSettings(value: { model: string; apiKey?: string; forgetKey?: boolean }): Promise<{ model: string; hasKey: boolean; encryptionAvailable: boolean }>;
@@ -19,6 +21,9 @@ interface Window {
     clearChat(): Promise<void>;
     onChatState(callback: (state: CompanionChatState) => void): () => void;
     saveDiagnostics(): Promise<boolean>;
+    reportRenderSample(value: import('./render-monitor').RenderSample): Promise<void>;
+    getWindowVisibility(): Promise<boolean>;
+    onWindowVisibility(callback: (visible: boolean) => void): () => void;
     getModel(): Promise<Uint8Array | null>;
     setModel(bytes: Uint8Array): Promise<boolean>;
     openPet(): Promise<void>;

@@ -1,3 +1,4 @@
+import { CHAT_READINESS_TEXT, chatSettingsIssue } from './chat-readiness';
 type Desktop = NonNullable<Window['petDesktop']>;
 export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (state: CompanionChatState) => void) {
   const noop = { dispose() {}, async refresh() {} };
@@ -22,6 +23,9 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
   const cancel = $<HTMLButtonElement>('chat-cancel'); const save = $<HTMLButtonElement>('chat-save');
   const forget = $<HTMLButtonElement>('chat-forget'); const retry = $<HTMLButtonElement>('chat-retry');
   const clear = $<HTMLButtonElement>('chat-clear'); const status = $('chat-status'); const log = $('chat-log');
+  const check = $<HTMLButtonElement>('chat-check'); const checkStatus = $('chat-check-status');
+  const settingsPanel = document.querySelector<HTMLDetailsElement>('.chat-panel details')!;
+  let savedModel = '';
   let busy = false; let saving = false; let initializing = true; let configured = false; let ready = false; let revision = 0;
   let failed: { text: string; row: HTMLElement; partial?: HTMLElement } | undefined;
   let pending: { run: number; requestId: string; text: string; row: HTMLElement; partial?: HTMLElement } | undefined;
@@ -32,12 +36,14 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
   };
   const controls = () => {
     send.disabled = busy || initializing || !configured || !ready;
-    save.disabled = forget.disabled = model.disabled = key.disabled = busy || initializing;
+    save.disabled = forget.disabled = model.disabled = key.disabled = check.disabled = busy || initializing;
     clear.disabled = saving || initializing; cancel.hidden = !busy || saving;
     retry.hidden = !failed; retry.disabled = busy || initializing || !configured || !ready;
   };
   const configure = (value: { model: string; hasKey: boolean; encryptionAvailable: boolean }) => {
     model.value = value.model; key.value = ''; configured = Boolean(value.model && value.hasKey && value.encryptionAvailable);
+    savedModel = value.model;
+    if (!configured) settingsPanel.open = true;
     key.placeholder = value.hasKey ? '已保存；留空保留原密钥' : '输入 API Key';
     status.textContent = !value.encryptionAvailable ? '系统安全存储不可用。' : value.hasKey ? '配置已保存，可以开始对话。' : '请设置模型 ID 和 API Key。';
   };
@@ -98,7 +104,10 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
     finally { if (!closed) { initializing = false; controls(); } }
   })();
   const saveSettings = async (forgetKey = false) => {
-    if (busy || initializing) return; busy = true; saving = true; controls();
+    if (busy || initializing) return;
+    const issue = forgetKey ? null : chatSettingsIssue(model.value, key.value);
+    if (issue) { status.textContent = issue; settingsPanel.open = true; return; }
+    busy = true; saving = true; controls(); checkStatus.textContent = '';
     const apiKey = key.value; key.value = '';
     try {
       const value = await api.saveChatSettings({ model: model.value, ...(apiKey ? { apiKey } : {}), forgetKey });
@@ -107,6 +116,18 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
     finally { if (!closed) { busy = false; saving = false; controls(); } }
   };
   save.onclick = () => void saveSettings(); forget.onclick = () => void saveSettings(true);
+  check.onclick = async () => {
+    if (busy || initializing) return;
+    if (model.value.trim() !== savedModel || key.value) { checkStatus.textContent = '请先保存更改，再检查已保存的配置。'; return; }
+    busy = true; saving = true; controls(); checkStatus.textContent = '正在检查本机保存的配置…';
+    try {
+      const value = await api.checkChatSettings(); if (closed) return;
+      checkStatus.textContent = CHAT_READINESS_TEXT[value.code];
+      if (value.ready) configured = true;
+      else if (['missing_model', 'invalid_model', 'missing_key', 'unavailable', 'unreadable_key'].includes(value.code)) { configured = false; settingsPanel.open = true; }
+    } catch { if (!closed) checkStatus.textContent = '本地检查失败，请重试或重新保存配置。'; }
+    finally { if (!closed) { busy = false; saving = false; controls(); } }
+  };
   const submit = async (text: string, previous?: HTMLElement) => {
     if (busy || initializing || !configured || !ready || !text.trim()) return;
     const run = ++revision; const requestId = crypto.randomUUID();
