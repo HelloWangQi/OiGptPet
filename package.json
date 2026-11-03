@@ -23,6 +23,7 @@
     "test:chat-mixed": "node scripts/chat-stress.mjs --mixed",
     "test:chat-memory": "node scripts/chat-stress.mjs --mixed --fixed-windows --cycles 8 --settle-seconds 5",
     "test:chat-soak": "node scripts/chat-stress.mjs --minutes 60",
+    "test:chat-soak-default": "node scripts/chat-stress.mjs --minutes 60 --renderer default",
     "demo:fetch": "node scripts/fetch-demo.mjs",
     "package": "npm run build && node scripts/package.mjs"
   },

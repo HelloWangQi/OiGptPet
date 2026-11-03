@@ -40,7 +40,8 @@ assert.equal(latest.version, version);
 const git = args => execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
 const source = { commit: git(['rev-parse', 'HEAD']), dirty: Boolean(git(['status', '--porcelain'])), runtimeSha256: digests };
 const run = Date.now();
-const outputRoot = path.join(root, timed ? 'artifacts/chat-soak' : fixedWindows ? 'artifacts/chat-memory' : mixed ? 'artifacts/chat-mixed' : 'artifacts/chat-stress');
+const artifactName = timed ? 'chat-soak' : fixedWindows ? 'chat-memory' : mixed ? 'chat-mixed' : 'chat-stress';
+const outputRoot = path.join(root, 'artifacts', artifactName + (options.renderer === 'default' ? '-default' : ''));
 const output = path.join(outputRoot, `run-${run}`);
 const profile = path.join(root, `.cache/chat-stress-${run}`);
 await mkdir(output, { recursive: true });
@@ -95,7 +96,7 @@ function attach(target) {
 }
 async function launch() {
   closing = false;
-  desktop = await electron.launch({ executablePath: path.join(release, 'OiGptPet.exe'), args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'], cwd: root, env, timeout: 60000 });
+  desktop = await electron.launch({ executablePath: path.join(release, 'OiGptPet.exe'), args: options.renderer === 'software' ? ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'] : [], cwd: root, env, timeout: 60000 });
   desktop.process().stderr.on('data', bytes => { void appendFile(path.join(output, 'native.log'), bytes).catch(() => {}); });
   desktop.process().on('exit', () => { if (!closing) errors.push('Unexpected application exit'); });
   // Entire main-process fetch is replaced before configuring chat. It never
@@ -260,8 +261,16 @@ try {
   await page.evaluate(() => window.petDesktop.saveChatSettings({ model: 'stress-model', apiKey: 'stress-key-not-real' }));
   await page.reload(); await ready(page); await openPet();
   if (timed) began = performance.now();
-  const conditions = await desktop.evaluate(({ app, screen }) => ({ electron: process.versions.electron, os: process.platform, arch: process.arch, packaged: app.isPackaged, displays: screen.getAllDisplays().map(({ bounds, workArea, scaleFactor }) => ({ bounds, workArea, scaleFactor })) }));
-  await writeFile(path.join(output, 'conditions.json'), JSON.stringify({ ...conditions, cycles, mixed, fixedWindows, settleSeconds, options, version, packageDirectory: latest.directory, source, harnessSha256: createHash('sha256').update(await readFile(fileURLToPath(import.meta.url))).digest('hex'), heapUnits: 'performance.memory fields in bytes; approximate Chromium measurement, not precise retained heap or native memory', rendering: 'SwiftShader; mock service; isolated synthetic configuration; no real API calls; no forced GC', startedAt: new Date().toISOString() }, null, 2));
+  const conditions = await desktop.evaluate(async ({ app, screen }) => ({ electron: process.versions.electron, os: process.platform, arch: process.arch, packaged: app.isPackaged, gpuFeatures: app.getGPUFeatureStatus(), gpuInfo: await app.getGPUInfo('basic'), displays: screen.getAllDisplays().map(({ bounds, workArea, scaleFactor }) => ({ bounds, workArea, scaleFactor })) }));
+  const rendererProbe = await page.evaluate(() => {
+    const canvas = document.createElement('canvas'); const gl = canvas.getContext('webgl2');
+    if (!gl) return { available: false };
+    try {
+      const info = gl.getExtension('WEBGL_debug_renderer_info');
+      return { available: true, renderer: gl.getParameter(gl.RENDERER), vendor: gl.getParameter(gl.VENDOR), unmaskedRenderer: info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : null, unmaskedVendor: info ? gl.getParameter(info.UNMASKED_VENDOR_WEBGL) : null };
+    } finally { gl.getExtension('WEBGL_lose_context')?.loseContext(); }
+  });
+  await writeFile(path.join(output, 'conditions.json'), JSON.stringify({ ...conditions, rendererProbe, cycles, mixed, fixedWindows, settleSeconds, options, version, packageDirectory: latest.directory, source, harnessSha256: createHash('sha256').update(await readFile(fileURLToPath(import.meta.url))).digest('hex'), heapUnits: 'performance.memory fields in bytes; approximate Chromium measurement, not precise retained heap or native memory', rendering: `${options.renderer === 'software' ? 'Explicit SwiftShader' : 'Default backend; see rendererProbe and GPU feature evidence'}; mock service; isolated synthetic configuration; no real API calls; no forced GC`, startedAt: new Date().toISOString() }, null, 2));
   await record(0, 'initial');
   if (timed) {
     await sampleScheduled(0);
@@ -374,7 +383,7 @@ try {
   const rawMemory = summarizeMemory(timed ? scheduledSamples : samples, 0);
   const memory = timed ? summarizeMemory(scheduledSamples.filter(row => row.stable), options.warmupSeconds) : rawMemory;
   const settledMemory = summarizeMemory(samples.filter(row => row.memoryPhase === 'settled'), 0);
-  const result = { ok: true, version, packageDirectory: latest.directory, source, mixed, fixedWindows, settleSeconds, options, ...duration, coverage, cycles: actions.length, requests, elapsedSeconds: measuredElapsed, actions, mixedActions, switchSlots, scheduledSamples: scheduledSamples.length, sampleSkipped, samples: samples.length, rawMemory, memory, settledMemory, rawMemoryNeedsReview: rawMemory.some(row => row.needsReview), memoryNeedsReview: memory.some(row => row.needsReview), settledMemoryNeedsReview: settledMemory.some(row => row.needsReview), restartClearedHistory: true, errors, limitations: `Synthetic chat stress; ${duration.completeHour ? 'full hour after warmup' : 'not full-hour acceptance'}, ${mixed ? 'VRM/sprite switches and hidden replies' : 'sprite only'}, ${fixedWindows ? 'fixed windows until final restart' : 'window reload/recreation'}, software rendering. Not real API, hardware DPI/sleep or energy acceptance. Raw and warmup-excluded summaries retain the same growth thresholds; no forced GC or leak conclusion.` };
+  const result = { ok: true, version, packageDirectory: latest.directory, source, rendererProbe, gpuFeatures: conditions.gpuFeatures, mixed, fixedWindows, settleSeconds, options, ...duration, coverage, cycles: actions.length, requests, elapsedSeconds: measuredElapsed, actions, mixedActions, switchSlots, scheduledSamples: scheduledSamples.length, sampleSkipped, samples: samples.length, rawMemory, memory, settledMemory, rawMemoryNeedsReview: rawMemory.some(row => row.needsReview), memoryNeedsReview: memory.some(row => row.needsReview), settledMemoryNeedsReview: settledMemory.some(row => row.needsReview), restartClearedHistory: true, errors, limitations: `Synthetic chat stress; ${duration.completeHour ? 'full hour after warmup' : 'not full-hour acceptance'}, ${mixed ? 'VRM/sprite switches and hidden replies' : 'sprite only'}, ${fixedWindows ? 'fixed windows until final restart' : 'window reload/recreation'}, requested renderer=${options.renderer}; actual backend in rendererProbe. Not real API, hardware DPI/sleep or energy acceptance. Raw and warmup-excluded summaries retain the same growth thresholds; no forced GC or leak conclusion.` };
   await writeFile(path.join(output, 'result.json'), JSON.stringify(result, null, 2));
   await writeFile(path.join(outputRoot, 'latest.json'), JSON.stringify({ directory: path.basename(output), version }, null, 2));
   console.log(`Chat stress passed: ${output}`);

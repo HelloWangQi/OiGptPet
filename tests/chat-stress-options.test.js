@@ -20,6 +20,11 @@ describe('mixed soak measurement boundaries', () => {
     expect(soakDuration({ ...options, minutes: 1 }, 4000).completeHour).toBe(false);
     expect(soakDuration({ ...options, warmupSeconds: 0 }, 4000).completeHour).toBe(false);
   });
+  it('defaults to explicit software rendering and accepts a default-backend comparison', () => {
+    expect(chatStressOptions([]).renderer).toBe('software');
+    expect(chatStressOptions(['--minutes', '60', '--renderer', 'default']).renderer).toBe('default');
+    for (const args of [['--renderer'], ['--renderer', 'hardware'], ['--renderer', 'default', '--renderer', 'software']]) expect(() => chatStressOptions(args)).toThrow();
+  });
   it('anchors switch slots and records delay without replaying every missed slot', () => {
     const schedule = new SwitchSchedule(60, 300);
     expect(schedule.reserve(0)).toEqual({ atSeconds: 0, skippedSlots: 0 });

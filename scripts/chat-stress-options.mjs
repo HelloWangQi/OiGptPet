@@ -1,13 +1,17 @@
 export function chatStressOptions(args) {
-  const options = { mixed: false, fixedWindows: false, cycles: 24, settleSeconds: 0, minutes: null, warmupSeconds: 300, switchSeconds: 60, sampleSeconds: 15 };
+  const options = { mixed: false, fixedWindows: false, cycles: 24, settleSeconds: 0, minutes: null, warmupSeconds: 300, switchSeconds: 60, sampleSeconds: 15, renderer: 'software' };
   const flags = { '--mixed': 'mixed', '--fixed-windows': 'fixedWindows' };
   const values = { '--cycles': 'cycles', '--settle-seconds': 'settleSeconds', '--minutes': 'minutes', '--warmup-seconds': 'warmupSeconds', '--switch-seconds': 'switchSeconds', '--sample-seconds': 'sampleSeconds' };
   const seen = new Set();
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
-    if (seen.has(arg) || (!Object.hasOwn(flags, arg) && !Object.hasOwn(values, arg))) throw new Error('Unknown or duplicate chat stress option: ' + arg);
+    if (seen.has(arg) || (!Object.hasOwn(flags, arg) && !Object.hasOwn(values, arg) && arg !== '--renderer')) throw new Error('Unknown or duplicate chat stress option: ' + arg);
     seen.add(arg);
-    if (Object.hasOwn(flags, arg)) options[flags[arg]] = true;
+    if (arg === '--renderer') {
+      const mode = args[++i];
+      if (!['software', 'default'].includes(mode)) throw new Error('Renderer must be software or default');
+      options.renderer = mode;
+    } else if (Object.hasOwn(flags, arg)) options[flags[arg]] = true;
     else {
       const raw = args[++i]; const value = Number(raw);
       if (raw === undefined || !raw.trim() || !Number.isFinite(value)) throw new Error('Expected a finite number after ' + arg);

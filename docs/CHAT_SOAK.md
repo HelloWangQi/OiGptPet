@@ -10,9 +10,14 @@ node scripts/chat-stress.mjs --minutes 1 --warmup-seconds 5 --switch-seconds 10 
 
 # 正式：300 秒预热 + 3600 秒观察，约 65 分钟
 npm run test:chat-soak
+
+# 默认图形后端对照；是否硬件加速以实际 rendererProbe 为准
+npm run test:chat-soak-default
 ```
 
 `--minutes` 自动启用 mixed 和 fixed-windows，不与 `--cycles` 混用。默认预热 300 秒、每 60 秒切换一次角色、每 15 秒独立采样；整个计时从两个角色与对话配置准备就绪后开始。窗口在观察中不刷新/销毁，最后另做退出重启验证。运行时不要操作测试窗口；Ctrl+C 中断保存失败记录，不能算成功。
+
+`--renderer software`（缺省）显式启用 SwiftShader；`--renderer default` 不强制后端，记录实际 WebGL unmasked renderer/vendor、Electron GPU feature 状态及 basic GPU 信息。默认模式可能回退到软件，不能仅凭参数名宣称硬件加速。图形探针使用临时上下文并显式释放，不改变产品的渲染设置。默认模式产物单独写入 `artifacts/chat-soak-default/`，不覆盖软件基线。两组按相同周期、预热与阈值观察，比较各自的变化和斜率，不把不同后端的常驻内存直接相减。
 
 ## 时钟和检查边界
 
