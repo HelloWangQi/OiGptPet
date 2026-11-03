@@ -79,5 +79,9 @@ export async function checkMotionCapabilities(desktop, page, root, output) {
   // A fresh export after switching back must describe the original model again.
   const restored = await saveReport('restored-capabilities');
   assert.deepEqual(restored.modelCapabilities, baseline.modelCapabilities);
+  await page.waitForFunction(() => {
+    const value = document.querySelector('#render-performance').dataset;
+    return value.kind === 'vrm' && value.fps !== '' && Number(value.fps) > 0;
+  }, undefined, { timeout: 15000, polling: 100 });
   return { original: baseline.modelCapabilities, limited: limited.modelCapabilities, restored: true, failedImportPreserved: true, spriteCleared: true, sourceSha256: createHash('sha256').update(source).digest('hex'), variantSha256: createHash('sha256').update(variant).digest('hex') };
 }

@@ -14,6 +14,7 @@ import { PetChatPresentation } from './pet-chat-presentation';
 import { sha256Hex } from '../packages/atlas-preview/sha256';
 import { characterPackageModule, MAX_CHARACTER_BACKUP_BYTES } from './character-package-client';
 import { motionCapabilityRows } from './motion-capabilities-view';
+import { RenderMonitor, renderSampleText, type RenderContext } from './render-monitor';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 const desktop = window.petDesktop;
@@ -65,7 +66,7 @@ app.innerHTML = petMode ? `
         <div class="motion-panel"><div class="motion-heading"><h2>今天是什么心情？</h2><button id="pause-button" class="text-button">暂停动画</button></div><div class="motion-list">${ANIMATION_ROWS.map((row, i) => `<button class="motion-button ${i === 0 ? 'active' : ''}" data-state="${row.state}"><span class="motion-index">${String(i + 1).padStart(2, '0')}</span>${row.label}</button>`).join('')}</div></div>
         <p class="status-line" id="status" role="status" aria-live="polite">正在准备角色工坊…</p>
       </section>
-      <aside class="detail-column">
+      <aside class="detail-column" tabindex="0" aria-label="角色和陪伴设置">
         <section class="detail-section"><div class="section-heading"><div><span class="section-number">02</span><h2>你的角色</h2></div><span class="tag">VRM</span></div>
           <button class="character-card" id="load-demo" ${__WITH_DEMO__ ? '' : 'hidden'}><div class="avatar-monogram">S<span>✦</span></div><div><strong>官方示例角色</strong><span>pixiv · VRM 1.0</span></div><span class="card-arrow">↗</span></button>
           <button class="import-zone" id="import-button" disabled>${icon.plus}<strong>导入我的角色</strong><span>VRM 1.0 ≤64 MiB · PNG / WebP ≤20 MiB</span></button>
@@ -95,6 +96,8 @@ app.innerHTML = petMode ? `
           <label class="field-label" for="performance-mode">动画性能</label>
           <select id="performance-mode" disabled><option value="quality">画质优先 · 最高 60 帧</option><option value="balanced" selected>均衡 · 最高 30 帧</option><option value="battery">省电 · 最高 15 帧</option></select>
           <p class="helper">闲置 10 秒自动降低绘制频率，隐藏时停止绘制。设置在本机保存。</p>
+          <p class="helper" id="render-performance">本窗口：正在准备采样…</p>
+          <p class="helper">每两秒更新绘制调用采样；不等同于屏幕呈现帧率或 GPU 耗时。桌面诊断分别记录工坊和桌宠。</p>
           <button class="text-button" id="save-diagnostics" ${desktop ? '' : 'hidden'}>保存桌面诊断</button>
           <p class="helper" ${desktop ? '' : 'hidden'}>记录显示器、窗口位置和性能，方便排查问题；不包含角色文件和名称。</p>
           <p class="helper" id="settings-status" role="status" aria-live="polite"></p>
@@ -161,6 +164,35 @@ let animationTime = 0;
 let lastInteraction = performance.now();
 let preferences: DesktopPreferences = { ...DEFAULT_PREFERENCES };
 const framePacer = new FramePacer();
+const renderMonitor = new RenderMonitor();
+let renderReportPending = false;
+let nativeVisible = true;
+function renderContext(now: number): RenderContext {
+  const activity = document.hidden || !nativeVisible ? 'hidden' : now - lastInteraction >= IDLE_AFTER_MS ? 'idle' : 'active';
+  const policy = PERFORMANCE_POLICIES[preferences.performance];
+  return { kind: stage?.loaded ? stage.sourceKind : 'empty', mode: preferences.performance, activity,
+    targetFps: activity === 'hidden' ? 0 : activity === 'idle' ? policy.idleFps : policy.activeFps, paused };
+}
+function publishRenderMetrics() {
+  if (closed) return;
+  const now = performance.now(); renderMonitor.setContext(renderContext(now), now);
+  const sample = renderMonitor.sample(now); if (!sample) return;
+  if (!petMode) {
+    const output = $('#render-performance'); output.textContent = renderSampleText(sample);
+    output.dataset.kind = sample.kind; output.dataset.activity = sample.activity;
+    output.dataset.targetFps = String(sample.targetFps); output.dataset.fps = sample.fps === null ? '' : String(sample.fps);
+  }
+  if (desktop && !renderReportPending) {
+    renderReportPending = true;
+    void desktop.reportRenderSample(sample).catch(() => {}).finally(() => { renderReportPending = false; });
+  }
+}
+let renderReportTimer: number | undefined;
+function scheduleRenderReports() {
+  clearInterval(renderReportTimer);
+  renderReportTimer = !document.hidden && nativeVisible && !closed ? window.setInterval(publishRenderMetrics, 2000) : undefined;
+}
+scheduleRenderReports();
 let resizeStage = () => {};
 let transientUntil = 0;
 const petChat = new PetChatPresentation();
@@ -176,6 +208,7 @@ let ignoringMouse = false;
 function applyPreferences(value: DesktopPreferences) {
   preferences = normalizePreferences(value);
   framePacer.reset();
+  publishRenderMetrics();
   resizeStage();
   if (!petMode) {
     $<HTMLSelectElement>('#pet-scale').value = String(preferences.scale);
@@ -403,6 +436,7 @@ async function load(input: CompanionInput, persist: boolean, origin: 'local-impo
     currentCharacter = summary;
     info = prepared.info; source = nextSource; modelSource = origin;
     animationTime = 0; changeState('idle'); framePacer.reset(); resizeStage();
+    renderMonitor.reset(performance.now()); publishRenderMetrics();
     showCharacter(summary, info, input);
     if (persist) notifyLibrary();
     if (!petMode) status('角色已就绪 · 点击动作试试看。');
@@ -592,13 +626,15 @@ async function bootstrap() {
   new ResizeObserver(resize).observe(canvasHost);
   resize();
   const frame = (now: number) => {
-    const policy = PERFORMANCE_POLICIES[preferences.performance];
-    const fps = now - lastInteraction >= IDLE_AFTER_MS ? policy.idleFps : policy.activeFps;
-    const delta = framePacer.tick(now, fps, document.hidden);
+    if (closed) return;
+    const context = renderContext(now); renderMonitor.setContext(context, now);
+    const delta = framePacer.tick(now, context.targetFps, context.activity === 'hidden');
     if (delta !== null) {
       if (!paused) animationTime += delta;
       if (transientUntil && now > transientUntil) { transientUntil = 0; changeState('idle'); }
+      const started = performance.now();
       stage.render(state, animationTime, paused ? 0 : delta, now - lastPointer < 1800 ? look : undefined);
+      renderMonitor.record(performance.now() - started);
     }
     requestAnimationFrame(frame);
   };
@@ -659,7 +695,7 @@ async function bootstrap() {
   const markActive = () => { lastInteraction = performance.now(); };
   window.addEventListener('pointerdown', markActive);
   window.addEventListener('keydown', markActive);
-  document.addEventListener('visibilitychange', () => { framePacer.reset(); markActive(); });
+  document.addEventListener('visibilitychange', () => { framePacer.reset(); markActive(); publishRenderMetrics(); scheduleRenderReports(); });
   canvasHost.addEventListener('click', (event) => {
     if ((event.target as HTMLElement).id !== 'character-canvas') return;
     if (petMode && !stage.hitTest(event.clientX, event.clientY)) return;
@@ -763,7 +799,20 @@ const chatUI = setupChat(desktop, petMode, value => {
   if (!petMode) return;
   petChat.update(value, performance.now()); restorePetChat();
 });
+let visibilityRevision = 0;
+const applyNativeVisibility = (visible: boolean) => {
+  if (closed) return;
+  nativeVisible = visible; framePacer.reset(); lastInteraction = performance.now();
+  publishRenderMetrics(); scheduleRenderReports();
+};
+const stopVisibility = desktop?.onWindowVisibility(visible => { ++visibilityRevision; applyNativeVisibility(visible); });
+if (desktop) {
+  const revision = visibilityRevision;
+  void desktop.getWindowVisibility().then(visible => { if (revision === visibilityRevision) applyNativeVisibility(visible); }).catch(() => {});
+}
 window.addEventListener('beforeunload', () => {
+  clearInterval(renderReportTimer);
+  stopVisibility?.();
   chatUI.dispose();
   closed = true; packageJob?.controller.abort();
   if (packageJob?.nativeStarted) void desktop?.cancelCharacterPackage(packageJob.id).catch(() => {});

@@ -21,6 +21,9 @@ interface Window {
     clearChat(): Promise<void>;
     onChatState(callback: (state: CompanionChatState) => void): () => void;
     saveDiagnostics(): Promise<boolean>;
+    reportRenderSample(value: import('./render-monitor').RenderSample): Promise<void>;
+    getWindowVisibility(): Promise<boolean>;
+    onWindowVisibility(callback: (visible: boolean) => void): () => void;
     getModel(): Promise<Uint8Array | null>;
     setModel(bytes: Uint8Array): Promise<boolean>;
     openPet(): Promise<void>;

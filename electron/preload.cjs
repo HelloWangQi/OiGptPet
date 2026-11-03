@@ -15,6 +15,13 @@ contextBridge.exposeInMainWorld('petDesktop', Object.freeze({
     return () => ipcRenderer.removeListener('chat:state', listener);
   },
   saveDiagnostics: () => ipcRenderer.invoke('diagnostics:save'),
+  reportRenderSample: value => ipcRenderer.invoke('render:metrics', value),
+  getWindowVisibility: () => ipcRenderer.invoke('window:visibility-get'),
+  onWindowVisibility: callback => {
+    const listener = (_event, visible) => callback(visible);
+    ipcRenderer.on('window:visibility', listener);
+    return () => ipcRenderer.removeListener('window:visibility', listener);
+  },
   getModel: () => ipcRenderer.invoke('model:get'),
   setModel: (bytes) => ipcRenderer.invoke('model:set', bytes),
   openPet: () => ipcRenderer.invoke('pet:open'),
