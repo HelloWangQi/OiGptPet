@@ -123,6 +123,7 @@ function makeTrayIcon() {
 function handlers() {
   const chatOwner = event => { if (trusted(event) !== workshop) throw new Error('Only the workshop can control chat'); };
   ipcMain.handle('chat:get', event => { chatOwner(event); return chat.get(); });
+  ipcMain.handle('chat:check', event => { chatOwner(event); return chat.check(); });
   ipcMain.handle('chat:snapshot', event => { chatOwner(event); return chat.snapshot(); });
   ipcMain.handle('chat:state-get', event => { trusted(event); return chat.getState(); });
   ipcMain.handle('chat:save', (event, value) => { chatOwner(event); return chat.save(value); });

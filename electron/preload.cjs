@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('petDesktop', Object.freeze({
   getChatSettings: () => ipcRenderer.invoke('chat:get'),
+  checkChatSettings: () => ipcRenderer.invoke('chat:check'),
   getChatSnapshot: () => ipcRenderer.invoke('chat:snapshot'),
   getChatState: () => ipcRenderer.invoke('chat:state-get'),
   saveChatSettings: value => ipcRenderer.invoke('chat:save', value),

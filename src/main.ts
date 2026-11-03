@@ -101,9 +101,13 @@ app.innerHTML = petMode ? `
         <section class="detail-section chat-panel" ${desktop ? '' : 'hidden'}>
           <h2>和伙伴聊聊</h2>
           <details><summary>对话设置</summary>
+            <ol class="helper"><li>填写账户可用的模型 ID 和 API Key。</li><li>保存设置，再检查本地配置。</li><li>在下方发送一条消息验证网络和模型权限（可能计费）。</li></ol>
             <label class="field-label" for="chat-model">OpenAI 模型 ID</label><input id="chat-model" maxlength="120" placeholder="输入账户可用的模型 ID" />
             <label class="field-label" for="chat-key">API Key</label><input id="chat-key" type="password" maxlength="512" autocomplete="off" />
             <button id="chat-save" class="text-button" type="button">保存设置</button> <button id="chat-forget" class="text-button" type="button">移除密钥</button>
+            <button id="chat-check" class="text-button" type="button">检查本地配置</button>
+            <p class="helper" id="chat-check-status" role="status" aria-live="polite"></p>
+            <p class="helper">保存和本地检查不会联网。保存设置会清空本次对话，本地检查保留对话。更换电脑或系统账户后，如无法解密密钥，请重新保存。</p>
             <p class="helper">密钥由系统加密后保存在本机。点击发送会将本次消息及最近四轮对话发送给 OpenAI API，费用由该 API 账户承担。</p>
           </details>
           <div id="chat-log" role="log" aria-label="本次对话"></div>

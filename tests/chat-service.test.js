@@ -9,7 +9,7 @@ const answer = text => new Response(JSON.stringify({ status: 'completed', output
 async function fixture(options = {}) {
   const folder = await fs.mkdtemp(path.join(os.tmpdir(), 'oigptpet-chat-')); folders.push(folder);
   const file = path.join(folder, 'chat.json'); const states = [];
-  const safeStorage = { isAsyncEncryptionAvailable: async () => true, encryptStringAsync: async text => Buffer.from('cipher:' + text), decryptStringAsync: async bytes => bytes.toString().slice(7) };
+  const safeStorage = { isAsyncEncryptionAvailable: async () => true, encryptStringAsync: async text => Buffer.from('cipher:' + text), decryptStringAsync: async bytes => ({ result: bytes.toString().slice(7), shouldReEncrypt: false }) };
   const fetch = vi.fn(async () => answer('你好'));
   const config = { file, fs, safeStorage, fetch, onState: state => states.push(state), ...options };
   const service = chatModule.createChatService(config); await service.load();
@@ -17,11 +17,85 @@ async function fixture(options = {}) {
 }
 async function configured(options) { const f = await fixture(options); await f.service.save({ model: 'test-model', apiKey: 'not-a-real-api-key' }); return f; }
 describe('text companion service', () => {
+  it('checks saved configuration locally without requests, state changes or secret return values', async () => {
+    const empty = await fixture(); expect(await empty.service.check()).toEqual({ ready: false, code: 'missing_model' });
+    const f = await configured(); await f.service.send('保留的会话'); f.fetch.mockClear();
+    const before = f.service.snapshot(); const disk = await fs.readFile(f.file, 'utf8');
+    expect(await f.service.check()).toEqual({ ready: true, code: 'ready' });
+    expect(f.fetch).not.toHaveBeenCalled(); expect(f.service.snapshot()).toEqual(before); expect(await fs.readFile(f.file, 'utf8')).toBe(disk);
+    await f.service.save({ model: 'test-model', forgetKey: true });
+    expect(await f.service.check()).toEqual({ ready: false, code: 'missing_key' });
+  });
+  it('separates unavailable storage and unreadable keys, and does not disclose native errors', async () => {
+    const f = await configured(); f.config.safeStorage.isAsyncEncryptionAvailable = async () => false;
+    expect((await f.service.check()).code).toBe('unavailable');
+    f.config.safeStorage.isAsyncEncryptionAvailable = async () => true;
+    f.config.safeStorage.decryptStringAsync = async () => { throw new Error('private native details'); };
+    expect(await f.service.check()).toEqual({ ready: false, code: 'unreadable_key' });
+    expect((await f.service.send('hello')).error).toContain('无法解密');
+    expect(JSON.stringify(f.service.snapshot())).not.toContain('private native'); expect(f.fetch).not.toHaveBeenCalled();
+  });
+  it('does not pass a malformed saved model just because its ciphertext can be read', async () => {
+    const f = await configured(); const data = JSON.parse(await fs.readFile(f.file, 'utf8')); data.model = 'invalid model!';
+    await fs.writeFile(f.file, JSON.stringify(data)); await f.service.load();
+    expect((await f.service.check()).code).toBe('invalid_model'); expect(f.fetch).not.toHaveBeenCalled();
+  });
+  it('bounds a stalled local check, excludes concurrent mutations and supports cancellation', async () => {
+    const f = await configured({ checkTimeoutMs: 20 });
+    f.config.safeStorage.decryptStringAsync = () => new Promise(() => {});
+    const pending = f.service.check();
+    expect((await f.service.check()).code).toBe('busy');
+    await expect(f.service.save({ model: 'other' })).rejects.toThrow('本地检查');
+    await expect(f.service.send('hello')).rejects.toThrow('等待');
+    expect((await pending).code).toBe('timeout');
+    const cancelled = f.service.check(); f.service.cancel(); expect((await cancelled).code).toBe('cancelled');
+    f.config.safeStorage.decryptStringAsync = async () => ({ result: 'restored-test-key', shouldReEncrypt: false });
+    expect((await f.service.check()).ready).toBe(true); expect(f.fetch).not.toHaveBeenCalled();
+  });
+  it.each([
+    [401, {}, '认证失败'], [403, {}, '拒绝访问'], [404, {}, '模型或资源'],
+    [429, { code: 'credit_balance_exhausted' }, '额度或限额不足'],
+    [429, { code: 'project_spend_limit_exceeded', type: 'insufficient_quota' }, '额度或限额不足'],
+    [429, { code: 'slow_down', type: 'rate_limit_error' }, '过于频繁'],
+    [429, { code: 'unknown' }, '请求受限'], [503, {}, '暂时异常'],
+    [400, { code: 'model_not_found' }, '模型或资源'], [400, {}, '未接受请求'],
+  ])('classifies HTTP %i safely without automatic retry', async (status, error, hint) => {
+    const f = await configured({ fetch: vi.fn(async () => new Response(JSON.stringify({ error: { ...error, message: 'secret-upstream-body' } }), { status })) });
+    const result = await f.service.send('test'); expect(result.error).toContain(hint); expect(result.error).toContain('HTTP ' + status);
+    expect(f.config.fetch).toHaveBeenCalledTimes(1); expect(f.service.snapshot().history).toEqual([]);
+    expect(JSON.stringify(f.service.snapshot())).not.toContain('secret-upstream');
+  });
+  it('caps error bodies and disposes oversized upstream data instead of copying it to the UI', async () => {
+    const cancel = vi.fn();
+    const f = await configured({ fetch: async () => new Response(new ReadableStream({ start(controller) {
+      controller.enqueue(new TextEncoder().encode(JSON.stringify({ error: { code: 'insufficient_quota', message: 'private'.repeat(2000) } })));
+    }, cancel }), { status: 429 }) });
+    expect((await f.service.send('hi')).error).toContain('请求受限'); expect(cancel).toHaveBeenCalled();
+    expect(JSON.stringify(f.service.snapshot())).not.toContain('private');
+  });
+  it('can cancel waiting for a stalled HTTP error body without retaining failure context', async () => {
+    const cancel = vi.fn(); const f = await configured({ fetch: vi.fn(async () => new Response(new ReadableStream({ cancel }), { status: 429 })) });
+    const pending = f.service.send('cancel error body'); await vi.waitFor(() => expect(f.config.fetch).toHaveBeenCalled());
+    f.service.cancel(); expect(await pending).toEqual({ cancelled: true });
+    await vi.waitFor(() => expect(cancel).toHaveBeenCalled()); expect(f.service.snapshot().history).toEqual([]);
+  });
   it('requires explicit configuration and bounds user messages', async () => {
     const f = await fixture();
     await expect(f.service.send('hello')).rejects.toThrow('请先保存');
     for (const text of ['', ' ', 'x'.repeat(2001), {}]) await expect(f.service.send(text)).rejects.toThrow('消息长度');
     expect(f.fetch).not.toHaveBeenCalled();
+  });
+  it.each([false, true])('uses the native decryption result for Authorization (rotation hint %s)', async shouldReEncrypt => {
+    const f = await configured();
+    f.config.safeStorage.decryptStringAsync = async () => ({ result: 'native-test-key', shouldReEncrypt });
+    await f.service.send('hello');
+    expect(f.fetch.mock.calls[0][1].headers.Authorization).toBe('Bearer native-test-key');
+    expect(JSON.stringify(f.service.snapshot())).not.toContain('native-test-key');
+  });
+  it.each([undefined, 'old-return-shape', { result: '' }, { result: 'invalid key' }, { result: 'x'.repeat(513) }])('rejects an unusable native decryption return value', async value => {
+    const f = await configured(); f.config.safeStorage.decryptStringAsync = async () => value;
+    expect((await f.service.check()).code).toBe('unreadable_key');
+    expect((await f.service.send('hello')).error).toContain('无法解密'); expect(f.fetch).not.toHaveBeenCalled();
   });
   it('returns no key to the renderer, preserves blank keys and supports removal and restart', async () => {
     const f = await configured(); const data = JSON.parse(await fs.readFile(f.file, 'utf8'));
