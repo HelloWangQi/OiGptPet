@@ -1,20 +1,11 @@
-# 阶段五接续（2026-11-02）
+# 接续：0.8.0 预发布
 
-用户已确认直接拖动与鼠标转头方向改进可用，后续独立开发；DeepSeek 不再参与。每次让用户验证前按 AGENTS.md 重新 npm run verify:desktop，只保留最近 3 个 EXE 包。额度至少留 20%；本轮接近保留线停下，不自动重跑一小时或发布。
+先前已发布 GitHub 0.6.0 Preview，对应 b5ad62d。后续检查点：0.6.1（778423e）失败恢复和取消边界、0.7.0（5d25ae1）流式回复、0.8.0（4c9217d）窗口生命周期中的内存会话恢复。用户最新明确由自己推送 GitHub 远端；本轮只准备本地提交与 v0.8.0 发布附件，不推送代码。收到用户已推送的消息后，核对远端分支 SHA、当前 HEAD 与 manifest 提交一致，再创建预发布；尚未发布前不能宣称完成。
 
-## 下一步先查异常，别先加功能
+当前主进程最多保留四轮成功对话和最后一次尝试，工坊刷新/关闭仅取消当前请求；重开恢复成功历史与失败/取消消息，桌宠重开读取显示状态。清空、保存设置、退出应用清除会话，没有聊天磁盘文件。未发送草稿不保留。快照与事件按序列防旧状态覆盖，完整会话 IPC 只给工坊；IPC 归属新增 null/销毁/无关窗口/子 frame 拒绝。
 
-1. 阅读 CHECKPOINT_05.md 最后一节和 DESKTOP_SOAK.md。
-2. 第一次长测 failure：artifacts/desktop-soak/run-1793589190638/failure.json，21 分钟后角色 ID 同步等待超时；samples.ndjson 有 40 个样本，native.log、操作序列可查。初版没有失败 UI 现场，不能断言根因。
-3. 同步状态等待已改 polling:100（不用 RAF），新短测 artifacts/desktop-soak/run-1793590555965/failure.json 则在 scripts/pet-drag-smoke-steps.mjs 的 pet-body-dragging 起始等待失败；检查该目录的两窗口状态、hidden、probe、workshop-failure.png/pet-failure.png，核对浏览器/原生窗口焦点、pointer capture 与命中帧，区分测试假设和产品问题。不要简单增加超时或跳过断言。
-4. 先做确定性小复现并修复，再直接 Node 短测复验；因 PowerShell 此环境吞 npm 转发参数，不要用带自定义参数的 npm 调用。
+305 项单元测试通过；完整实际 EXE 复验以 release/latest.json 和 artifacts/release-smoke/latest.json 为准，记录见 CHECKPOINT_08.md。所有服务验证是模拟网络与合成密钥，真实 API 尚未联调。本地只留最近三个 EXE 包。
 
-```powershell
-npm test
-npm run verify:desktop
-node scripts/desktop-soak.mjs --minutes 1 --switch-seconds 3 --sample-seconds 5
-# 上面完全通过，再运行正式测试；需真实一小时，失败不得标通过
-npm run test:soak
-```
+本轮最终 EXE：release/v0.8.0-1793612195679/OiGptPet-win32-x64/OiGptPet.exe；实际包结果：artifacts/release-smoke/run-1793612203737/result.json。完整 verify:desktop 已通过。
 
-产品运行代码在本轮没有改变；新增长测工具已做过一次成功短预检、一次正式失败和一次带现场记录的失败。248 项单元测试及基础 EXE 验收通过，不代表一小时验收完成。不要无必要重建旧版 0.1/0.2 或更改账号、许可、模型。真实多屏、DPI、休眠、注销和耗电仍留待实机矩阵。
+用户忙碌，不必反复请求验证。下一步可做模拟对话和窗口循环压力检查；真实账户、多屏/DPI/休眠和官方宠物安装仍需实际用户环境。此前一小时记录早于新增对话功能，不能替代新功能长测。未来发布需要明确要求、当前源码对应的新 ZIP/manifest，以及远端提交精确校验；不要复用 artifacts/github-release-v0.6.0/ 的原资产。

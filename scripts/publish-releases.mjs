@@ -13,10 +13,12 @@ const hash = (bytes) => createHash('sha256').update(bytes).digest('hex');
 
 async function main() {
   const command = process.argv[2];
-  if (!['--status', '--publish'].includes(command)) throw new Error('Use --status or --publish --versions <version[,version]> [--manifest <path>].');
+  if (!['--status', '--publish'].includes(command)) throw new Error('Use --status or --publish --versions <version[,version]> [--prerelease] [--manifest <path>].');
   const versionArgument = process.argv.indexOf('--versions');
   const versions = versionArgument < 0 ? [] : (process.argv[versionArgument + 1] ?? '').split(',');
+  const prerelease = process.argv.includes('--prerelease');
   if (command === '--publish' && (!versions.length || versions.some((v) => !/^\d+\.\d+\.\d+$/.test(v)) || new Set(versions).size !== versions.length)) throw new Error('Publishing requires explicit, distinct semantic versions');
+  if (prerelease && (command !== '--publish' || versions.length !== 1)) throw new Error('A pre-release must be explicitly published as one version');
   const manifestArgument = process.argv.indexOf('--manifest');
   const manifestPath = path.resolve(root, manifestArgument < 0 ? 'artifacts/github-release/manifest.json' : process.argv[manifestArgument + 1] ?? '');
   if (!manifestPath.startsWith(path.join(root, 'artifacts') + path.sep) || path.basename(manifestPath) !== 'manifest.json') throw new Error('Manifest must be under this workspace artifacts directory');
@@ -72,11 +74,12 @@ async function main() {
   const published = [];
   for (const entry of manifest) {
     const tag = `v${entry.version}`;
+    const name = `OiGptPet ${tag}${prerelease ? ' Preview' : ''}`;
     const existingTag = await request(`git/ref/tags/${tag}`, { optional: true });
     if (existingTag && (existingTag.object.type !== 'commit' || existingTag.object.sha !== entry.commit)) throw new Error(`Existing tag ${tag} differs; refusing to move it`);
     const body = `${await readFile(path.join(root, 'docs/releases', `${tag}.md`), 'utf8')}\n\n源码提交：\`${entry.commit}\`。`;
     let release = await request(`releases/tags/${tag}`, { optional: true });
-    if (!release) release = await request('releases', { method: 'POST', json: { tag_name: tag, target_commitish: entry.commit, name: `OiGptPet ${tag}`, body, draft: true, prerelease: false } });
+    if (!release) release = await request('releases', { method: 'POST', json: { tag_name: tag, target_commitish: entry.commit, name, body, draft: true, prerelease } });
     for (const asset of entry.assets) {
       const existing = release.assets.find((item) => item.name === asset.name);
       if (existing) {
@@ -87,7 +90,7 @@ async function main() {
       if (uploaded.state !== 'uploaded' || uploaded.size !== asset.bytes || uploaded.digest !== `sha256:${asset.sha256}`) throw new Error(`Upload checksum mismatch: ${asset.name}`);
       console.log(`Uploaded ${tag}: ${asset.name}`);
     }
-    release = await request(`releases/${release.id}`, { method: 'PATCH', json: { name: `OiGptPet ${tag}`, body, draft: false, prerelease: false, make_latest: entry.version === versions.at(-1) ? 'true' : 'false' } });
+    release = await request(`releases/${release.id}`, { method: 'PATCH', json: { name, body, draft: false, prerelease, make_latest: prerelease ? 'false' : entry.version === versions.at(-1) ? 'true' : 'false' } });
     const finalTag = await request(`git/ref/tags/${tag}`);
     if (finalTag.object.type !== 'commit' || finalTag.object.sha !== entry.commit) throw new Error(`Published tag ${tag} source mismatch`);
     for (const asset of entry.assets) {

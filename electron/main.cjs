@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, screen, powerMonitor, Tray, Menu, nativeImage, globalShortcut, dialog, session, protocol, net } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, powerMonitor, Tray, Menu, nativeImage, globalShortcut, dialog, session, protocol, net, safeStorage } = require('electron');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
@@ -8,6 +8,10 @@ const { createWindowStateStore } = require('./window-state.cjs');
 const { createPetDrag } = require('./pet-drag.cjs');
 const { createPreferencesStore } = require('./preferences.cjs');
 const { createCharacterPackageSaver } = require('./character-package-save.cjs');
+const { collectDesktopDiagnostics, createDiagnosticsExporter } = require('./desktop-diagnostics.cjs');
+const os = require('node:os');
+const { createChatService } = require('./chat-service.cjs');
+const { assertTrustedSender } = require('./ipc-trust.cjs');
 
 const root = path.join(__dirname, '..');
 protocol.registerSchemesAsPrivileged([{ scheme: 'oipet', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
@@ -24,6 +28,12 @@ let quitting = false;
 let quitFlush;
 let quitReady = false;
 let modelBytes = null;
+const chat = createChatService({ file: path.join(app.getPath('userData'), 'chat-settings.json'), fs, safeStorage,
+  fetch: (...args) => fetch(...args), onState: state => {
+    for (const win of [workshop, pet]) if (win && !win.isDestroyed()) {
+      try { win.webContents.send('chat:state', state); } catch { /* A closing view must not prevent delivery to the other window. */ }
+    }
+  } });
 const statePath = () => path.join(app.getPath('userData'), 'window-state.json');
 const windowState = createWindowStateStore(statePath(), { onError: error => console.error('Window position could not be saved:', error.message) });
 const modelPath = () => path.join(app.getPath('userData'), 'current.vrm');
@@ -39,9 +49,7 @@ const characterPackageSaver = createCharacterPackageSaver({ chooseFile: (owner) 
 }) });
 
 function trusted(event) {
-  const owner = BrowserWindow.fromWebContents(event.sender);
-  if (![workshop, pet].includes(owner) || event.senderFrame !== event.sender.mainFrame) throw new Error('Unknown IPC sender');
-  return owner;
+  return assertTrustedSender(event, [workshop, pet], sender => BrowserWindow.fromWebContents(sender));
 }
 
 function secureWindow(options) {
@@ -63,7 +71,8 @@ async function loadView(win, mode) {
 function openWorkshop() {
   if (workshop && !workshop.isDestroyed()) { workshop.show(); workshop.focus(); return; }
   workshop = secureWindow({ width: 1220, height: 850, minWidth: 980, minHeight: 700, backgroundColor: '#f5f4f0', title: 'OiGptPet · 角色工坊', autoHideMenuBar: true });
-  workshop.on('closed', () => { workshop = null; });
+  workshop.on('closed', () => { chat.cancel(); workshop = null; });
+  workshop.webContents.on('did-start-navigation', (_event, _url, _inPlace, isMainFrame) => { if (isMainFrame) chat.cancel(); });
   loadView(workshop, 'workshop').catch(console.error);
 }
 
@@ -112,6 +121,24 @@ function makeTrayIcon() {
 }
 
 function handlers() {
+  const chatOwner = event => { if (trusted(event) !== workshop) throw new Error('Only the workshop can control chat'); };
+  ipcMain.handle('chat:get', event => { chatOwner(event); return chat.get(); });
+  ipcMain.handle('chat:snapshot', event => { chatOwner(event); return chat.snapshot(); });
+  ipcMain.handle('chat:state-get', event => { trusted(event); return chat.getState(); });
+  ipcMain.handle('chat:save', (event, value) => { chatOwner(event); return chat.save(value); });
+  ipcMain.handle('chat:send', (event, text, requestId) => { chatOwner(event); return chat.send(text, requestId); });
+  ipcMain.handle('chat:cancel', event => { chatOwner(event); chat.cancel(); });
+  ipcMain.handle('chat:clear', event => { chatOwner(event); chat.clear(); });
+  const saveDiagnostics = createDiagnosticsExporter({
+    chooseFile: owner => dialog.showSaveDialog(owner, { defaultPath: 'OiGptPet-desktop-diagnostics.json', filters: [{ name: '桌面诊断 JSON', extensions: ['json'] }] }),
+    collect: () => collectDesktopDiagnostics({ app, screen, os, versions: process.versions, preferences: preferences.get(), windows: { workshop, pet } }),
+    writeFile: fs.writeFile,
+  });
+  ipcMain.handle('diagnostics:save', event => {
+    const owner = trusted(event);
+    if (owner !== workshop) throw new Error('Only the workshop can export diagnostics');
+    return saveDiagnostics(owner);
+  });
   ipcMain.handle('pet:drag-start', event => {
     if (trusted(event) !== pet) throw new Error('Only the pet can start dragging');
     return !quitting && petDrag.start();
@@ -190,6 +217,7 @@ else {
     await fs.mkdir(app.getPath('userData'), { recursive: true });
     windowRecovery = createWindowRecovery({ screen, powerMonitor, getWindow: () => pet, getScale: () => preferences.get().scale });
     try { await preferences.load(); } catch (error) { console.error('Preferences could not be read:', error.message); }
+    try { await chat.load(); } catch { console.warn('Chat settings could not be loaded; save them again in the workshop.'); }
     try { savedBounds = await windowState.load(); } catch (error) { console.error('Window position could not be read:', error.message); }
     try { const bytes = await fs.readFile(modelPath()); if (bytes.length <= 64 * 1024 * 1024) modelBytes = bytes; } catch { /* No imported model yet. */ }
     session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
@@ -213,6 +241,7 @@ else {
     if (quitReady) return;
     event.preventDefault();
     if (quitFlush) return;
+    chat.clear();
     petDrag.stop();
     // Capture the live bounds before freezing move/resize persistence during shutdown.
     persistBounds();

@@ -5,6 +5,8 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { assertAppDistribution } from './distribution.mjs';
 import { checkPetBodyDrag } from './pet-drag-smoke-steps.mjs';
+import { checkChat } from './chat-smoke-steps.mjs';
+import { checkChatRestore } from './chat-restore-smoke-steps.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const releaseRoot = path.resolve(root, 'release');
@@ -60,7 +62,7 @@ try {
   await page.locator('#pet-scale:not([disabled])').waitFor();
   const nextWindow = desktop.waitForEvent('window');
   await page.locator('#open-pet').click();
-  const pet = await nextWindow;
+  let pet = await nextWindow;
   pet.on('pageerror', (error) => errors.push(error.message));
   await desktop.evaluate(({ BrowserWindow }) => {
     for (const win of BrowserWindow.getAllWindows()) win.webContents.setBackgroundThrottling(false);
@@ -75,7 +77,34 @@ try {
   assert.equal(bounds.width, 384); assert.equal(bounds.height, 504);
   await pet.screenshot({ path: path.join(output, 'packaged-sprite-pet.png') });
   const bodyDrag = await checkPetBodyDrag(desktop, pet);
+  const diagnosticFile = await desktop.evaluate(({ app, dialog }) => {
+    globalThis.__diagnosticDialog = dialog.showSaveDialog;
+    dialog.showSaveDialog = async () => ({ canceled: true });
+    return app.getPath('userData') + '/desktop-diagnostics.json';
+  });
+  try {
+    await page.locator('#save-diagnostics').click();
+    await page.waitForFunction(() => document.querySelector('#settings-status').textContent.includes('已取消'));
+    await assert.rejects(readFile(diagnosticFile), { code: 'ENOENT' });
+    await pet.evaluate(() => window.petDesktop.hidePet());
+    await desktop.evaluate(({ dialog }, filePath) => { dialog.showSaveDialog = async () => ({ canceled: false, filePath }); }, diagnosticFile);
+    await page.locator('#save-diagnostics').click();
+    await page.waitForFunction(() => document.querySelector('#settings-status').textContent.includes('诊断已保存'));
+    const diagnostic = JSON.parse(await readFile(diagnosticFile, 'utf8'));
+    assert.equal(diagnostic.format, 'oigptpet-desktop-diagnostics');
+    assert.equal(diagnostic.application.version, latest.version);
+    assert.equal(diagnostic.windows.find(win => win.role === 'pet').visible, false);
+    assert.equal(diagnostic.coordinateUnit, 'DIP');
+    assert.ok(diagnostic.displays.length > 0);
+    assert.equal(JSON.stringify(diagnostic).includes(userData), false);
+    await assert.rejects(pet.evaluate(() => window.petDesktop.saveDiagnostics()), /Only the workshop/);
+    assert.equal(await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(win => !win.isResizable()).isVisible()), false);
+  } finally {
+    await desktop.evaluate(({ dialog }) => { dialog.showSaveDialog = globalThis.__diagnosticDialog; delete globalThis.__diagnosticDialog; });
+  }
   await assert.rejects(page.evaluate(() => window.petDesktop.startDrag()), /Only the pet/);
+  await checkChat(desktop, page, pet);
+  ({ page, pet } = await checkChatRestore(desktop, page, pet, errors));
   await desktop.close(); desktop = undefined;
   page = await launch();
   await page.waitForFunction(() => document.body.dataset.characterKind === 'sprite', undefined, { timeout: 60000 });
@@ -83,6 +112,9 @@ try {
   assert.equal(await page.locator('#character-list .library-row').count(), 2);
   assert.equal(await page.locator('#performance-mode').inputValue(), 'battery');
   assert.equal(await page.locator('#pet-scale').inputValue(), '1.2');
+  assert.equal((await page.evaluate(() => window.petDesktop.getChatSettings())).hasKey, true);
+  const freshChat = await page.evaluate(() => window.petDesktop.getChatSnapshot());
+  assert.equal(freshChat.history.length, 0); assert.equal(freshChat.attempt, null);
   await page.screenshot({ path: path.join(output, 'restored-sprite-library.png') });
   assert.deepEqual(errors, []);
   await writeFile(path.join(output, 'result.json'), JSON.stringify({ ok: true, version: latest.version, directory: latest.directory, packaged, files, emptyFirstStart: true, localImport: true, persistedAfterRestart: true, spritePetRendered: true, spriteLibraryRestored: true, preferencesRestored: true, petBounds: bounds, bodyDrag, workshopDragRejected: true, rendererErrors: errors }, null, 2));

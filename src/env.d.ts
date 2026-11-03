@@ -1,7 +1,24 @@
 declare const __WITH_DEMO__: boolean;
+declare const __APP_VERSION__: string;
+interface CompanionChatState { status: string; text?: string; requestId?: string; sequence: number }
+interface CompanionChatSnapshot {
+  sequence: number;
+  state: CompanionChatState;
+  history: Array<{ role: 'user' | 'assistant'; content: string }>;
+  attempt: { requestId: string; text: string; status: string; partial: string; error?: string } | null;
+}
 
 interface Window {
   petDesktop?: {
+    getChatSettings(): Promise<{ model: string; hasKey: boolean; encryptionAvailable: boolean }>;
+    getChatSnapshot(): Promise<CompanionChatSnapshot>;
+    getChatState(): Promise<CompanionChatState>;
+    saveChatSettings(value: { model: string; apiKey?: string; forgetKey?: boolean }): Promise<{ model: string; hasKey: boolean; encryptionAvailable: boolean }>;
+    sendChat(text: string, requestId?: string): Promise<{ text?: string; error?: string; cancelled?: boolean }>;
+    cancelChat(): Promise<void>;
+    clearChat(): Promise<void>;
+    onChatState(callback: (state: CompanionChatState) => void): () => void;
+    saveDiagnostics(): Promise<boolean>;
     getModel(): Promise<Uint8Array | null>;
     setModel(bytes: Uint8Array): Promise<boolean>;
     openPet(): Promise<void>;
