@@ -977,6 +977,35 @@ describe('SpriteStage', () => {
     expect(draws.at(-1)?.composite).toBe('source-over');
   });
 
+  it('crossfades v2 gaze entry and exit but leaves pointer direction changes immediate', async () => {
+    await stage.load(harness.createAtlasBlob('v2').blob, 'v2');
+    stage.resize(192, 208, 1);
+    const draws = harness.display.context.draws;
+    stage.render('idle', 0, undefined, 0, 3);
+    draws.length = 0;
+
+    stage.render('idle', 0.125, 90, 1 / 60, 3);
+    expect(draws).toHaveLength(2);
+    expect(draws.map(({ sy }) => sy)).toEqual([0, 9 * CELL_HEIGHT]);
+    expect(draws.map(({ composite }) => composite)).toEqual(['lighter', 'lighter']);
+    expect(draws[0].alpha + draws[1].alpha).toBeCloseTo(1);
+
+    stage.render('idle', 0.2, 90, 1 / 15, 3);
+    stage.render('idle', 0.3, 90, 1 / 15, 3);
+    stage.render('idle', 0.4, 90, 1 / 15, 3);
+    draws.length = 0;
+    stage.render('idle', 0.3, 112.5, 1 / 60, 3);
+    expect(draws).toHaveLength(1);
+    expect([draws[0].sx, draws[0].sy]).toEqual([5 * CELL_WIDTH, 9 * CELL_HEIGHT]);
+
+    draws.length = 0;
+    stage.render('idle', 0.125, undefined, 1 / 60, 3);
+    expect(draws).toHaveLength(2);
+    expect(draws.map(({ sy }) => sy)).toEqual([9 * CELL_HEIGHT, 0]);
+    expect(draws.map(({ sx }) => sx)).toEqual([5 * CELL_WIDTH, CELL_WIDTH]);
+    expect(draws[0].alpha + draws[1].alpha).toBeCloseTo(1);
+  });
+
   it('returns a result whose inspection warnings never claim platform acceptance', async () => {
     const result: SpriteLoadResult = await stage.load(
       harness.createAtlasBlob('v2').blob,

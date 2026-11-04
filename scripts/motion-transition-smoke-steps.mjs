@@ -43,7 +43,9 @@ export async function checkVrmTransitions(page, output) {
 }
 
 export async function checkSpriteTransitions(page) {
-  await page.waitForTimeout(1900);
+  // Let pointer gaze expire and its low-frame-rate exit crossfade finish
+  // before recording the action-row transition baseline.
+  await page.waitForTimeout(2700);
   await page.evaluate(() => {
     const canvas = document.querySelector('#character-canvas');
     const context = canvas.getContext('2d');
@@ -86,7 +88,43 @@ export async function checkSpriteTransitions(page) {
     await page.waitForTimeout(70);
     const replay = await inspectPair(3 * 208, 3 * 208, true);
     assert.ok(replay, 'same-action sprite replay should blend its previous and restarted frames');
-    return { stateChange: true, sameActionReplay: true, blend: changed, replay };
+
+    await page.waitForTimeout(260);
+    const bounds = await page.locator('#character-canvas').boundingBox();
+    assert.ok(bounds, 'sprite preview canvas should remain visible');
+    await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+    await page.waitForTimeout(300);
+    const gazeEntry = await page.evaluate(() => {
+      const log = window.__spriteTransitionProbe.log;
+      for (let index = 0; index + 1 < log.length; index += 1) {
+        const from = log[index]; const to = log[index + 1];
+        if (from.composite !== 'lighter' || to.composite !== 'lighter') continue;
+        if (from.sy !== 3 * 208 || (to.sy !== 9 * 208 && to.sy !== 10 * 208)) continue;
+        if (Math.abs(from.alpha + to.alpha - 1) > 0.001 || from.alpha <= 0 || to.alpha <= 0) continue;
+        return { from, to };
+      }
+      return null;
+    });
+    assert.ok(gazeEntry, 'v2 gaze entry should blend from the action row to a look row');
+
+    await page.waitForTimeout(250);
+    await page.evaluate(() => { window.__spriteTransitionProbe.log.length = 0; });
+    // Pointer gaze expires after 1.8 s; the low idle frame cap can take a few
+    // more frames to finish the same elapsed-time transition.
+    await page.waitForTimeout(2500);
+    const gazeExit = await page.evaluate(() => {
+      const log = window.__spriteTransitionProbe.log;
+      for (let index = 0; index + 1 < log.length; index += 1) {
+        const from = log[index]; const to = log[index + 1];
+        if (from.composite !== 'lighter' || to.composite !== 'lighter') continue;
+        if ((from.sy !== 9 * 208 && from.sy !== 10 * 208) || to.sy !== 3 * 208) continue;
+        if (Math.abs(from.alpha + to.alpha - 1) > 0.001 || from.alpha <= 0 || to.alpha <= 0) continue;
+        return { from, to };
+      }
+      return null;
+    });
+    assert.ok(gazeExit, 'v2 gaze exit should blend back to the current action row');
+    return { stateChange: true, sameActionReplay: true, gazeEntry, gazeExit, blend: changed, replay };
   } finally {
     await page.evaluate(() => {
       const probe = window.__spriteTransitionProbe;

@@ -249,8 +249,11 @@ export class SpriteStage {
     const repeated = stateRevision !== undefined
       && this.lastStateRevision !== undefined
       && stateRevision !== this.lastStateRevision;
+    const gazeModeChanged = this.profile === 'v2'
+      && this.lastRender !== null
+      && (this.lastRender.lookAngleDegrees === undefined) !== (lookAngleDegrees === undefined);
     if (stateRevision !== undefined && this.lastRender
-      && (this.lastRender.state !== state || repeated)) {
+      && (this.lastRender.state !== state || repeated || gazeModeChanged)) {
       this.transition = { from: this.lastRender, elapsed: 0, progress: 0 };
     }
     if (stateRevision !== undefined) this.lastStateRevision = stateRevision;

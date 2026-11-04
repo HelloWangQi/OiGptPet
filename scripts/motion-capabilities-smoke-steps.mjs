@@ -89,7 +89,10 @@ export async function checkMotionCapabilities(desktop, page, root, output) {
   assert.equal(await page.locator('#model-capabilities details').evaluate(el => el.open), true);
   assert.equal(await page.locator('#motion-capability-rows [data-warning="true"]').count(), 4);
   assert.match(await page.locator('#motion-capability-rows').textContent(), /缺少胸部、颈部/);
-  await page.locator('#model-capabilities').screenshot({ path: path.join(output, 'limited-capabilities.png') });
+  // Capture the viewport directly: locator.screenshot waits for two stable
+  // layout frames, which can time out while the animated renderer keeps the
+  // adjacent workshop panel moving between frames.
+  await page.screenshot({ path: path.join(output, 'limited-capabilities.png') });
   const limited = await saveReport('limited-capabilities');
   assert.deepEqual(limited.modelCapabilities.bones.missing, ['chest', 'neck']);
   assert.deepEqual(limited.modelCapabilities.expressions.missing, ['blink', 'happy', 'sad']);
