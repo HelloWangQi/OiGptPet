@@ -62,8 +62,12 @@ interface CommittedFrame {
   sourceY: number;
 }
 
+type SpriteTransitionSource =
+  | { kind: 'request'; request: RenderRequest }
+  | { kind: 'snapshot'; canvas: HTMLCanvasElement };
+
 interface SpriteTransition {
-  from: RenderRequest;
+  from: SpriteTransitionSource;
   elapsed: number;
   progress: number;
 }
@@ -230,6 +234,7 @@ export class SpriteStage {
     this.canvas.height = backingHeight;
     this.canvas.style.width = `${width}px`;
     this.canvas.style.height = `${height}px`;
+    if (this.transition) this.clearTransition();
     if (this.lastRender && this.loaded) {
       this.draw(this.lastRender);
     }
@@ -254,7 +259,15 @@ export class SpriteStage {
       && (this.lastRender.lookAngleDegrees === undefined) !== (lookAngleDegrees === undefined);
     if (stateRevision !== undefined && this.lastRender
       && (this.lastRender.state !== state || repeated || gazeModeChanged)) {
-      this.transition = { from: this.lastRender, elapsed: 0, progress: 0 };
+      const interrupted = this.transition;
+      const snapshot = interrupted ? this.captureTransitionSnapshot(interrupted) : null;
+      this.transition = {
+        from: snapshot
+          ? { kind: 'snapshot', canvas: snapshot }
+          : { kind: 'request', request: this.lastRender },
+        elapsed: 0,
+        progress: 0,
+      };
     }
     if (stateRevision !== undefined) this.lastStateRevision = stateRevision;
     let transitionComplete = false;
@@ -265,7 +278,7 @@ export class SpriteStage {
       transitionComplete = progress >= 1;
     }
     this.draw(request);
-    if (transitionComplete) this.transition = undefined;
+    if (transitionComplete) this.clearTransition();
   }
 
   hitTest(clientX: number, clientY: number): boolean {
@@ -502,7 +515,7 @@ export class SpriteStage {
     this.lastRender = null;
     this.lastFrame = null;
     this.lastStateRevision = undefined;
-    this.transition = undefined;
+    this.clearTransition();
   }
 
   private releaseImage(): void {
@@ -516,7 +529,33 @@ export class SpriteStage {
     this.lastRender = null;
     this.lastFrame = null;
     this.lastStateRevision = undefined;
+    this.clearTransition();
+  }
+
+  private captureTransitionSnapshot(transition: SpriteTransition): HTMLCanvasElement | null {
+    try {
+      const snapshot = transition.from.kind === 'snapshot'
+        ? transition.from.canvas
+        : document.createElement('canvas');
+      if (snapshot.width !== this.canvas.width) snapshot.width = this.canvas.width;
+      if (snapshot.height !== this.canvas.height) snapshot.height = this.canvas.height;
+      const context = snapshot.getContext('2d');
+      if (!context) return null;
+      context.clearRect(0, 0, snapshot.width, snapshot.height);
+      context.drawImage(this.canvas, 0, 0);
+      return snapshot;
+    } catch {
+      return null;
+    }
+  }
+
+  private clearTransition(): void {
+    const previous = this.transition;
     this.transition = undefined;
+    if (previous?.from.kind === 'snapshot') {
+      previous.from.canvas.width = 0;
+      previous.from.canvas.height = 0;
+    }
   }
 
   private clearCanvas(): void {
@@ -542,11 +581,15 @@ export class SpriteStage {
 
     const transition = this.transition;
     if (transition) {
-      const previous = this.sourceRect(transition.from);
       this.context.save();
       this.context.globalCompositeOperation = 'lighter';
       this.context.globalAlpha = 1 - transition.progress;
-      this.drawSource(previous, destination);
+      if (transition.from.kind === 'snapshot') {
+        this.context.drawImage(transition.from.canvas, 0, 0);
+      } else {
+        const previous = this.sourceRect(transition.from.request);
+        this.drawSource(previous, destination);
+      }
       this.context.globalAlpha = transition.progress;
       this.drawSource(source, destination);
       this.context.restore();

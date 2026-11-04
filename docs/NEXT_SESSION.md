@@ -6,7 +6,11 @@
 
 0.9.1 为同动作显式重播增加状态修订号，并将 200 ms 透明度过渡接入精灵图桌宠的动作切换、同动作重播和 v2 视线模式进入/退出。鼠标在视线模式内连续改变方向仍即时响应；图集文件与导出采样不变。34 个测试文件、410 项单测通过。`npm run verify:desktop` 从当前源码打包并通过真实 EXE 冒烟，报告为 `artifacts/release-smoke/run-1793775465401/result.json`，浏览器错误为 0。采样确认 idle→waving alpha 0.926/0.074、同一 waving 行帧 2→帧 0 重播，以及 waving→look row 与 look row→waving 的进入/退出混合；各对 alpha 总和为 1。截图等待和低帧率视线过期边界也已加固。
 
-用户验证 EXE：`release/v0.9.1-1793775457009/OiGptPet-win32-x64/OiGptPet.exe`。本地阶段提交尚待本轮保存；该包尚未发布为 GitHub Release。测试使用 SwiftShader，不等同于用户显卡上的性能或连续运行验收。物理设备体验及长时间运行仍待确认；下次桌面验证前仍从当时源码运行 `npm run verify:desktop` 并提供对应 EXE 与提交。
+用户验证 EXE：`release/v0.9.1-1793775457009/OiGptPet-win32-x64/OiGptPet.exe`，对应上一个完整验证检查点 `3d00856`；该包尚未发布为 GitHub Release。测试使用 SwiftShader，不等同于用户显卡上的性能或连续运行验收。物理设备体验及长时间运行仍待确认；下次桌面验证前仍从当时源码运行 `npm run verify:desktop` 并提供对应 EXE 与提交。
+
+## 后续开发：快速连续动作切换
+
+在 `packages/renderer-sprite/index.ts` 中，若一段 200 ms 淡入淡出尚未完成又切换动作，现在会先捕获当前可见画布，再从该画面淡向新动作，避免跳回上一个过渡的目标帧。临时画布在过渡完成、资源重载或尺寸调整时释放。`npm run build` 通过；本项尚未运行单测或桌面 EXE 验收，也没有为此生成新 EXE。向用户提供验证包前，必须从当前源码运行 `npm run verify:desktop` 并给出匹配的 EXE 与提交。
 
 ## 0.8.9 托腮姿态调整记录
 
