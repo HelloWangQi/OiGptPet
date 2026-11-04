@@ -4,7 +4,7 @@
 
 0.9.0 的 34 个测试文件、408 项单测通过；`npm run verify:desktop` 打包与 Windows EXE 冒烟通过，结果 `artifacts/release-smoke/run-1793762162495/result.json`。用户验证包为 [OiGptPet.exe](E:/GitWorkSpace/OiGptPet/release/v0.9.0-1793762152485/OiGptPet-win32-x64/OiGptPet.exe)，对应提交 `d3b637d`。ZIP 与校验文件哈希记录在 `artifacts/github-release-v0.9.0/manifest.json`。动作状态过渡尚未做人工连续播放视觉验收。
 
-0.9.1 为相同动作的显式重播增加了状态修订号：用户再次点击当前动作按钮、时间轴重置时，VRM 渲染器会从屏幕上当前姿势平滑过渡。`npm run build` 通过；本轮未运行单元测试、打包或 EXE 冒烟，人工视觉也未确认。下次先验证同动作重复点击、不同动作切换、重载角色和暂停恢复。桌面用户验证前仍从当时源码重新运行 `npm run verify:desktop` 并提供新 EXE 与对应提交。
+0.9.1 为同动作显式重播增加状态修订号，并把动作切换淡入淡出接入精灵图桌宠；精灵图使用 200 ms 透明度混合，图集文件与导出采样不变。`npm run build` 通过；本轮未运行单元测试、打包或 EXE 冒烟，人工视觉也未确认。下次先验证 VRM/精灵图的同动作重播、不同动作切换、视线行、重载角色和暂停恢复。桌面用户验证前仍从当时源码重新运行 `npm run verify:desktop` 并提供新 EXE 与对应提交。
 
 ## 0.8.9 托腮姿态调整记录
 
