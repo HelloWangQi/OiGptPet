@@ -41,6 +41,8 @@ interface DrawCall {
   dy: number;
   dw: number;
   dh: number;
+  alpha: number;
+  composite: GlobalCompositeOperation;
 }
 
 interface AtlasOptions {
@@ -201,6 +203,21 @@ class FakeReadCanvas {
 class FakeDisplayContext {
   readonly draws: DrawCall[] = [];
   readonly clears: number[][] = [];
+  globalAlpha = 1;
+  globalCompositeOperation: GlobalCompositeOperation = 'source-over';
+  private readonly stack: Array<{ alpha: number; composite: GlobalCompositeOperation }> = [];
+
+  save(): void {
+    this.stack.push({ alpha: this.globalAlpha, composite: this.globalCompositeOperation });
+  }
+
+  restore(): void {
+    const saved = this.stack.pop();
+    if (saved) {
+      this.globalAlpha = saved.alpha;
+      this.globalCompositeOperation = saved.composite;
+    }
+  }
 
   clearRect(x: number, y: number, width: number, height: number): void {
     this.clears.push([x, y, width, height]);
@@ -217,7 +234,7 @@ class FakeDisplayContext {
     dw: number,
     dh: number,
   ): void {
-    this.draws.push({ image, sx, sy, sw, sh, dx, dy, dw, dh });
+    this.draws.push({ image, sx, sy, sw, sh, dx, dy, dw, dh, alpha: this.globalAlpha, composite: this.globalCompositeOperation });
   }
 }
 
@@ -926,6 +943,38 @@ describe('SpriteStage', () => {
       expect(harness.lastDraw?.sx).toBe(0);
     }
     expect(harness.lastDraw).toBeDefined();
+  });
+
+  it('crossfades state changes and explicit same-state replays', async () => {
+    await stage.load(harness.createAtlasBlob('v2').blob, 'v2');
+    stage.resize(192, 208, 1);
+    const draws = harness.display.context.draws;
+    stage.render('idle', 0, undefined, 0, 10);
+    draws.length = 0;
+
+    stage.render('waving', 0.125, undefined, 1 / 60, 11);
+    expect(draws).toHaveLength(2);
+    expect(draws.map(({ sy }) => sy)).toEqual([0, 3 * CELL_HEIGHT]);
+    expect(draws.map(({ composite }) => composite)).toEqual(['lighter', 'lighter']);
+    expect(draws[0].alpha).toBeGreaterThan(0);
+    expect(draws[1].alpha).toBeGreaterThan(0);
+    expect(draws[0].alpha + draws[1].alpha).toBeCloseTo(1);
+
+    draws.length = 0;
+    stage.render('waving', 0, undefined, 1 / 60, 12);
+    expect(draws).toHaveLength(2);
+    expect(draws.map(({ sy }) => sy)).toEqual([3 * CELL_HEIGHT, 3 * CELL_HEIGHT]);
+    expect(draws.map(({ sx }) => sx)).toEqual([CELL_WIDTH, 0]);
+    expect(draws[0].alpha + draws[1].alpha).toBeCloseTo(1);
+
+    draws.length = 0;
+    stage.render('waving', 0.05, undefined, 1 / 15, 12);
+    stage.render('waving', 0.1, undefined, 1 / 15, 12);
+    stage.render('waving', 0.2, undefined, 1 / 15, 12);
+    const beforeFinalFrame = draws.length;
+    stage.render('waving', 0.3, undefined, 1 / 60, 12);
+    expect(draws.length).toBe(beforeFinalFrame + 1);
+    expect(draws.at(-1)?.composite).toBe('source-over');
   });
 
   it('returns a result whose inspection warnings never claim platform acceptance', async () => {

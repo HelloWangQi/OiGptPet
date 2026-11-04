@@ -4,7 +4,9 @@
 
 0.9.0 的 34 个测试文件、408 项单测通过；`npm run verify:desktop` 打包与 Windows EXE 冒烟通过，结果 `artifacts/release-smoke/run-1793762162495/result.json`。用户验证包为 [OiGptPet.exe](E:/GitWorkSpace/OiGptPet/release/v0.9.0-1793762152485/OiGptPet-win32-x64/OiGptPet.exe)，对应提交 `d3b637d`。ZIP 与校验文件哈希记录在 `artifacts/github-release-v0.9.0/manifest.json`。动作状态过渡尚未做人工连续播放视觉验收。
 
-0.9.1 为同动作显式重播增加状态修订号，并把动作切换淡入淡出接入精灵图桌宠；精灵图使用 200 ms 透明度混合，图集文件与导出采样不变。`npm run build` 通过；本轮未运行单元测试、打包或 EXE 冒烟，人工视觉也未确认。下次先验证 VRM/精灵图的同动作重播、不同动作切换、视线行、重载角色和暂停恢复。桌面用户验证前仍从当时源码重新运行 `npm run verify:desktop` 并提供新 EXE 与对应提交。
+0.9.1 为同动作显式重播增加状态修订号，并把动作切换淡入淡出接入精灵图桌宠；精灵图使用 200 ms 透明度混合，图集文件与导出采样不变。34 个测试文件、409 项单测通过。`npm run verify:desktop` 通过，检查报告在 `artifacts/release-smoke/run-1793772364156/result.json`；截图覆盖 VRM 换动作、重播和暂停恢复，已人工对照过渡中帧与稳定帧。精灵图实际捕获到旧行 idle→新行 waving 的 alpha 0.926/0.074 混合，以及同一 waving 行帧 2→帧 0 的重播过渡，浏览器错误为 0。
+
+用户验证 EXE：`release/v0.9.1-1793772346835/OiGptPet-win32-x64/OiGptPet.exe`。最后的源码/检查点提交见 Git 最新本地记录；该包尚未发布为 GitHub Release。测试使用 SwiftShader，不等同于用户显卡上的性能或连续运行验收。后续可以收集目标设备视觉反馈，再确认 200 ms 时长及暂停边界；用户验证桌面功能前仍从当时源码运行 `npm run verify:desktop` 并提供对应 EXE 与提交。
 
 ## 0.8.9 托腮姿态调整记录
 

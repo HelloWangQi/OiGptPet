@@ -10,6 +10,7 @@ import { checkChatRestore } from './chat-restore-smoke-steps.mjs';
 import { checkMotionCapabilities } from './motion-capabilities-smoke-steps.mjs';
 import { checkRenderMonitor } from './render-monitor-smoke-steps.mjs';
 import { checkWorkshopLayout } from './workshop-layout-smoke-steps.mjs';
+import { checkSpriteTransitions, checkVrmTransitions } from './motion-transition-smoke-steps.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const releaseRoot = path.resolve(root, 'release');
@@ -48,6 +49,7 @@ try {
   await page.waitForFunction(() => document.querySelector('#status')?.textContent.includes('角色已就绪'), undefined, { timeout: 60000 });
   assert.equal(await page.locator('#export-button').isEnabled(), true);
   const workshopLayout = await checkWorkshopLayout(desktop, page, output);
+  const vrmTransitions = await checkVrmTransitions(page, output);
   await page.screenshot({ path: path.join(output, 'imported-model.png') });
   await desktop.close(); desktop = undefined;
   page = await launch();
@@ -55,6 +57,7 @@ try {
   assert.match(await page.locator('#character-name').innerText(), /VRM1/);
   await page.locator('#model-file').setInputFiles(path.join(root, 'artifacts/animation-fixes/run-04/atlas-v2.png'));
   await page.waitForFunction(() => document.body.dataset.characterKind === 'sprite', undefined, { timeout: 60000 });
+  const spriteTransitions = await checkSpriteTransitions(page);
   await page.locator('#import-button:not([disabled])').waitFor();
   assert.equal(await page.locator('#export-button').isDisabled(), true);
   await page.locator('#character-alias').fill('发布包精灵图');
@@ -123,7 +126,7 @@ try {
   await page.screenshot({ path: path.join(output, 'restored-sprite-library.png') });
   const motionCapabilities = await checkMotionCapabilities(desktop, page, root, output);
   assert.deepEqual(errors, []);
-  await writeFile(path.join(output, 'result.json'), JSON.stringify({ ok: true, version: latest.version, directory: latest.directory, packaged, files, emptyFirstStart: true, localImport: true, persistedAfterRestart: true, spritePetRendered: true, spriteLibraryRestored: true, preferencesRestored: true, petBounds: bounds, bodyDrag, workshopDragRejected: true, motionCapabilities, renderMonitoring, workshopLayout, rendererErrors: errors }, null, 2));
+  await writeFile(path.join(output, 'result.json'), JSON.stringify({ ok: true, version: latest.version, directory: latest.directory, packaged, files, emptyFirstStart: true, localImport: true, persistedAfterRestart: true, spritePetRendered: true, spriteLibraryRestored: true, preferencesRestored: true, petBounds: bounds, bodyDrag, workshopDragRejected: true, motionCapabilities, renderMonitoring, workshopLayout, vrmTransitions, spriteTransitions, rendererErrors: errors }, null, 2));
   await writeFile(path.join(outputRoot, 'latest.json'), JSON.stringify({ directory: path.basename(output), version: latest.version }, null, 2));
   console.log(`Release smoke passed: clean distribution, empty first launch, VRM/sprite library, actual pet drawing, settings and restart persistence. ${output}`);
 } catch (error) {

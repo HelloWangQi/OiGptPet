@@ -78,8 +78,12 @@ describe('transactional visible companion replacement', () => {
     const instance = probe.instances[0]; expect(instance.resize).toHaveBeenLastCalledWith(500, 600, 2);
     stage.render('waving', 1.25, 0.02, { yaw: 0, pitch: 0, angle: 90 });
     expect(instance.render).toHaveBeenCalledWith('waving', 1.25, 90);
+    stage.render('failed', 1.3, 0.03, undefined, 7);
+    expect(instance.render).toHaveBeenLastCalledWith('failed', 1.3, undefined, 0.03, 7);
     (await stage.prepare(vrm())).commit(); stage.render('jumping', 1.25, 0.02);
     expect(probe.instances[1].render).toHaveBeenCalledWith('jumping', 0.625, 0.02, undefined);
+    stage.render('waving', 1.4, 0.03, undefined, 8);
+    expect(probe.instances[1].render).toHaveBeenLastCalledWith('waving', 0.7, 0.03, undefined, 8);
   });
   it('dispose invalidates prepared work and cannot resurrect a canvas', async () => {
     const { stage } = fixture(); const next = await stage.prepare(sprite());
