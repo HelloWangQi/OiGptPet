@@ -1,6 +1,7 @@
 import type { MotionCapabilities, MotionBone } from '../packages/character-core/motion-capabilities';
 
 export function motionCapabilityRows(value: MotionCapabilities) {
+  const blink = value.blinkMode ?? (value.expressions.present.includes('blink') ? 'combined' : 'none');
   const labels: Record<MotionBone, string> = { leftUpperArm: '左上臂', rightUpperArm: '右上臂', leftLowerArm: '左前臂', rightLowerArm: '右前臂', leftUpperLeg: '左大腿', rightUpperLeg: '右大腿', spine: '脊柱', chest: '胸部', neck: '颈部', head: '头部' };
   const emotions = value.expressions.missing.filter(name => name !== 'blink');
   const group = (label: string, bones: MotionBone[]) => {
@@ -12,7 +13,7 @@ export function motionCapabilityRows(value: MotionCapabilities) {
     group('腿部 / 奔跑', ['leftUpperLeg', 'rightUpperLeg']),
     group('躯干 / 思考与失落', ['spine', 'chest', 'neck']),
     group('头部 / 视线方向', ['head']),
-    { label: '眨眼', warning: value.expressions.missing.includes('blink'), text: value.expressions.present.includes('blink') ? '已加载眨眼表情。' : '缺少通用眨眼表情，当前动作不会驱动眨眼。' },
+    { label: '眨眼', warning: blink === 'none', text: blink === 'combined' ? '使用通用眨眼表情。' : blink === 'paired' ? '使用左右眼独立表情同步眨眼。' : '缺少通用眨眼或完整左右眼表情，当前动作不会驱动眨眼。' },
     { label: '开心 / 失落表情', warning: emotions.length > 0, text: emotions.length ? `缺少${emotions.map(name => name === 'happy' ? '开心' : '失落').join('、')}表情，对应状态仍播放骨骼动作。` : '已加载开心和失落表情。' },
     { label: '视线控制', warning: !value.lookAtController, text: value.lookAtController ? '已加载视线控制器，眼睛跟随效果与范围请预览确认。' : '未加载视线控制器，仍尝试通过头部转动表现视线。' },
   ];

@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRM, VRMLoaderPlugin } from '@pixiv/three-vrm';
 import { disposeVrmScene } from './dispose';
 import { inspectMotionCapabilities } from '../character-core/motion-capabilities';
+import { applyBlink } from '../character-core/blink';
 import { sampleMotion, sampleLook } from '../character-core';
 import { inspectVrmFile, type ModelInfo } from '../character-core/vrm-file';
 import type { AnimationState } from '../target-chatgpt/contract';
@@ -113,8 +114,8 @@ export class VrmStage {
     this.root.position.y = p.rootY;
     this.root.rotation.y = p.rootYaw;
     const expressions = vrm.expressionManager;
-    for (const name of ['blink', 'happy', 'sad', 'relaxed']) expressions?.setValue(name, 0);
-    expressions?.setValue('blink', p.blink);
+    for (const name of ['happy', 'sad', 'relaxed']) expressions?.setValue(name, 0);
+    applyBlink(expressions ?? undefined, p.blink);
     expressions?.setValue('happy', p.happy);
     expressions?.setValue('sad', p.sad);
     if (look) this.lookTarget.position.set(Math.sin(look.yaw) * 3, 1.65 - Math.sin(look.pitch) * 3, 4);
