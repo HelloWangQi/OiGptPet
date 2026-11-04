@@ -1,4 +1,10 @@
-# 接续：0.8.6 眨眼适配验收完成
+# 接续：0.8.7 六帧动作眨眼修复完成
+
+2026-11-04 新阶段已完成。发现原眨眼峰值 0.75 被六帧导出全部跳过，现将 idle/waiting/running/review 的峰值改为 2/3，保持实时/导出共用时间线；其他动作不变。402 项单测通过，完整 verify:desktop 通过。当前 EXE `release/v0.8.7-1793757942991/OiGptPet-win32-x64/OiGptPet.exe`，结果 `artifacts/release-smoke/run-1793757947253/result.json`。真实导出原模型和 paired 副本 PNG 与报告哈希一致；已查看 blink-heads.png，待机第 4 格闭眼、第 5 格张眼（0 起算）。局部眼部查看不等于所有动作/模型视觉通过，报告视觉及平台状态保持原意。详见 [CHECKPOINT_08_7.md](CHECKPOINT_08_7.md)。
+
+本阶段只保存本地提交，不推送或发布。性能测试画质切换后新增明确互动，解决程序化 selectOption 无用户输入事件、慢运行时仍等待 active 的前提问题；产品帧率策略不变。下一步仍优先更多独立角色连续动作视觉 QA 和实机矩阵，不用派生副本冒充第二独立角色。下面保留旧阶段历史，以本段最新包为准。
+
+## 0.8.6 保留记录
 
 2026-11-04 用户明确恢复工作，之前的会议暂停已经解除。当前源码已运行完整 `npm run verify:desktop` 并通过；新包 `release/v0.8.6-1793757299769/OiGptPet-win32-x64/OiGptPet.exe`，结果 `artifacts/release-smoke/run-1793757309012/result.json`。原模型 combined、左右眼副本 paired、无眨眼副本 none，以及切回恢复的四份报告均通过；布局/性能/聊天/角色库回归继续通过。生产代码仍为已通过 392 项单测的 4dea8b2，本轮只补验收记录。详见 [CHECKPOINT_08_6.md](CHECKPOINT_08_6.md)。
 

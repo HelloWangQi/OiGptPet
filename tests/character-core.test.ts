@@ -31,6 +31,20 @@ describe('local model boundary', () => {
 });
 
 describe('shared animation semantics', () => {
+  it.each(ANIMATION_ROWS)('captures an open/closed/open blink in exported $state frames', row => {
+    const frames = Array.from({ length: row.frames }, (_, i) => sampleMotion(row.state, row.state === 'jumping' ? i / (row.frames - 1) : i / row.frames).blink);
+    expect(frames[0]).toBe(0); expect(sampleMotion(row.state, 1).blink).toBe(0);
+    if (row.frames > 4) expect(frames.at(-1)).toBe(0);
+    expect(Math.max(...frames)).toBeCloseTo(1, 10);
+    expect(frames.filter(weight => weight > 0.5)).toHaveLength(1);
+  });
+  it('keeps six-frame blinks continuous around the captured peak', () => {
+    const peak = 2 / 3;
+    expect(sampleMotion('idle', peak - 0.025).blink).toBeGreaterThan(0);
+    expect(sampleMotion('idle', peak + 0.025).blink).toBeGreaterThan(0);
+    expect(sampleMotion('idle', -1 / 3).blink).toBeCloseTo(sampleMotion('idle', peak).blink);
+    expect(sampleMotion('idle', 0).blink).toBe(sampleMotion('idle', 1).blink);
+  });
   it('jump departs and returns to a shared baseline', () => {
     expect(sampleMotion('jumping', 0).rootY).toBe(0);
     expect(sampleMotion('jumping', 0.5).rootY).toBeGreaterThan(0.2);

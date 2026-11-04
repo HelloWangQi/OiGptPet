@@ -52,6 +52,10 @@ export async function checkRenderMonitor(desktop, page, pet, output) {
     assert.ok(win.rendering.ageMs <= 10000);
   }
   await page.locator('#performance-mode').selectOption('quality');
+  // selectOption changes the setting without the pointer/key event a user
+  // generates, so explicitly interact before expecting the active cadence.
+  await page.evaluate(() => window.petDesktop.openWorkshop());
+  await page.locator('#wave-button').click();
   const quality = await waitSample('active', 60);
   await page.locator('#performance-mode').selectOption('battery');
   await page.locator('#wave-button').click();

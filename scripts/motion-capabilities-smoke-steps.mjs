@@ -56,6 +56,20 @@ export async function checkMotionCapabilities(desktop, page, root, output) {
     assert.equal(report.modelCapabilities.visualReview, 'not-reviewed');
     assert.equal(report.platformPreflight.status, 'not-run'); assert.equal(report.platformInstallation.status, 'not-run');
     assert.equal(report.localInspection.valid, true);
+    if (['original-capabilities', 'paired-blink'].includes(label)) {
+      const image = path.join(output, label + '.png');
+      await desktop.evaluate(({ dialog }, filePath) => {
+        globalThis.__blinkImageDialog = dialog.showSaveDialog;
+        dialog.showSaveDialog = async () => ({ canceled: false, filePath });
+      }, image);
+      try {
+        await page.locator('#save-atlas').click();
+        await page.waitForFunction(file => document.querySelector('#status').textContent.includes(file), image);
+      } finally {
+        await desktop.evaluate(({ dialog }) => { dialog.showSaveDialog = globalThis.__blinkImageDialog; delete globalThis.__blinkImageDialog; });
+      }
+      assert.equal(createHash('sha256').update(await readFile(image)).digest('hex'), report.file.sha256);
+    }
     await page.locator('#close-export').click();
     return report;
   }
