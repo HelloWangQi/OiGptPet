@@ -46,5 +46,7 @@ describe('face pose arm reaching', () => {
     }
     const left = get('leftUpperArm')!.quaternion.clone();
     adaptFaceArms(get, 'running'); expect(get('leftUpperArm')!.quaternion.equals(left)).toBe(true);
+    const workingWrist = get('rightHand')!.getWorldPosition(new Vector3());
+    expect(workingWrist.distanceTo(new Vector3(-0.108, 1.348, 0.056))).toBeLessThan(0.02);
   });
 });

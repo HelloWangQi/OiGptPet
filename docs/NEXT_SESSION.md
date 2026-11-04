@@ -1,4 +1,10 @@
-# 接续：0.8.8 手臂落点适配完成
+# 接续 0.8.9 托腮姿态调整完成
+
+2026-11-04。托腮右手目标从头部局部比例 `(-0.8, -0.35, 0.85)` 调到 `(-1.35, -0.65, 0.7)`，将袖口移向脸侧下方。用首个模型和 AvatarSample_B 的工作动作六格对照查看，嘴部较 0.8.8 清楚。结果见 `artifacts/animation-fixes/demo-sleeve-089/working-comparison.png` 和 `artifacts/animation-fixes/avatar-b-sleeve-089/working-comparison.png`。两份 v2 前后对比只有工作动作行出现像素差，逐行数据和图集哈希保存在各自目录。验收范围为静态图集，连续播放和衣袖碰撞仍待实机观察。
+
+408 项单测及完整 `npm run verify:desktop` 通过。当前 EXE 在 `release/v0.8.9-1793760152604/OiGptPet-win32-x64/OiGptPet.exe`，验收及提交核对记录在 `artifacts/release-smoke/run-1793760160548/`。本地提交后停在本检查点。发布记录见 [0.8.9 版本说明](releases/v0.8.9.md)。
+
+## 0.8.8 手臂落点适配记录
 
 2026-11-04 新阶段完成：在 renderer-vrm/arm-reach.ts 增加头颈比例目标和固定十二轮 CCD，单步旋转限幅 0.4rad。失落双手向脸前、工作只调整右手至下巴侧面；每帧从程序姿态重新求解，缺少锚点/链时降级。不按模型名字特判，也不包含手指/手掌朝向、关节活动范围或衣物碰撞约束。408 项单测通过；两种独立模型的最终导出和前后关键帧对比见 [CHECKPOINT_08_8.md](CHECKPOINT_08_8.md)。宽袖仍有部分嘴部遮挡，连续视觉未全部验收。
 

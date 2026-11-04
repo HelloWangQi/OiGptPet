@@ -35,8 +35,10 @@ export function adaptFaceArms(get: (name: Bone) => Object3D | null, state: strin
   for (const side of state === 'failed' ? ['left', 'right'] as const : ['right'] as const) {
     const upper = get(`${side}UpperArm`); const lower = get(`${side}LowerArm`); const hand = get(`${side}Hand`);
     if (!upper || !lower || !hand) continue;
-    const target = new Vector3(state === 'failed' ? side === 'left' ? 0.55 : -0.55 : -0.8, state === 'failed' ? 0.55 : -0.35, state === 'failed' ? 1.15 : 0.85)
-      .multiplyScalar(unit).applyQuaternion(rotation).add(origin);
+    const target = state === 'failed'
+      ? new Vector3(side === 'left' ? 0.55 : -0.55, 0.55, 1.15)
+      : new Vector3(-1.35, -0.65, 0.7);
+    target.multiplyScalar(unit).applyQuaternion(rotation).add(origin);
     reachArm(upper, lower, hand, target);
   }
 }
