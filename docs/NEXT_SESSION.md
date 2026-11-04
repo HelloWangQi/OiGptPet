@@ -1,4 +1,10 @@
-# 接续：0.8.7 六帧动作眨眼修复完成
+# 接续：0.8.7 第二独立模型回归与静态复核完成
+
+2026-11-04 新检查点：用既有 AvatarSample_B 对 86dcfcc 源码运行 animation-render-smoke 和 atlas-visual-qa；v1/v2 结构、取消后 v2 哈希确定性、四个 context 全释放均通过。v1 解码像素与 v2 前九行一致。产物 `artifacts/animation-fixes/avatar-b-087-20261104/`，详见 [AVATAR_B_QA_087.md](AVATAR_B_QA_087.md)。本轮只有验收文档与本地证据，没有改运行时代码或版本，没有创建新包、推送或发布。
+
+已查看待机眼部、失落、工作、挥手、跳跃、向右奔跑与十六方向头部的静态联系表。第二独立角色的待机第 4 格闭眼、第 5 格张眼（0 起算）；跳跃底边 188/178/167/178/188。失落双手仍偏胸前，工作手部仍偏腹部，保留动作语义 warning；连续播放与剩余联系表人工复核未完成。下一阶段优先做该模型手臂落点适配，不把渲染工具通过当作完整 EXE/目标平台验收。
+
+## 0.8.7 功能修复记录
 
 2026-11-04 新阶段已完成。发现原眨眼峰值 0.75 被六帧导出全部跳过，现将 idle/waiting/running/review 的峰值改为 2/3，保持实时/导出共用时间线；其他动作不变。402 项单测通过，完整 verify:desktop 通过。当前 EXE `release/v0.8.7-1793757942991/OiGptPet-win32-x64/OiGptPet.exe`，结果 `artifacts/release-smoke/run-1793757947253/result.json`。真实导出原模型和 paired 副本 PNG 与报告哈希一致；已查看 blink-heads.png，待机第 4 格闭眼、第 5 格张眼（0 起算）。局部眼部查看不等于所有动作/模型视觉通过，报告视觉及平台状态保持原意。详见 [CHECKPOINT_08_7.md](CHECKPOINT_08_7.md)。
 
