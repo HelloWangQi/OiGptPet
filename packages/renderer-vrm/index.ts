@@ -19,6 +19,7 @@ export class VrmStage {
   private disposed = false;
   private lookTarget = new THREE.Object3D();
   private lastState?: AnimationState;
+  private lastStateRevision?: number;
   private poseTransition?: {
     elapsed: number;
     bones: Array<{ node: THREE.Object3D; from: THREE.Quaternion; to: THREE.Quaternion }>;
@@ -64,6 +65,7 @@ export class VrmStage {
     this.releaseModel();
     this.vrm = candidate;
     this.lastState = undefined;
+    this.lastStateRevision = undefined;
     this.poseTransition = undefined;
     candidate.scene.position.set(0, 0, 0);
     candidate.scene.rotation.set(0, 0, 0);
@@ -135,8 +137,9 @@ export class VrmStage {
     else this.lookTarget.position.set(0, 1.65, 5);
   }
 
-  render(state: AnimationState, phase: number, delta: number, look?: { yaw: number; pitch: number }) {
-    if (this.lastState !== undefined && this.lastState !== state && this.vrm) {
+  render(state: AnimationState, phase: number, delta: number, look?: { yaw: number; pitch: number }, stateRevision?: number) {
+    const restarted = stateRevision !== undefined && this.lastStateRevision !== undefined && stateRevision !== this.lastStateRevision;
+    if (this.lastState !== undefined && (this.lastState !== state || restarted) && this.vrm) {
       const nodes = new Set(Object.values(this.vrm.humanoid.normalizedHumanBones).map(bone => bone.node));
       const bones = [...nodes].map(node => ({ node, from: node.quaternion.clone(), to: new THREE.Quaternion() }));
       const expressions = ['blink', 'blinkLeft', 'blinkRight', 'happy', 'sad', 'relaxed']
@@ -152,6 +155,7 @@ export class VrmStage {
       };
     }
     this.lastState = state;
+    this.lastStateRevision = stateRevision;
     this.applyPose(state, phase, look);
     if (this.poseTransition) {
       const transition = this.poseTransition;
@@ -213,6 +217,7 @@ export class VrmStage {
   private releaseModel() {
     if (this.vrm) {
       this.lastState = undefined;
+      this.lastStateRevision = undefined;
       this.poseTransition = undefined;
       this.root.remove(this.vrm.scene);
       disposeVrmScene(this.vrm.scene);

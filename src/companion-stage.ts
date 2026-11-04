@@ -93,8 +93,9 @@ export class CompanionStage {
     this.current?.resize(width, height, boundedRatio);
   }
 
-  render(state: AnimationState, seconds: number, delta: number, look?: { yaw: number; pitch: number; angle: number }) {
+  render(state: AnimationState, seconds: number, delta: number, look?: { yaw: number; pitch: number; angle: number }, stateRevision?: number) {
     if (this.current instanceof SpriteStage) this.current.render(state, seconds, look?.angle);
+    else if (this.current && stateRevision !== undefined) this.current.render(state, seconds / 2, delta, look, stateRevision);
     else this.current?.render(state, seconds / 2, delta, look);
   }
 

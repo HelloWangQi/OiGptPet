@@ -157,6 +157,7 @@ let committing = false;
 let syncRequested = false;
 let source: ArrayBuffer | null = null;
 let state: AnimationState = 'idle';
+let stateRevision = 0;
 let info: ModelInfo | null = null;
 let loading = false;
 let paused = false;
@@ -498,7 +499,7 @@ async function demo(persist: boolean) {
 }
 
 function changeState(next: AnimationState) {
-  state = next; animationTime = 0;
+  state = next; stateRevision += 1; animationTime = 0;
   document.querySelectorAll<HTMLButtonElement>('[data-state]').forEach((button) => button.classList.toggle('active', button.dataset.state === next));
 }
 
@@ -633,7 +634,7 @@ async function bootstrap() {
       if (!paused) animationTime += delta;
       if (transientUntil && now > transientUntil) { transientUntil = 0; changeState('idle'); }
       const started = performance.now();
-      stage.render(state, animationTime, paused ? 0 : delta, now - lastPointer < 1800 ? look : undefined);
+      stage.render(state, animationTime, paused ? 0 : delta, now - lastPointer < 1800 ? look : undefined, stateRevision);
       renderMonitor.record(performance.now() - started);
     }
     requestAnimationFrame(frame);

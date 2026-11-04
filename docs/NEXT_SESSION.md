@@ -1,10 +1,10 @@
-# 接续 0.9.0 正式版发布
+# 接续 0.9.1 动作重播衔接
 
 2026-11-04。v0.9.0 已在 GitHub 作为正式版发布，源码提交 `d3b637daac9a8f395f229f711e25d6d43c8b4d29`。v0.6.0、v0.8.0、v0.8.5 的 `prerelease` 标记已关闭，名称已去除 Preview，原附件保留。发布页：[OiGptPet v0.9.0](https://github.com/HelloWangQi/OiGptPet/releases/tag/v0.9.0)。
 
-34 个测试文件、408 项单测通过；`npm run verify:desktop` 打包与 Windows EXE 冒烟通过，结果 `artifacts/release-smoke/run-1793762162495/result.json`。用户验证包为 [OiGptPet.exe](E:/GitWorkSpace/OiGptPet/release/v0.9.0-1793762152485/OiGptPet-win32-x64/OiGptPet.exe)，对应提交 `d3b637d`。ZIP 与校验文件哈希记录在 `artifacts/github-release-v0.9.0/manifest.json`。动作状态过渡尚未做人工连续播放视觉验收。
+0.9.0 的 34 个测试文件、408 项单测通过；`npm run verify:desktop` 打包与 Windows EXE 冒烟通过，结果 `artifacts/release-smoke/run-1793762162495/result.json`。用户验证包为 [OiGptPet.exe](E:/GitWorkSpace/OiGptPet/release/v0.9.0-1793762152485/OiGptPet-win32-x64/OiGptPet.exe)，对应提交 `d3b637d`。ZIP 与校验文件哈希记录在 `artifacts/github-release-v0.9.0/manifest.json`。动作状态过渡尚未做人工连续播放视觉验收。
 
-下一阶段可先在目标电脑体验待机↔挥手、工作↔失落、左右奔跑切换和暂停恢复，再确认 200 ms 时长是否合适。桌面用户验证前仍从当时源码重新运行 `npm run verify:desktop` 并提供新 EXE 与对应提交。
+0.9.1 为相同动作的显式重播增加了状态修订号：用户再次点击当前动作按钮、时间轴重置时，VRM 渲染器会从屏幕上当前姿势平滑过渡。`npm run build` 通过；本轮未运行单元测试、打包或 EXE 冒烟，人工视觉也未确认。下次先验证同动作重复点击、不同动作切换、重载角色和暂停恢复。桌面用户验证前仍从当时源码重新运行 `npm run verify:desktop` 并提供新 EXE 与对应提交。
 
 ## 0.8.9 托腮姿态调整记录
 
