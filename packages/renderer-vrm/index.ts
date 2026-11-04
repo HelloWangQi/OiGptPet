@@ -4,6 +4,7 @@ import { VRM, VRMLoaderPlugin } from '@pixiv/three-vrm';
 import { disposeVrmScene } from './dispose';
 import { inspectMotionCapabilities } from '../character-core/motion-capabilities';
 import { applyBlink } from '../character-core/blink';
+import { adaptFaceArms } from './arm-reach';
 import { sampleMotion, sampleLook } from '../character-core';
 import { inspectVrmFile, type ModelInfo } from '../character-core/vrm-file';
 import type { AnimationState } from '../target-chatgpt/contract';
@@ -113,6 +114,7 @@ export class VrmStage {
     rotate('head', look?.pitch ?? p.headPitch, look?.yaw ?? p.headYaw, p.headRoll);
     this.root.position.y = p.rootY;
     this.root.rotation.y = p.rootYaw;
+    adaptFaceArms(name => vrm.humanoid.getNormalizedBoneNode(name), state);
     const expressions = vrm.expressionManager;
     for (const name of ['happy', 'sad', 'relaxed']) expressions?.setValue(name, 0);
     applyBlink(expressions ?? undefined, p.blink);

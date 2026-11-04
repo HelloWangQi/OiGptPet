@@ -1,4 +1,12 @@
-# 接续：0.8.7 第二独立模型回归与静态复核完成
+# 接续：0.8.8 手臂落点适配完成
+
+2026-11-04 新阶段完成：在 renderer-vrm/arm-reach.ts 增加头颈比例目标和固定十二轮 CCD，单步旋转限幅 0.4rad。失落双手向脸前、工作只调整右手至下巴侧面；每帧从程序姿态重新求解，缺少锚点/链时降级。不按模型名字特判，也不包含手指/手掌朝向、关节活动范围或衣物碰撞约束。408 项单测通过；两种独立模型的最终导出和前后关键帧对比见 [CHECKPOINT_08_8.md](CHECKPOINT_08_8.md)。宽袖仍有部分嘴部遮挡，连续视觉未全部验收。
+
+最终包 `release/v0.8.8-1793759084153/OiGptPet-win32-x64/OiGptPet.exe`，完整 verify:desktop 通过，结果 `artifacts/release-smoke/run-1793759096468/result.json`（ok=true、rendererErrors=[]）。源码模型回归在 artifacts/animation-fixes/demo-arm-088-final 和 avatar-b-arm-088-final，两者 v1/v2、取消、重复确定性、四个 context 全释放均通过。首模非目标行像素完全一致；Avatar_B 非目标行 2/6 各有两个 RGB 像素差、alpha 无差，已如实记录未归因，不宣称所有像素一致。
+
+本阶段保存本地提交后停止，未推送或发布。上一阶段 GitHub 已发布 0.8.5，0.8.6/7/8 尚属本地开发。后续可继续衣袖/手掌视觉调优、连续动作观察或实机验收；不要把当前目标定位当成完整动画重定向。
+
+## 0.8.7 第二模型复核记录
 
 2026-11-04 新检查点：用既有 AvatarSample_B 对 86dcfcc 源码运行 animation-render-smoke 和 atlas-visual-qa；v1/v2 结构、取消后 v2 哈希确定性、四个 context 全释放均通过。v1 解码像素与 v2 前九行一致。产物 `artifacts/animation-fixes/avatar-b-087-20261104/`，详见 [AVATAR_B_QA_087.md](AVATAR_B_QA_087.md)。本轮只有验收文档与本地证据，没有改运行时代码或版本，没有创建新包、推送或发布。
 
