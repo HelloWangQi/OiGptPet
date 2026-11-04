@@ -24,12 +24,15 @@ export interface MotionPose {
 export function sampleMotion(state: AnimationState, phase: number): MotionPose {
   const p = Number.isFinite(phase) ? ((phase % 1) + 1) % 1 : 0;
   const wave = Math.sin(p * Math.PI * 2);
+  // Six-frame rows sample thirds/sixths, so a narrow pulse at 3/4 was
+  // skipped entirely. Use a shared live/export peak on their sampling grid.
+  const blinkPhase = ['idle', 'waiting', 'running', 'review'].includes(state) ? 2 / 3 : 0.75;
   const pose: MotionPose = {
     rootY: 0, rootYaw: 0, headPitch: 0, headYaw: 0, headRoll: 0.025 * wave,
     leftArm: [0, 0, -1.2], rightArm: [0, 0, 1.2],
     leftForearm: [0, 0, 0], rightForearm: [0, 0, 0],
     leftLeg: 0, rightLeg: 0,
-    blink: Math.max(0, 1 - Math.abs(p - 0.75) / 0.055), happy: 0, sad: 0,
+    blink: Math.max(0, 1 - Math.abs(p - blinkPhase) / 0.055), happy: 0, sad: 0,
   };
   switch (state) {
     case 'idle':

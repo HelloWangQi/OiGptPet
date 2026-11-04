@@ -1,4 +1,52 @@
-# 接续：0.8.5 工坊独立滚动与绘制监测完成
+# 接续 0.9.0 VRM 动作过渡
+
+2026-11-04。为 VRM 实时预览/桌宠动作状态切换增加 200 ms 平滑过渡，覆盖当前模型的归一化骨骼、表情、视线目标及角色根节点变换。快速连续切换会从当前过渡中的画面重新开始。精灵图播放和导出采样不变。
+
+`npm run build` 通过（TypeScript 与 Vite）；没有运行单元测试或 `verify:desktop`，尚无新 EXE，也没有视觉/连续播放验收。源码检查点已保存为本地提交；后续应先验证动作切换、角色重新加载、暂停恢复和多个 VRM，再决定是否调整过渡时长。
+
+## 0.8.9 托腮姿态调整记录
+
+2026-11-04。托腮右手目标从头部局部比例 `(-0.8, -0.35, 0.85)` 调到 `(-1.35, -0.65, 0.7)`，将袖口移向脸侧下方。用首个模型和 AvatarSample_B 的工作动作六格对照查看，嘴部较 0.8.8 清楚。结果见 `artifacts/animation-fixes/demo-sleeve-089/working-comparison.png` 和 `artifacts/animation-fixes/avatar-b-sleeve-089/working-comparison.png`。两份 v2 前后对比只有工作动作行出现像素差，逐行数据和图集哈希保存在各自目录。验收范围为静态图集，连续播放和衣袖碰撞仍待实机观察。
+
+408 项单测及完整 `npm run verify:desktop` 通过。当前 EXE 在 `release/v0.8.9-1793760152604/OiGptPet-win32-x64/OiGptPet.exe`，验收及提交核对记录在 `artifacts/release-smoke/run-1793760160548/`。本地提交后停在本检查点。发布记录见 [0.8.9 版本说明](releases/v0.8.9.md)。
+
+## 0.8.8 手臂落点适配记录
+
+2026-11-04 新阶段完成：在 renderer-vrm/arm-reach.ts 增加头颈比例目标和固定十二轮 CCD，单步旋转限幅 0.4rad。失落双手向脸前、工作只调整右手至下巴侧面；每帧从程序姿态重新求解，缺少锚点/链时降级。不按模型名字特判，也不包含手指/手掌朝向、关节活动范围或衣物碰撞约束。408 项单测通过；两种独立模型的最终导出和前后关键帧对比见 [CHECKPOINT_08_8.md](CHECKPOINT_08_8.md)。宽袖仍有部分嘴部遮挡，连续视觉未全部验收。
+
+最终包 `release/v0.8.8-1793759084153/OiGptPet-win32-x64/OiGptPet.exe`，完整 verify:desktop 通过，结果 `artifacts/release-smoke/run-1793759096468/result.json`（ok=true、rendererErrors=[]）。源码模型回归在 artifacts/animation-fixes/demo-arm-088-final 和 avatar-b-arm-088-final，两者 v1/v2、取消、重复确定性、四个 context 全释放均通过。首模非目标行像素完全一致；Avatar_B 非目标行 2/6 各有两个 RGB 像素差、alpha 无差，已如实记录未归因，不宣称所有像素一致。
+
+本阶段保存本地提交后停止，未推送或发布。上一阶段 GitHub 已发布 0.8.5，0.8.6/7/8 尚属本地开发。后续可继续衣袖/手掌视觉调优、连续动作观察或实机验收；不要把当前目标定位当成完整动画重定向。
+
+## 0.8.7 第二模型复核记录
+
+2026-11-04 新检查点：用既有 AvatarSample_B 对 86dcfcc 源码运行 animation-render-smoke 和 atlas-visual-qa；v1/v2 结构、取消后 v2 哈希确定性、四个 context 全释放均通过。v1 解码像素与 v2 前九行一致。产物 `artifacts/animation-fixes/avatar-b-087-20261104/`，详见 [AVATAR_B_QA_087.md](AVATAR_B_QA_087.md)。本轮只有验收文档与本地证据，没有改运行时代码或版本，没有创建新包、推送或发布。
+
+已查看待机眼部、失落、工作、挥手、跳跃、向右奔跑与十六方向头部的静态联系表。第二独立角色的待机第 4 格闭眼、第 5 格张眼（0 起算）；跳跃底边 188/178/167/178/188。失落双手仍偏胸前，工作手部仍偏腹部，保留动作语义 warning；连续播放与剩余联系表人工复核未完成。下一阶段优先做该模型手臂落点适配，不把渲染工具通过当作完整 EXE/目标平台验收。
+
+## 0.8.7 功能修复记录
+
+2026-11-04 新阶段已完成。发现原眨眼峰值 0.75 被六帧导出全部跳过，现将 idle/waiting/running/review 的峰值改为 2/3，保持实时/导出共用时间线；其他动作不变。402 项单测通过，完整 verify:desktop 通过。当前 EXE `release/v0.8.7-1793757942991/OiGptPet-win32-x64/OiGptPet.exe`，结果 `artifacts/release-smoke/run-1793757947253/result.json`。真实导出原模型和 paired 副本 PNG 与报告哈希一致；已查看 blink-heads.png，待机第 4 格闭眼、第 5 格张眼（0 起算）。局部眼部查看不等于所有动作/模型视觉通过，报告视觉及平台状态保持原意。详见 [CHECKPOINT_08_7.md](CHECKPOINT_08_7.md)。
+
+本阶段只保存本地提交，不推送或发布。性能测试画质切换后新增明确互动，解决程序化 selectOption 无用户输入事件、慢运行时仍等待 active 的前提问题；产品帧率策略不变。下一步仍优先更多独立角色连续动作视觉 QA 和实机矩阵，不用派生副本冒充第二独立角色。下面保留旧阶段历史，以本段最新包为准。
+
+## 0.8.6 保留记录
+
+2026-11-04 用户明确恢复工作，之前的会议暂停已经解除。当前源码已运行完整 `npm run verify:desktop` 并通过；新包 `release/v0.8.6-1793757299769/OiGptPet-win32-x64/OiGptPet.exe`，结果 `artifacts/release-smoke/run-1793757309012/result.json`。原模型 combined、左右眼副本 paired、无眨眼副本 none，以及切回恢复的四份报告均通过；布局/性能/聊天/角色库回归继续通过。生产代码仍为已通过 392 项单测的 4dea8b2，本轮只补验收记录。详见 [CHECKPOINT_08_6.md](CHECKPOINT_08_6.md)。
+
+本阶段保存本地检查点后停止，未推送或发布 0.8.6。上一阶段已发布的 0.8.5 Preview 指向 55e11ad。后续优先更多模型连续动作视觉 QA、真实 API 或物理设备验收；不要把通道和结构检查当作完整视觉/目标平台验收。需要用户验证前仍按约定重新 verify:desktop、提供当前包和对应提交。
+
+## 此前暂停记录（已由本次用户指令恢复）
+
+2026-11-04 用户要开会，明确要求暂时停止测试以降低电脑负载。已中止本轮 verify:desktop，并确认本次测试 EXE 无剩余进程。不要自动恢复测试或启动打包；等用户继续指令。按约定保存本地 WIP 提交，不推送、不发布。
+
+本轮已实现：优先通用 blink，缺少时完整 blinkLeft/blinkRight 成对同步；单侧不自动眨眼。实时与导出共用渲染路径，未用通道清零，报告新增可选 blinkMode，面板兼容旧报告。33 个文件、392 项单元测试已通过。第一次单测的参数化输入已修正。
+
+当前包 `release/v0.8.6-1793754859607/OiGptPet-win32-x64/OiGptPet.exe` 尚未完成本轮 EXE 验收，不能作为已通过包交付。当前尝试产物 `artifacts/release-smoke/run-1793754864221/`；更早 `run-1793754784459` 在测试工坊被隐藏、无法取得采样时失败，已修改测试等待：需要双窗口数据时先恢复被隐藏的测试窗口。恢复后从当前源码重新运行 verify:desktop，继续原模型/成对眨眼副本/无眨眼副本与报告切回检查，成功后补检查点与提交对应关系。
+
+上一阶段已发布 v0.8.5 Preview，标签提交 55e11ad501d102478a0252f9280521caf80e05d9；远端发布回执与 SHA-256 校验在 artifacts/github-release-v0.8.5/verification.json。0.8.6 尚未推送或发布。下面为旧阶段记录，以本段暂停状态为准。
+
+## 0.8.5 保留记录
 
 最新阶段：用户要求继续，随后指出右栏撑长页面、滚动到底左侧留空。本轮完成窗口内布局：桌面右栏独立滚动，左侧预览和动作保持原位，窄屏单列网页仍使用页面滚动。补齐每窗口绘制采样与诊断，并将原生 hide/show 同时用于隐藏暂停；不只依赖 document.hidden。具体范围见 [CHECKPOINT_08_5.md](CHECKPOINT_08_5.md)、[DESKTOP_DIAGNOSTICS.md](DESKTOP_DIAGNOSTICS.md)。
 

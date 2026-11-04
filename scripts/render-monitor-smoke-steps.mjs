@@ -25,12 +25,16 @@ export async function checkRenderMonitor(desktop, page, pet, output) {
     finally { await desktop.evaluate(({ dialog }) => { dialog.showSaveDialog = globalThis.__renderSaveDialog; delete globalThis.__renderSaveDialog; }); }
     return JSON.parse(await readFile(file, 'utf8'));
   }
-  async function diagnosticWhen(label, accepts) {
+  async function diagnosticWhen(label, accepts, requireBothVisible = false) {
     // Each window reports independently. A native show intentionally clears its
     // previous sample, so the workshop's ready HUD does not imply the pet is ready.
     for (let i = 0; i < 24; i++) {
       const report = await diagnostic(label);
       if (accepts(report)) return report;
+      if (requireBothVisible) {
+        if (!report.windows.find(win => win.role === 'workshop').visible) await page.evaluate(() => window.petDesktop.openWorkshop());
+        if (!report.windows.find(win => win.role === 'pet').visible) await page.evaluate(() => window.petDesktop.openPet());
+      }
       await page.waitForTimeout(250);
     }
     throw new Error('Fresh per-window render samples did not arrive');
@@ -38,7 +42,7 @@ export async function checkRenderMonitor(desktop, page, pet, output) {
   await assert.rejects(page.evaluate(() => window.petDesktop.reportRenderSample({ kind: 'malformed' })), /Invalid render sample/);
   await page.locator('#wave-button').click();
   const battery = await waitSample('active', 15);
-  const first = await diagnosticWhen('render-battery', report => report.windows.every(win => win.rendering?.status === 'available' && win.rendering.sample.durationSamples > 0));
+  const first = await diagnosticWhen('render-battery', report => report.windows.every(win => win.rendering?.status === 'available' && win.rendering.sample.durationSamples > 0), true);
   assert.equal(first.windows.find(win => win.role === 'workshop').rendering.status, 'available');
   assert.equal(first.windows.find(win => win.role === 'pet').rendering.status, 'available');
   for (const win of first.windows) {
@@ -48,6 +52,10 @@ export async function checkRenderMonitor(desktop, page, pet, output) {
     assert.ok(win.rendering.ageMs <= 10000);
   }
   await page.locator('#performance-mode').selectOption('quality');
+  // selectOption changes the setting without the pointer/key event a user
+  // generates, so explicitly interact before expecting the active cadence.
+  await page.evaluate(() => window.petDesktop.openWorkshop());
+  await page.locator('#wave-button').click();
   const quality = await waitSample('active', 60);
   await page.locator('#performance-mode').selectOption('battery');
   await page.locator('#wave-button').click();

@@ -3,6 +3,8 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRM, VRMLoaderPlugin } from '@pixiv/three-vrm';
 import { disposeVrmScene } from './dispose';
 import { inspectMotionCapabilities } from '../character-core/motion-capabilities';
+import { applyBlink } from '../character-core/blink';
+import { adaptFaceArms } from './arm-reach';
 import { sampleMotion, sampleLook } from '../character-core';
 import { inspectVrmFile, type ModelInfo } from '../character-core/vrm-file';
 import type { AnimationState } from '../target-chatgpt/contract';
@@ -16,6 +18,15 @@ export class VrmStage {
   private generation = 0;
   private disposed = false;
   private lookTarget = new THREE.Object3D();
+  private lastState?: AnimationState;
+  private poseTransition?: {
+    elapsed: number;
+    bones: Array<{ node: THREE.Object3D; from: THREE.Quaternion; to: THREE.Quaternion }>;
+    rootPosition: THREE.Vector3;
+    rootQuaternion: THREE.Quaternion;
+    lookPosition: THREE.Vector3;
+    expressions: Array<{ name: string; from: number }>;
+  };
 
   constructor(readonly canvas: HTMLCanvasElement, preserveDrawingBuffer = false) {
     this.renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, preserveDrawingBuffer });
@@ -52,6 +63,8 @@ export class VrmStage {
     }
     this.releaseModel();
     this.vrm = candidate;
+    this.lastState = undefined;
+    this.poseTransition = undefined;
     candidate.scene.position.set(0, 0, 0);
     candidate.scene.rotation.set(0, 0, 0);
     this.root.add(candidate.scene);
@@ -112,9 +125,10 @@ export class VrmStage {
     rotate('head', look?.pitch ?? p.headPitch, look?.yaw ?? p.headYaw, p.headRoll);
     this.root.position.y = p.rootY;
     this.root.rotation.y = p.rootYaw;
+    adaptFaceArms(name => vrm.humanoid.getNormalizedBoneNode(name), state);
     const expressions = vrm.expressionManager;
-    for (const name of ['blink', 'happy', 'sad', 'relaxed']) expressions?.setValue(name, 0);
-    expressions?.setValue('blink', p.blink);
+    for (const name of ['happy', 'sad', 'relaxed']) expressions?.setValue(name, 0);
+    applyBlink(expressions ?? undefined, p.blink);
     expressions?.setValue('happy', p.happy);
     expressions?.setValue('sad', p.sad);
     if (look) this.lookTarget.position.set(Math.sin(look.yaw) * 3, 1.65 - Math.sin(look.pitch) * 3, 4);
@@ -122,7 +136,44 @@ export class VrmStage {
   }
 
   render(state: AnimationState, phase: number, delta: number, look?: { yaw: number; pitch: number }) {
+    if (this.lastState !== undefined && this.lastState !== state && this.vrm) {
+      const nodes = new Set(Object.values(this.vrm.humanoid.normalizedHumanBones).map(bone => bone.node));
+      const bones = [...nodes].map(node => ({ node, from: node.quaternion.clone(), to: new THREE.Quaternion() }));
+      const expressions = ['blink', 'blinkLeft', 'blinkRight', 'happy', 'sad', 'relaxed']
+        .map(name => ({ name, from: this.vrm!.expressionManager?.getValue(name) }))
+        .filter((entry): entry is { name: string; from: number } => entry.from !== null && entry.from !== undefined);
+      this.poseTransition = {
+        elapsed: 0,
+        bones,
+        rootPosition: this.root.position.clone(),
+        rootQuaternion: this.root.quaternion.clone(),
+        lookPosition: this.lookTarget.position.clone(),
+        expressions,
+      };
+    }
+    this.lastState = state;
     this.applyPose(state, phase, look);
+    if (this.poseTransition) {
+      const transition = this.poseTransition;
+      transition.elapsed += Math.min(Math.max(delta, 0), 1 / 15);
+      const progress = Math.min(1, transition.elapsed / 0.2);
+      const eased = progress * progress * (3 - 2 * progress);
+      for (const bone of transition.bones) {
+        bone.to.copy(bone.node.quaternion);
+        bone.node.quaternion.slerpQuaternions(bone.from, bone.to, eased);
+      }
+      this.root.position.lerpVectors(transition.rootPosition, this.root.position, eased);
+      this.root.quaternion.slerpQuaternions(transition.rootQuaternion, this.root.quaternion, eased);
+      this.lookTarget.position.lerpVectors(transition.lookPosition, this.lookTarget.position, eased);
+      const expressions = this.vrm?.expressionManager;
+      for (const expression of transition.expressions) {
+        const target = expressions?.getValue(expression.name);
+        if (target !== null && target !== undefined) {
+          expressions?.setValue(expression.name, THREE.MathUtils.lerp(expression.from, target, eased));
+        }
+      }
+      if (progress >= 1) this.poseTransition = undefined;
+    }
     this.vrm?.update(Math.min(Math.max(delta, 0), 1 / 15));
     this.renderer.render(this.scene, this.camera);
   }
@@ -161,6 +212,8 @@ export class VrmStage {
   get loaded() { return Boolean(this.vrm); }
   private releaseModel() {
     if (this.vrm) {
+      this.lastState = undefined;
+      this.poseTransition = undefined;
       this.root.remove(this.vrm.scene);
       disposeVrmScene(this.vrm.scene);
       this.vrm = undefined;

@@ -4,14 +4,19 @@ import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 // Keep the original binary chunk and buffers; only remove optional mappings.
-function limitedModel(bytes) {
+function limitedModel(bytes, paired = false) {
   const length = bytes.readUInt32LE(12);
   const doc = JSON.parse(bytes.subarray(20, 20 + length).toString('utf8').trim());
   const vrm = doc.extensions.VRMC_vrm;
-  vrm.meta.name = '适配检查缺少可选能力';
-  delete vrm.humanoid.humanBones.chest; delete vrm.humanoid.humanBones.neck;
-  for (const name of ['blink', 'happy', 'sad']) if (vrm.expressions?.preset) delete vrm.expressions.preset[name];
-  delete vrm.lookAt;
+  vrm.meta.name = paired ? '左右眼眨眼适配检查' : '适配检查缺少可选能力';
+  if (paired) {
+    assert.ok(vrm.expressions.preset.blinkLeft && vrm.expressions.preset.blinkRight);
+    delete vrm.expressions.preset.blink;
+  } else {
+    delete vrm.humanoid.humanBones.chest; delete vrm.humanoid.humanBones.neck;
+    for (const name of ['blink', 'blinkLeft', 'blinkRight', 'happy', 'sad']) if (vrm.expressions?.preset) delete vrm.expressions.preset[name];
+    delete vrm.lookAt;
+  }
   const json = Buffer.from(JSON.stringify(doc));
   const padded = Buffer.alloc(Math.ceil(json.length / 4) * 4, 32); json.copy(padded);
   const result = Buffer.concat([bytes.subarray(0, 20), padded, bytes.subarray(20 + length)]);
@@ -51,11 +56,32 @@ export async function checkMotionCapabilities(desktop, page, root, output) {
     assert.equal(report.modelCapabilities.visualReview, 'not-reviewed');
     assert.equal(report.platformPreflight.status, 'not-run'); assert.equal(report.platformInstallation.status, 'not-run');
     assert.equal(report.localInspection.valid, true);
+    if (['original-capabilities', 'paired-blink'].includes(label)) {
+      const image = path.join(output, label + '.png');
+      await desktop.evaluate(({ dialog }, filePath) => {
+        globalThis.__blinkImageDialog = dialog.showSaveDialog;
+        dialog.showSaveDialog = async () => ({ canceled: false, filePath });
+      }, image);
+      try {
+        await page.locator('#save-atlas').click();
+        await page.waitForFunction(file => document.querySelector('#status').textContent.includes(file), image);
+      } finally {
+        await desktop.evaluate(({ dialog }) => { dialog.showSaveDialog = globalThis.__blinkImageDialog; delete globalThis.__blinkImageDialog; });
+      }
+      assert.equal(createHash('sha256').update(await readFile(image)).digest('hex'), report.file.sha256);
+    }
     await page.locator('#close-export').click();
     return report;
   }
   const baseline = await saveReport('original-capabilities');
   const source = await readFile(path.join(root, 'public/models/demo.vrm'));
+  const pairedPath = path.join(output, 'paired-blink.vrm');
+  await writeFile(pairedPath, limitedModel(source, true));
+  await page.locator('#model-file').setInputFiles(pairedPath); await ready({ name: '左右眼眨眼适配检查' });
+  assert.match(await page.locator('#motion-capability-rows').textContent(), /左右眼独立表情同步眨眼/);
+  const paired = await saveReport('paired-blink');
+  assert.equal(paired.modelCapabilities.blinkMode, 'paired');
+  assert.deepEqual(paired.modelCapabilities.expressions.missing, ['blink']);
   const variant = limitedModel(source);
   const variantPath = path.join(output, 'limited-capabilities.vrm'); await writeFile(variantPath, variant);
   await page.locator('#model-file').setInputFiles(variantPath); await ready({ name: '适配检查缺少可选能力' });
@@ -68,6 +94,7 @@ export async function checkMotionCapabilities(desktop, page, root, output) {
   assert.deepEqual(limited.modelCapabilities.bones.missing, ['chest', 'neck']);
   assert.deepEqual(limited.modelCapabilities.expressions.missing, ['blink', 'happy', 'sad']);
   assert.equal(limited.modelCapabilities.lookAtController, false);
+  assert.equal(limited.modelCapabilities.blinkMode, 'none');
   const before = await page.locator('#motion-capability-rows').textContent();
   await page.locator('#model-file').setInputFiles({ name: 'invalid.vrm', mimeType: 'application/octet-stream', buffer: Buffer.from('invalid') });
   await page.waitForFunction(() => document.querySelector('#status').textContent.includes('已保留原角色'));
@@ -83,5 +110,5 @@ export async function checkMotionCapabilities(desktop, page, root, output) {
     const value = document.querySelector('#render-performance').dataset;
     return value.kind === 'vrm' && value.fps !== '' && Number(value.fps) > 0;
   }, undefined, { timeout: 15000, polling: 100 });
-  return { original: baseline.modelCapabilities, limited: limited.modelCapabilities, restored: true, failedImportPreserved: true, spriteCleared: true, sourceSha256: createHash('sha256').update(source).digest('hex'), variantSha256: createHash('sha256').update(variant).digest('hex') };
+  return { original: baseline.modelCapabilities, paired: paired.modelCapabilities, limited: limited.modelCapabilities, restored: true, failedImportPreserved: true, spriteCleared: true, sourceSha256: createHash('sha256').update(source).digest('hex'), variantSha256: createHash('sha256').update(variant).digest('hex') };
 }
