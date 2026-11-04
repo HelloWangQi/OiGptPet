@@ -1,8 +1,10 @@
-# 接续 0.9.0 VRM 动作过渡
+# 接续 0.9.0 正式版发布
 
-2026-11-04。为 VRM 实时预览/桌宠动作状态切换增加 200 ms 平滑过渡，覆盖当前模型的归一化骨骼、表情、视线目标及角色根节点变换。快速连续切换会从当前过渡中的画面重新开始。精灵图播放和导出采样不变。
+2026-11-04。v0.9.0 已在 GitHub 作为正式版发布，源码提交 `d3b637daac9a8f395f229f711e25d6d43c8b4d29`。v0.6.0、v0.8.0、v0.8.5 的 `prerelease` 标记已关闭，名称已去除 Preview，原附件保留。发布页：[OiGptPet v0.9.0](https://github.com/HelloWangQi/OiGptPet/releases/tag/v0.9.0)。
 
-`npm run build` 通过（TypeScript 与 Vite）；没有运行单元测试或 `verify:desktop`，尚无新 EXE，也没有视觉/连续播放验收。源码检查点已保存为本地提交；后续应先验证动作切换、角色重新加载、暂停恢复和多个 VRM，再决定是否调整过渡时长。
+34 个测试文件、408 项单测通过；`npm run verify:desktop` 打包与 Windows EXE 冒烟通过，结果 `artifacts/release-smoke/run-1793762162495/result.json`。用户验证包为 [OiGptPet.exe](E:/GitWorkSpace/OiGptPet/release/v0.9.0-1793762152485/OiGptPet-win32-x64/OiGptPet.exe)，对应提交 `d3b637d`。ZIP 与校验文件哈希记录在 `artifacts/github-release-v0.9.0/manifest.json`。动作状态过渡尚未做人工连续播放视觉验收。
+
+下一阶段可先在目标电脑体验待机↔挥手、工作↔失落、左右奔跑切换和暂停恢复，再确认 200 ms 时长是否合适。桌面用户验证前仍从当时源码重新运行 `npm run verify:desktop` 并提供新 EXE 与对应提交。
 
 ## 0.8.9 托腮姿态调整记录
 
