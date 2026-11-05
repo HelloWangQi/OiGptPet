@@ -1,5 +1,6 @@
 import { CHAT_READINESS_TEXT, chatSettingsIssue } from './chat-readiness';
 import { ChatSpeech } from './chat-speech';
+import { ChatVoiceInput } from './chat-voice-input';
 import { estimateSpeechMouthOpen } from './speech-mouth';
 type Desktop = NonNullable<Window['petDesktop']>;
 export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (state: CompanionChatState) => void, onSpeechMouthOpen: (amount: number) => void = () => {}) {
@@ -27,6 +28,8 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
   const clear = $<HTMLButtonElement>('chat-clear'); const status = $('chat-status'); const log = $('chat-log');
   const check = $<HTMLButtonElement>('chat-check'); const checkStatus = $('chat-check-status');
   const readAloud = $<HTMLButtonElement>('chat-read-aloud');
+  const voiceButton = $<HTMLButtonElement>('chat-voice-input');
+  const voiceStatus = $('chat-voice-status');
   const settingsPanel = document.querySelector<HTMLDetailsElement>('.chat-panel details')!;
   let savedModel = '';
   let busy = false; let saving = false; let initializing = true; let configured = false; let ready = false; let revision = 0;
@@ -38,18 +41,31 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
   const speech = new ChatSpeech(speechRuntime, undefined, () => controls(), event => {
     onSpeechMouthOpen(estimateSpeechMouthOpen(latestReply, event.charIndex, event.charLength));
   });
+  const voiceInput = new ChatVoiceInput(() => input.value, text => { input.value = text; }, (state, message) => {
+    input.readOnly = state === 'listening';
+    voiceButton.textContent = state === 'listening' ? '停止听写' : '语音输入';
+    voiceButton.dataset.listening = String(state === 'listening');
+    voiceButton.setAttribute('aria-pressed', String(state === 'listening'));
+    voiceStatus.textContent = message;
+    controls();
+  });
+  voiceStatus.textContent = voiceInput.available
+    ? '识别结果只写入输入框，不会自动发送；联网与数据处理由系统语音服务决定。'
+    : '此运行环境不支持语音识别。';
+  voiceButton.title = voiceInput.available ? '开始或停止语音听写' : '当前运行环境不支持语音识别';
   const append = (role: string, text: string) => {
     const row = document.createElement('p'); row.textContent = `${role}：${text}`; log.append(row);
     while (log.children.length > 12) log.firstElementChild?.remove();
     log.scrollTop = log.scrollHeight; return row;
   };
   const controls = () => {
-    send.disabled = busy || initializing || !configured || !ready;
+    send.disabled = busy || initializing || !configured || !ready || voiceInput.listening;
     save.disabled = forget.disabled = model.disabled = key.disabled = check.disabled = busy || initializing;
     clear.disabled = saving || initializing; cancel.hidden = !busy || saving;
     retry.hidden = !failed; retry.disabled = busy || initializing || !configured || !ready;
     readAloud.textContent = speech.speaking ? '停止朗读' : '朗读最新回复';
     readAloud.disabled = initializing || (!speech.speaking && (busy || !latestReply || !speech.available));
+    voiceButton.disabled = initializing || (busy && !voiceInput.listening) || (!voiceInput.available && !voiceInput.listening);
   };
   const configure = (value: { model: string; hasKey: boolean; encryptionAvailable: boolean }) => {
     model.value = value.model; key.value = ''; configured = Boolean(value.model && value.hasKey && value.encryptionAvailable);
@@ -86,6 +102,8 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
     else if (value.status === 'cancelled') fail('已取消，可修改原消息或重试。', 'cancelled');
   };
   receive = value => { if (ready && !initializing) apply(value); };
+  const onVisibilityChange = () => { if (document.hidden) voiceInput.abort(); };
+  document.addEventListener('visibilitychange', onVisibilityChange);
   const hydrate = (value: CompanionChatSnapshot) => {
     ++revision; log.replaceChildren(); pending = undefined; failed = undefined; busy = false;
     speech.stop();
@@ -119,6 +137,7 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
   })();
   const saveSettings = async (forgetKey = false) => {
     if (busy || initializing) return;
+    voiceInput.abort();
     const issue = forgetKey ? null : chatSettingsIssue(model.value, key.value);
     if (issue) { status.textContent = issue; settingsPanel.open = true; return; }
     busy = true; saving = true; controls(); checkStatus.textContent = '';
@@ -134,6 +153,7 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
     if (speech.speaking) { speech.stop(); return; }
     if (!speech.speak(latestReply, navigator.language || 'zh-CN')) status.textContent = '系统语音不可用，无法朗读。';
   };
+  voiceButton.onclick = () => voiceInput.toggle();
   check.onclick = async () => {
     if (busy || initializing) return;
     if (model.value.trim() !== savedModel || key.value) { checkStatus.textContent = '请先保存更改，再检查已保存的配置。'; return; }
@@ -148,6 +168,7 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
   };
   const submit = async (text: string, previous?: HTMLElement) => {
     if (busy || initializing || !configured || !ready || !text.trim()) return;
+    if (voiceInput.listening) { voiceInput.stop(); return; }
     speech.stop();
     const run = ++revision; const requestId = crypto.randomUUID();
     if (previous && failed?.partial) failed.partial.remove();
@@ -170,8 +191,9 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
   cancel.onclick = () => { void api.cancelChat().catch(() => { if (!closed) status.textContent = '取消失败，请重试。'; }); };
   clear.onclick = async () => {
     if (saving || initializing) return;
+    voiceInput.abort();
     try { await api.clearChat(); if (!closed) { speech.stop(); latestReply = ''; ++revision; busy = false; pending = undefined; failed = undefined; ready = true; log.replaceChildren(); controls(); status.textContent = '本次对话已清空。'; } }
     catch { if (!closed) status.textContent = '清空失败，请重试。'; }
   };
-  return { dispose() { speech.dispose(); ++revision; dispose(); }, async refresh() {} };
+  return { dispose() { voiceInput.dispose(); document.removeEventListener('visibilitychange', onVisibilityChange); speech.dispose(); ++revision; dispose(); }, async refresh() {} };
 }

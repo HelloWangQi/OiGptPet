@@ -34,6 +34,8 @@
 #chat-log [data-reply-state="partial"]::after { content:'（生成中…）'; color:#777; }
 #chat-log [data-reply-state="incomplete"]::after { content:'（未完成，未加入上下文）'; color:#a34f38; }
 #chat-form .button { display:inline-flex; margin:8px 10px 0 0; background:#dfe6d7; }
+#chat-form .voice-note { display:inline; margin:0 6px; line-height:1.5; }
+#chat-voice-input[data-listening="true"] { color:#a34f38; font-weight:600; }
 #pet-message { max-height:145px; overflow:auto; overflow-wrap:anywhere; white-space:pre-wrap; }
 
 /* Desktop workshop: settings scroll within the viewport beside the preview. */

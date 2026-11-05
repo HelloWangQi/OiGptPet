@@ -75,6 +75,14 @@ function secureWindow(options) {
   return win;
 }
 
+function isTrustedUiUrl(value) {
+  try {
+    const url = new URL(value);
+    return (url.protocol === 'oipet:' && url.hostname === 'app')
+      || (url.protocol === 'http:' && url.hostname === '127.0.0.1' && url.port === '5173');
+  } catch { return false; }
+}
+
 async function loadView(win, mode) {
   if (process.env.OIGPTPET_DEV_URL === 'http://127.0.0.1:5173') await win.loadURL(`${process.env.OIGPTPET_DEV_URL}/?mode=${mode}`);
   else await win.loadURL(`oipet://app/index.html?mode=${mode}`);
@@ -236,8 +244,17 @@ else {
     try { await chat.load(); } catch { console.warn('Chat settings could not be loaded; save them again in the workshop.'); }
     try { savedBounds = await windowState.load(); } catch (error) { console.error('Window position could not be read:', error.message); }
     try { const bytes = await fs.readFile(modelPath()); if (bytes.length <= 64 * 1024 * 1024) modelBytes = bytes; } catch { /* No imported model yet. */ }
-    session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
-    session.defaultSession.setPermissionCheckHandler(() => false);
+    session.defaultSession.setPermissionRequestHandler((wc, permission, callback, details) => {
+      const mediaTypes = details?.mediaTypes ?? [];
+      const microphoneOnly = mediaTypes.includes('audio') && !mediaTypes.includes('video');
+      const trustedWorkshop = wc === workshop?.webContents && workshop.isVisible()
+        && isTrustedUiUrl(wc.getURL()) && isTrustedUiUrl(details?.requestingUrl ?? wc.getURL());
+      callback(permission === 'media' && microphoneOnly && trustedWorkshop);
+    });
+    session.defaultSession.setPermissionCheckHandler((wc, permission, origin) => {
+      return permission === 'media' && wc === workshop?.webContents && Boolean(workshop?.isVisible())
+        && isTrustedUiUrl(wc.getURL()) && isTrustedUiUrl(origin);
+    });
     handlers();
     tray = new Tray(makeTrayIcon());
     tray.setToolTip('OiGptPet · Ctrl+Alt+P 恢复互动');

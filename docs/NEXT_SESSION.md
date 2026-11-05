@@ -1,6 +1,8 @@
-# 接续 0.9.1 回复朗读
+# 接续 0.9.1 语音交互
 
-本轮在 0.9.1 源码上继续接入朗读口型：工坊与独立桌宠的系统语音边界事件都会尝试驱动 VRM `aa` 表情，渲染侧平滑开合，精灵图忽略该信号；能力面板显示模型是否有 `aa`。`SpeechSynthesis` 没有暴露真实音频振幅或音素，因此这是文字边界估算，不是音量同步。`npm run build` 通过，已保存本地阶段检查点；本轮未运行测试套件，也未生成 EXE。用户进行桌面验证前按仓库约定从当前源码运行 `npm run verify:desktop`。
+上一个检查点 `33efad2` 接入了按语音文字边界估算的 VRM `aa` 口型。之后新增工坊手动语音听写：只写入聊天草稿，用户检查并点击发送才会请求模型；听写停止、隐藏工坊、清空或保存设置会结束收音。Electron 只为可见本地工坊开放纯麦克风请求，桌宠、摄像头及其他权限仍拒绝。语音能力和识别服务行为需在目标 Windows 环境确认。
+
+当前工作区 `npm run build` 与 `node --check electron/main.cjs` 通过；本轮没有运行测试套件或生成 EXE。自动化回归和目标设备上的麦克风/语音服务体验尚未验收。用户进行桌面验证前按仓库约定从当前源码运行 `npm run verify:desktop` 并提供对应 EXE 与提交。语音听写使用的 Web Speech API 是否可用取决于 Electron/系统提供的实现。
 
 2026-11-04。v0.9.0 已在 GitHub 作为正式版发布，源码提交 `d3b637daac9a8f395f229f711e25d6d43c8b4d29`。v0.6.0、v0.8.0、v0.8.5 的 `prerelease` 标记已关闭，名称已去除 Preview，原附件保留。发布页：[OiGptPet v0.9.0](https://github.com/HelloWangQi/OiGptPet/releases/tag/v0.9.0)。
 

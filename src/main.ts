@@ -122,6 +122,8 @@ app.innerHTML = petMode ? `
           <p class="helper">手动使用系统语音朗读最新一条完整回复；不会自动播报。</p>
           <form id="chat-form"><label class="field-label" for="chat-input">想说的话</label><textarea id="chat-input" maxlength="2000" rows="3"></textarea>
             <p class="helper">Ctrl / ⌘ + Enter 发送，Enter 换行。</p>
+            <button id="chat-voice-input" class="text-button" type="button" aria-pressed="false">语音输入</button>
+            <span id="chat-voice-status" class="helper voice-note" role="status" aria-live="polite"></span><br />
             <button id="chat-send" class="button" type="submit">发送</button><button id="chat-cancel" class="text-button" type="button" hidden>取消请求</button><button id="chat-retry" class="text-button" type="button" hidden>重试上一条</button><button id="chat-clear" class="text-button" type="button">清空对话</button></form>
           <p class="helper" id="chat-status" role="status">请先配置对话设置。</p>
           <p class="helper">本次对话保留到应用退出。关闭工坊会取消未完成请求；未发送草稿不保留。</p>
