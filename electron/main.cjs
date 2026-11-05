@@ -83,6 +83,11 @@ function isTrustedUiUrl(value) {
   } catch { return false; }
 }
 
+function isActiveVoiceWindow(wc, requestingUrl) {
+  return [workshop, pet].some(win => win && !win.isDestroyed() && win.isVisible() && win.webContents === wc
+    && isTrustedUiUrl(wc.getURL()) && isTrustedUiUrl(requestingUrl ?? wc.getURL()));
+}
+
 async function loadView(win, mode) {
   if (process.env.OIGPTPET_DEV_URL === 'http://127.0.0.1:5173') await win.loadURL(`${process.env.OIGPTPET_DEV_URL}/?mode=${mode}`);
   else await win.loadURL(`oipet://app/index.html?mode=${mode}`);
@@ -144,12 +149,17 @@ function handlers() {
   ipcMain.handle('window:visibility-get', event => trusted(event).isVisible());
   ipcMain.handle('render:metrics', (event, value) => { const owner = trusted(event); renderMetrics.update(owner.webContents.id, value); });
   const chatOwner = event => { if (trusted(event) !== workshop) throw new Error('Only the workshop can control chat'); };
+  const petChatOwner = event => {
+    const owner = trusted(event);
+    if (owner !== pet || !owner.isVisible() || !isTrustedUiUrl(owner.webContents.getURL())) throw new Error('Only the visible pet can send a pet message');
+  };
   ipcMain.handle('chat:get', event => { chatOwner(event); return chat.get(); });
   ipcMain.handle('chat:check', event => { chatOwner(event); return chat.check(); });
   ipcMain.handle('chat:snapshot', event => { chatOwner(event); return chat.snapshot(); });
   ipcMain.handle('chat:state-get', event => { trusted(event); return chat.getState(); });
   ipcMain.handle('chat:save', (event, value) => { chatOwner(event); return chat.save(value); });
   ipcMain.handle('chat:send', (event, text, requestId) => { chatOwner(event); return chat.send(text, requestId); });
+  ipcMain.handle('chat:send-pet', (event, text, requestId) => { petChatOwner(event); return chat.send(text, requestId); });
   ipcMain.handle('chat:cancel', event => { chatOwner(event); chat.cancel(); });
   ipcMain.handle('chat:clear', event => { chatOwner(event); chat.clear(); });
   const saveDiagnostics = createDiagnosticsExporter({
@@ -247,13 +257,10 @@ else {
     session.defaultSession.setPermissionRequestHandler((wc, permission, callback, details) => {
       const mediaTypes = details?.mediaTypes ?? [];
       const microphoneOnly = mediaTypes.includes('audio') && !mediaTypes.includes('video');
-      const trustedWorkshop = wc === workshop?.webContents && workshop.isVisible()
-        && isTrustedUiUrl(wc.getURL()) && isTrustedUiUrl(details?.requestingUrl ?? wc.getURL());
-      callback(permission === 'media' && microphoneOnly && trustedWorkshop);
+      callback(permission === 'media' && microphoneOnly && isActiveVoiceWindow(wc, details?.requestingUrl));
     });
     session.defaultSession.setPermissionCheckHandler((wc, permission, origin) => {
-      return permission === 'media' && wc === workshop?.webContents && Boolean(workshop?.isVisible())
-        && isTrustedUiUrl(wc.getURL()) && isTrustedUiUrl(origin);
+      return permission === 'media' && isActiveVoiceWindow(wc, origin);
     });
     handlers();
     tray = new Tray(makeTrayIcon());

@@ -51,3 +51,6 @@
   .detail-column { height:100%; min-height:0; overflow-y:auto; overflow-x:hidden; overscroll-behavior:contain; scrollbar-gutter:stable; padding-right:10px; padding-bottom:16px; }
   .detail-column:focus-visible { outline:2px solid #96b1df; outline-offset:2px; }
 }
+
+#pet-voice-input[data-listening="true"] { color:#a34f38; font-weight:600; }
+#pet-voice-send { background:#dfe6d7!important; font-weight:600; }

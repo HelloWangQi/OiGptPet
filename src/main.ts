@@ -38,6 +38,8 @@ app.innerHTML = petMode ? `
     <div id="pet-message" role="status"></div>
     <div id="pet-controls" data-interactive>
       <button id="workshop-button" title="角色工坊">工坊</button>
+      <button id="pet-voice-input" title="语音识别由系统服务提供，联网与处理方式由服务决定；检查转写后手动发送" aria-pressed="false">听写</button>
+      <button id="pet-voice-send" title="把转写文字发送给伙伴" hidden>发送</button>
       <button id="pet-wave" title="挥手">挥手</button>
       <button id="pet-read-aloud" title="朗读最新完整回复" hidden>朗读</button>
       <button id="click-through" title="Ctrl+Alt+P 或托盘恢复互动">穿透</button>
@@ -750,7 +752,10 @@ async function bootstrap() {
 }
 
 if (petMode) {
-  $('#workshop-button').onclick = () => void desktop!.openWorkshop();
+  $('#workshop-button').onclick = () => {
+    window.dispatchEvent(new Event('pet:open-workshop'));
+    void desktop!.openWorkshop();
+  };
   $('#hide-pet').onclick = () => void desktop!.hidePet();
   $('#pet-read-aloud').onclick = () => {
     if (petSpeech?.speaking) { petSpeech.stop(); return; }

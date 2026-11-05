@@ -13,13 +13,82 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
     lastSequence = value.sequence; latest = value; receive(value);
   });
   const dispose = () => { closed = true; unsubscribe(); };
-  if (petMode) return { dispose, async refresh() {
-    try {
-      const value = await api.getChatState(); if (closed) return;
-      if (value.sequence >= lastSequence) { lastSequence = value.sequence; latest = value; onState(value); }
-      else if (latest) onState(latest);
-    } catch { /* Existing rendering remains usable if a snapshot cannot be read. */ }
-  } };
+  if (petMode) {
+    const voiceButton = document.getElementById('pet-voice-input') as HTMLButtonElement;
+    const sendButton = document.getElementById('pet-voice-send') as HTMLButtonElement;
+    const message = document.getElementById('pet-message')!;
+    let draft = '';
+    let sending = false;
+    let stateReady = false;
+    const chatBusy = () => latest?.status === 'thinking' || latest?.status === 'streaming';
+    let voiceInput!: ChatVoiceInput;
+    const controls = () => {
+      const busy = chatBusy();
+      voiceButton.disabled = !stateReady || !voiceInput.available || busy || sending;
+      voiceButton.textContent = voiceInput.listening ? '停止' : draft.trim() ? '重录' : '听写';
+      voiceButton.dataset.listening = String(voiceInput.listening);
+      voiceButton.setAttribute('aria-pressed', String(voiceInput.listening));
+      sendButton.hidden = !draft.trim() || voiceInput.listening;
+      sendButton.disabled = busy || sending;
+    };
+    voiceInput = new ChatVoiceInput(() => draft, text => {
+      draft = text;
+      if (text.trim()) message.textContent = text;
+      controls();
+    }, (state, text) => {
+      if (state === 'listening') message.textContent = text;
+      else if (draft.trim()) message.textContent = draft;
+      else if (state === 'error' || state === 'unsupported') message.textContent = text;
+      controls();
+    });
+    voiceButton.title = voiceInput.available
+      ? '语音识别由系统服务提供，联网与处理方式由服务决定；检查转写后点击发送'
+      : '当前环境不支持语音识别';
+    const onVisibilityChange = () => { if (document.hidden) voiceInput.abort(); };
+    const onWorkshopOpen = () => voiceInput.abort();
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('pet:open-workshop', onWorkshopOpen);
+    receive = value => {
+      if (closed) return;
+      if (value.status === 'cleared') { draft = ''; voiceInput.abort(); }
+      if (chatBusy() && voiceInput.listening) voiceInput.abort();
+      onState(value);
+      if (draft.trim() && !sending) message.textContent = draft;
+      controls();
+    };
+    voiceButton.onclick = () => {
+      if (voiceInput.listening) { voiceInput.stop(); return; }
+      if (draft) { draft = ''; message.textContent = ''; }
+      voiceInput.toggle();
+    };
+    sendButton.onclick = async () => {
+      const text = draft.trim();
+      if (!text || sending || chatBusy() || voiceInput.listening) return;
+      sending = true; draft = ''; voiceInput.abort(); controls(); message.textContent = '正在发送…';
+      try {
+        const result = await api.sendPetMessage(text, crypto.randomUUID());
+        if (result.error || result.cancelled) {
+          draft = text;
+          message.textContent = result.cancelled ? `已停止；草稿已保留：${text}` : `请求未完成；草稿已保留：${text}`;
+        }
+      } catch {
+        draft = text;
+        message.textContent = '发送失败或尚未配置对话；草稿已保留，请在工坊检查设置。';
+      } finally { sending = false; controls(); }
+    };
+    controls();
+    return { dispose() {
+      voiceInput.dispose(); document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('pet:open-workshop', onWorkshopOpen); dispose();
+    }, async refresh() {
+      try {
+        const value = await api.getChatState(); if (closed) return;
+        if (value.sequence >= lastSequence) { lastSequence = value.sequence; latest = value; onState(value); }
+        else if (latest) onState(latest);
+        stateReady = true; controls();
+      } catch { stateReady = true; controls(); /* Existing rendering remains usable if a snapshot cannot be read. */ }
+    } };
+  }
   const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
   const model = $<HTMLInputElement>('chat-model'); const key = $<HTMLInputElement>('chat-key');
   const input = $<HTMLTextAreaElement>('chat-input'); const send = $<HTMLButtonElement>('chat-send');
@@ -36,6 +105,7 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
   let latestReply = '';
   let failed: { text: string; row: HTMLElement; partial?: HTMLElement } | undefined;
   let pending: { run: number; requestId: string; text: string; row: HTMLElement; partial?: HTMLElement } | undefined;
+  let externalSync: Promise<void> | undefined;
   const speechRuntime = typeof window.speechSynthesis === 'undefined' || typeof SpeechSynthesisUtterance === 'undefined'
     ? undefined : window.speechSynthesis;
   const speech = new ChatSpeech(speechRuntime, undefined, () => controls(), event => {
@@ -101,7 +171,6 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
     else if (value.status === 'error') fail(value.text ?? '回复失败，可以重试。', 'failed');
     else if (value.status === 'cancelled') fail('已取消，可修改原消息或重试。', 'cancelled');
   };
-  receive = value => { if (ready && !initializing) apply(value); };
   const onVisibilityChange = () => { if (document.hidden) voiceInput.abort(); };
   document.addEventListener('visibilitychange', onVisibilityChange);
   const hydrate = (value: CompanionChatSnapshot) => {
@@ -123,6 +192,24 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
       else if (attempt.status === 'error') fail(attempt.error ?? '已恢复失败的消息，可以重试。', 'failed');
       else status.textContent = attempt.partial ? '正在回复…' : '正在思考…';
     }
+  };
+  const syncExternalChat = () => {
+    if (externalSync) return;
+    externalSync = (async () => {
+      try {
+        const snapshot = await api.getChatSnapshot();
+        if (closed || pending) return;
+        const newer = latest && latest.sequence > snapshot.sequence ? latest : undefined;
+        lastSequence = Math.max(lastSequence, snapshot.sequence); latest = snapshot.state;
+        hydrate(snapshot); ready = true; controls();
+        if (newer) { latest = newer; apply(newer); }
+      } catch { /* The current workshop conversation remains usable if sync fails. */ }
+    })().finally(() => { externalSync = undefined; });
+  };
+  receive = value => {
+    if (!ready || initializing) return;
+    if (pending) apply(value);
+    else if (value.requestId) syncExternalChat();
   };
   controls();
   void (async () => {
