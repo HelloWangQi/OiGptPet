@@ -60,6 +60,9 @@ export async function checkRenderMonitor(desktop, page, pet, output) {
   await page.locator('#performance-mode').selectOption('battery');
   await page.locator('#wave-button').click();
   await waitSample('active', 15);
+  // Leave the interaction area and wait beyond the product's 10-second idle threshold.
+  await page.mouse.move(1, 1);
+  await page.waitForTimeout(12000);
   const idle = await waitSample('idle', 5);
   const idleDiagnostic = await diagnostic('render-idle');
   const idleWindow = idleDiagnostic.windows.find(win => win.role === 'workshop');
