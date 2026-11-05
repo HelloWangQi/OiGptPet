@@ -74,8 +74,7 @@ export async function checkChatRestore(desktop, page, pet, errors) {
     await page.locator('#chat-clear').click(); await page.reload(); await waitReady(page);
     assert.equal(await page.locator('#chat-log p').count(), 0);
     assert.equal((await page.evaluate(() => window.petDesktop.getChatSnapshot())).attempt, null);
-    // Reloading the workshop resets renderer globals, so reinstall the mock service
-    // before checking that a new request works after clearing persisted history.
+    // Reinstall the main-process mock before checking a fresh request after reload.
     await desktop.evaluate(() => { globalThis.fetch = async () => new Response(JSON.stringify({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: '退出后未恢复旧消息' }] }] })); });
     await page.locator('#chat-input').fill('退出后不应恢复'); await page.locator('#chat-send').click();
     try { await page.waitForFunction(() => document.querySelector('#chat-status').textContent.includes('回复完成')); }
@@ -87,6 +86,16 @@ export async function checkChatRestore(desktop, page, pet, errors) {
       console.error('Chat restore final-send diagnostic:', state);
       throw error;
     }
+    assert.match(await page.locator('#chat-log').textContent(), /退出后未恢复旧消息/);
+    const completed = await page.evaluate(() => window.petDesktop.getChatSnapshot());
+    await desktop.evaluate(({ BrowserWindow }, snapshot) => {
+      for (const win of BrowserWindow.getAllWindows()) win.webContents.send('chat:state', {
+        ...snapshot.state, sequence: snapshot.sequence + 1,
+      });
+    }, completed);
+    await page.waitForTimeout(100);
+    assert.equal(await page.locator('#chat-status').textContent(), '回复完成。', 'A late state event for a completed local request must not replace its status');
+    assert.equal(await page.locator('#chat-log p').count(), 2, 'A late state event must not rehydrate and duplicate a completed local turn');
     return { page, pet };
   } finally {
     await desktop.evaluate(() => { try { globalThis.__restoreStream?.error(new Error('cleanup')); } catch {} delete globalThis.__restoreStream;

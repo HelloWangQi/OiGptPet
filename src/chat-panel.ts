@@ -7,6 +7,7 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
   const noop = { dispose() {}, async refresh() {} };
   if (!api) return noop;
   let closed = false; let lastSequence = -1; let latest: CompanionChatState | undefined;
+  const localRequests = new Set<string>();
   let receive = (value: CompanionChatState) => onState(value);
   const unsubscribe = api.onChatState(value => {
     if (closed || value.sequence <= lastSequence) return;
@@ -241,8 +242,9 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
     if (externalSync) return;
     externalSync = (async () => {
       try {
+        const syncRevision = revision;
         const snapshot = await api.getChatSnapshot();
-        if (closed || pending) return;
+        if (closed || pending || revision !== syncRevision) return;
         const newer = latest && latest.sequence > snapshot.sequence ? latest : undefined;
         lastSequence = Math.max(lastSequence, snapshot.sequence); latest = snapshot.state;
         hydrate(snapshot); ready = true; controls();
@@ -253,7 +255,7 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
   receive = value => {
     if (!ready || initializing) return;
     if (pending) apply(value);
-    else if (value.requestId) syncExternalChat();
+    else if (value.requestId && !localRequests.has(value.requestId)) syncExternalChat();
   };
   controls();
   void (async () => {
@@ -302,6 +304,8 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
     if (voiceInput.listening) { voiceInput.stop(); return; }
     speech.stop();
     const run = ++revision; const requestId = crypto.randomUUID();
+    localRequests.add(requestId);
+    if (localRequests.size > 32) localRequests.delete(localRequests.values().next().value!);
     if (previous && failed?.partial) failed.partial.remove();
     busy = true; failed = undefined;
     if (input.value === text) input.value = '';
