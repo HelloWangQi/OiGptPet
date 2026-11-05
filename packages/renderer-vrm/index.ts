@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { VRM, VRMLoaderPlugin } from '@pixiv/three-vrm';
+import { createVRMAnimationClip, VRMAnimationLoaderPlugin, VRMLookAtQuaternionProxy, type VRMAnimation } from '@pixiv/three-vrm-animation';
 import { disposeVrmScene } from './dispose';
 import { inspectMotionCapabilities } from '../character-core/motion-capabilities';
 import { applyBlink } from '../character-core/blink';
@@ -9,13 +10,20 @@ import { sampleMotion, sampleLook } from '../character-core';
 import { inspectVrmFile, type ModelInfo } from '../character-core/vrm-file';
 import type { AnimationState } from '../target-chatgpt/contract';
 
+export interface VrmMotionClipInfo { index: number; name: string; duration: number }
+
 export class VrmStage {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
   readonly camera = new THREE.OrthographicCamera(-1.4, 1.4, 2.45, -0.25, 0.1, 30);
   readonly root = new THREE.Group();
   private vrm?: VRM;
+  private lookAtProxy?: VRMLookAtQuaternionProxy;
   private generation = 0;
+  private motionGeneration = 0;
+  private motionMixer?: THREE.AnimationMixer;
+  private motionActions: THREE.AnimationAction[] = [];
+  private activeMotion?: number;
   private disposed = false;
   private lookTarget = new THREE.Object3D();
   private lastState?: AnimationState;
@@ -66,6 +74,11 @@ export class VrmStage {
     }
     this.releaseModel();
     this.vrm = candidate;
+    if (candidate.lookAt) {
+      this.lookAtProxy = new VRMLookAtQuaternionProxy(candidate.lookAt);
+      this.lookAtProxy.name = 'lookAtQuaternionProxy';
+      candidate.scene.add(this.lookAtProxy);
+    }
     this.lastState = undefined;
     this.lastStateRevision = undefined;
     this.poseTransition = undefined;
@@ -111,6 +124,72 @@ export class VrmStage {
 
   setSpeechMouthOpen(amount: number) {
     this.speechMouthTarget = THREE.MathUtils.clamp(Number.isFinite(amount) ? amount : 0, 0, 1);
+  }
+
+  async loadMotion(buffer: ArrayBuffer): Promise<VrmMotionClipInfo[]> {
+    const vrm = this.vrm;
+    if (!vrm) throw new Error('请先加载 VRM 角色。');
+    const generation = this.generation;
+    const motionGeneration = ++this.motionGeneration;
+    const manager = new THREE.LoadingManager();
+    manager.setURLModifier(url => {
+      if (!url.startsWith('blob:') && !url.startsWith('data:')) throw new Error('已阻止动作文件的外部资源请求。');
+      return url;
+    });
+    const loader = new GLTFLoader(manager);
+    loader.register(parser => new VRMAnimationLoaderPlugin(parser));
+    const gltf = await loader.parseAsync(buffer, '');
+    try {
+      const animations = gltf.userData.vrmAnimations as VRMAnimation[] | undefined;
+      if (!animations?.length) throw new Error('文件中没有受支持的 VRM Animation 动作。');
+      const clips = animations.map((animation, index) => {
+        const clip = createVRMAnimationClip(animation, vrm);
+        clip.name = gltf.animations[index]?.name?.trim() || `动作 ${index + 1}`;
+        return clip;
+      });
+      if (clips.some(clip => !Number.isFinite(clip.duration) || clip.duration <= 0 || clip.tracks.length === 0)) throw new Error('动作时长无效或没有可播放的骨骼、表情或视线轨道。');
+      if (this.disposed || this.vrm !== vrm || this.generation !== generation || this.motionGeneration !== motionGeneration) {
+        throw new DOMException('动作加载已取消。', 'AbortError');
+      }
+      const mixer = new THREE.AnimationMixer(vrm.scene);
+      const actions = clips.map(clip => mixer.clipAction(clip));
+      this.releaseMotion();
+      this.motionMixer = mixer;
+      this.motionActions = actions;
+      this.playMotion(0);
+      return clips.map((clip, index) => ({ index, name: clip.name.trim() || `动作 ${index + 1}`, duration: clip.duration }));
+    } finally {
+      disposeVrmScene(gltf.scene);
+    }
+  }
+
+  playMotion(index: number): void {
+    const action = this.motionActions[index];
+    if (!action) throw new RangeError('请选择有效的 VRM Animation 动作。');
+    this.motionMixer?.stopAllAction();
+    action.reset();
+    action.setLoop(THREE.LoopRepeat, Infinity);
+    action.play();
+    this.activeMotion = index;
+    this.poseTransition = undefined;
+    this.lastState = undefined;
+    this.lastStateRevision = undefined;
+  }
+
+  toggleMotion(): boolean {
+    if (this.activeMotion === undefined) return false;
+    const action = this.motionActions[this.activeMotion];
+    if (!action) return false;
+    action.paused = !action.paused;
+    return !action.paused;
+  }
+
+  clearMotion(): void {
+    ++this.motionGeneration;
+    this.releaseMotion();
+    this.poseTransition = undefined;
+    this.lastState = undefined;
+    this.lastStateRevision = undefined;
   }
 
   private applyPose(state: AnimationState, phase: number, look?: { yaw: number; pitch: number }, mouthOpen = 0) {
@@ -165,8 +244,15 @@ export class VrmStage {
     this.lastStateRevision = stateRevision;
     const boundedDelta = Math.min(Math.max(delta, 0), 1 / 15);
     this.speechMouthCurrent = THREE.MathUtils.lerp(this.speechMouthCurrent, this.speechMouthTarget, 1 - Math.exp(-boundedDelta * 14));
-    this.applyPose(state, phase, look, this.speechMouthCurrent);
-    if (this.poseTransition) {
+    const externalMotion = this.motionMixer !== undefined && this.activeMotion !== undefined;
+    if (externalMotion) {
+      this.vrm?.humanoid.resetNormalizedPose();
+      this.root.position.set(0, 0, 0);
+      this.root.quaternion.identity();
+      for (const name of ['blink', 'blinkLeft', 'blinkRight', 'happy', 'sad', 'relaxed', 'aa']) this.vrm?.expressionManager?.setValue(name, 0);
+      this.motionMixer?.update(boundedDelta);
+    } else this.applyPose(state, phase, look, this.speechMouthCurrent);
+    if (this.poseTransition && !externalMotion) {
       const transition = this.poseTransition;
       transition.elapsed += Math.min(Math.max(delta, 0), 1 / 15);
       const progress = Math.min(1, transition.elapsed / 0.2);
@@ -225,14 +311,25 @@ export class VrmStage {
   }
   get loaded() { return Boolean(this.vrm); }
   private releaseModel() {
+    ++this.motionGeneration;
+    this.releaseMotion();
     if (this.vrm) {
       this.lastState = undefined;
       this.lastStateRevision = undefined;
       this.poseTransition = undefined;
+      if (this.lookAtProxy) this.vrm.scene.remove(this.lookAtProxy);
+      this.lookAtProxy = undefined;
       this.root.remove(this.vrm.scene);
       disposeVrmScene(this.vrm.scene);
       this.vrm = undefined;
     }
+  }
+  private releaseMotion() {
+    this.motionMixer?.stopAllAction();
+    if (this.vrm && this.motionMixer) this.motionMixer.uncacheRoot(this.vrm.scene);
+    this.motionMixer = undefined;
+    this.motionActions = [];
+    this.activeMotion = undefined;
   }
   dispose() {
     this.disposed = true;

@@ -8,6 +8,7 @@ import { checkPetBodyDrag } from './pet-drag-smoke-steps.mjs';
 import { checkChat } from './chat-smoke-steps.mjs';
 import { checkChatRestore } from './chat-restore-smoke-steps.mjs';
 import { checkMotionCapabilities } from './motion-capabilities-smoke-steps.mjs';
+import { checkExternalMotion } from './external-motion-smoke-steps.mjs';
 import { checkRenderMonitor } from './render-monitor-smoke-steps.mjs';
 import { checkWorkshopLayout } from './workshop-layout-smoke-steps.mjs';
 import { checkSpriteTransitions, checkVrmTransitions } from './motion-transition-smoke-steps.mjs';
@@ -50,6 +51,7 @@ try {
   assert.equal(await page.locator('#export-button').isEnabled(), true);
   const workshopLayout = await checkWorkshopLayout(desktop, page, output);
   const vrmTransitions = await checkVrmTransitions(page, output);
+  const externalMotion = await checkExternalMotion(page, output);
   await page.screenshot({ path: path.join(output, 'imported-model.png') });
   await desktop.close(); desktop = undefined;
   page = await launch();
@@ -126,7 +128,7 @@ try {
   await page.screenshot({ path: path.join(output, 'restored-sprite-library.png') });
   const motionCapabilities = await checkMotionCapabilities(desktop, page, root, output);
   assert.deepEqual(errors, []);
-  await writeFile(path.join(output, 'result.json'), JSON.stringify({ ok: true, version: latest.version, directory: latest.directory, packaged, files, emptyFirstStart: true, localImport: true, persistedAfterRestart: true, spritePetRendered: true, spriteLibraryRestored: true, preferencesRestored: true, petBounds: bounds, bodyDrag, workshopDragRejected: true, motionCapabilities, renderMonitoring, workshopLayout, vrmTransitions, spriteTransitions, rendererErrors: errors }, null, 2));
+  await writeFile(path.join(output, 'result.json'), JSON.stringify({ ok: true, version: latest.version, directory: latest.directory, packaged, files, emptyFirstStart: true, localImport: true, persistedAfterRestart: true, spritePetRendered: true, spriteLibraryRestored: true, preferencesRestored: true, petBounds: bounds, bodyDrag, workshopDragRejected: true, motionCapabilities, renderMonitoring, workshopLayout, vrmTransitions, externalMotion, spriteTransitions, rendererErrors: errors }, null, 2));
   await writeFile(path.join(outputRoot, 'latest.json'), JSON.stringify({ directory: path.basename(output), version: latest.version }, null, 2));
   console.log(`Release smoke passed: clean distribution, empty first launch, VRM/sprite library, actual pet drawing, settings and restart persistence. ${output}`);
 } catch (error) {

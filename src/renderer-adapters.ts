@@ -1,4 +1,5 @@
 import { VrmStage } from '../packages/renderer-vrm';
+import type { VrmMotionClipInfo } from '../packages/renderer-vrm';
 import { SpriteStage } from '../packages/renderer-sprite';
 import type { ModelInfo } from '../packages/character-core/vrm-file';
 import type { AnimationState, AtlasProfile } from '../packages/target-chatgpt/contract';
@@ -21,6 +22,10 @@ export interface CompanionRenderer {
   ): void;
   hitTest(x: number, y: number): boolean;
   setSpeechMouthOpen(amount: number): void;
+  loadMotion?(buffer: ArrayBuffer): Promise<VrmMotionClipInfo[]>;
+  playMotion?(index: number): void;
+  toggleMotion?(): boolean;
+  clearMotion?(): void;
   dispose(): void;
 }
 
@@ -45,6 +50,10 @@ class VrmRenderer implements CompanionRenderer {
   }
   hitTest(x: number, y: number) { return this.stage.hitTest(x, y); }
   setSpeechMouthOpen(amount: number) { this.stage.setSpeechMouthOpen(amount); }
+  loadMotion(buffer: ArrayBuffer) { return this.stage.loadMotion(buffer); }
+  playMotion(index: number) { this.stage.playMotion(index); }
+  toggleMotion() { return this.stage.toggleMotion(); }
+  clearMotion() { this.stage.clearMotion(); }
   dispose() { this.stage.dispose(); }
 }
 

@@ -4,6 +4,11 @@
 @media(min-height:900px){.preview-stage{height:500px}.workshop-grid{padding-top:35px}.topbar{height:130px}}@media(max-width:1080px){.workspace{padding:0 25px}.workshop-grid{gap:23px;grid-template-columns:minmax(0,1fr) 275px}.section-heading>.small{display:none}.motion-button{padding:8px;font-size:10px}.preview-stage{height:400px}}@media(max-width:780px){.rail{width:55px}.workspace{margin-left:55px;padding:0 18px}.workshop-grid{grid-template-columns:1fr}.topbar{height:100px}.top-actions .local-badge{display:none}h1{font-size:19px}h1 span{display:none}.preview-stage{height:420px}.detail-column{display:grid;grid-template-columns:1fr 1fr;gap:20px}.export-section{border:0;padding:0}.note-card,.model-details{grid-column:1/-1}.eyebrow{font-size:8px}.button{padding:10px;font-size:11px}footer>span:last-child{display:none}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{transition:none!important}}
 
+.external-motion-panel{margin-top:14px;padding:12px;border:1px solid #e1e3d8;border-radius:8px;background:#fafaf7}
+.external-motion-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.external-motion-actions select{flex:1;min-width:160px;padding:8px}
+.external-motion-panel .helper{margin-top:6px}
+
 /* Export inspection panel; preview widget owns its namespaced controls. */
 .pet-mode #character-canvas { cursor:grab; touch-action:none; user-select:none; }
 .pet-body-dragging #character-canvas { cursor:grabbing; }

@@ -17,6 +17,7 @@ import { sha256Hex } from '../packages/atlas-preview/sha256';
 import { characterPackageModule, MAX_CHARACTER_BACKUP_BYTES } from './character-package-client';
 import { motionCapabilityRows } from './motion-capabilities-view';
 import { RenderMonitor, renderSampleText, type RenderContext } from './render-monitor';
+import type { VrmMotionClipInfo } from '../packages/renderer-vrm';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 const desktop = window.petDesktop;
@@ -75,7 +76,14 @@ app.innerHTML = petMode ? `
           <div class="stage-caption"><div><span class="eyebrow">CURRENT COMPANION</span><h3 id="character-name">等待角色</h3><span id="character-author">仅在本机处理你的模型</span></div><button class="round-button" id="wave-button" title="向你挥手">✧</button></div>
           <span class="stage-tip">移动鼠标，和 TA 对视 · 支持拖入 VRM / PNG / WebP</span>
         </div>
-        <div class="motion-panel"><div class="motion-heading"><h2>今天是什么心情？</h2><button id="pause-button" class="text-button">暂停动画</button></div><div class="motion-list">${ANIMATION_ROWS.map((row, i) => `<button class="motion-button ${i === 0 ? 'active' : ''}" data-state="${row.state}"><span class="motion-index">${String(i + 1).padStart(2, '0')}</span>${row.label}</button>`).join('')}</div></div>
+        <div class="motion-panel"><div class="motion-heading"><h2>今天是什么心情？</h2><button id="pause-button" class="text-button">暂停动画</button></div><div class="motion-list">${ANIMATION_ROWS.map((row, i) => `<button class="motion-button ${i === 0 ? 'active' : ''}" data-state="${row.state}"><span class="motion-index">${String(i + 1).padStart(2, '0')}</span>${row.label}</button>`).join('')}</div>
+          <section id="external-motion-panel" class="external-motion-panel" hidden aria-label="外部动作预览">
+            <div class="external-motion-actions"><button id="external-motion-import" class="text-button" type="button">导入 VRM Animation（.vrma）</button><input id="external-motion-file" type="file" accept=".vrma,model/gltf-binary" hidden /></div>
+            <div id="external-motion-controls" class="external-motion-actions" hidden><select id="external-motion-clip" aria-label="选择导入动作"></select><button id="external-motion-toggle" class="text-button" type="button">暂停动作</button><button id="external-motion-clear" class="text-button" type="button">恢复内置动作</button></div>
+            <p id="external-motion-status" class="helper" role="status" aria-live="polite"></p>
+            <p class="helper">仅在工坊当前 VRM 预览，不保存到桌宠或精灵图导出。</p>
+          </section>
+        </div>
         <p class="status-line" id="status" role="status" aria-live="polite">正在准备角色工坊…</p>
       </section>
       <aside class="detail-column" tabindex="0" aria-label="角色和陪伴设置">
@@ -178,6 +186,7 @@ let info: ModelInfo | null = null;
 let loading = false;
 let paused = false;
 let animationTime = 0;
+let externalMotionClips: VrmMotionClipInfo[] = [];
 let lastInteraction = performance.now();
 let preferences: DesktopPreferences = { ...DEFAULT_PREFERENCES };
 const framePacer = new FramePacer();
@@ -406,6 +415,7 @@ function showCharacter(summary: CharacterSummary | null, value: ModelInfo | null
   document.body.dataset.characterId = summary?.id ?? '';
   if (value) showInfo(value);
   if (petMode) { restorePetChat(); return; }
+  $('#external-motion-panel').hidden = input.kind !== 'vrm';
   $('#stage-empty').hidden = true;
   $('#format-badge').textContent = input.kind === 'vrm' ? 'VRM 1.0' : `SPRITE ${input.profile}`;
   $('#character-name').textContent = summary?.name ?? value?.name ?? '本地精灵图';
@@ -472,6 +482,7 @@ async function load(input: CompanionInput, persist: boolean, origin: 'local-impo
       if (persist && summary) await library.activate(summary.id);
     }
     prepared.commit();
+    resetExternalMotionPreview();
     currentCharacter = summary;
     info = prepared.info; source = nextSource; modelSource = origin;
     animationTime = 0; changeState('idle'); framePacer.reset(); resizeStage();
@@ -541,9 +552,51 @@ function changeState(next: AnimationState) {
   document.querySelectorAll<HTMLButtonElement>('[data-state]').forEach((button) => button.classList.toggle('active', button.dataset.state === next));
 }
 
+function resetExternalMotionPreview(message = '') {
+  externalMotionClips = [];
+  stage?.clearMotion();
+  const controls = document.querySelector<HTMLElement>('#external-motion-controls');
+  if (controls) controls.hidden = true;
+  const file = document.querySelector<HTMLInputElement>('#external-motion-file');
+  if (file) file.value = '';
+  const select = document.querySelector<HTMLSelectElement>('#external-motion-clip');
+  if (select) select.replaceChildren();
+  const toggle = document.querySelector<HTMLButtonElement>('#external-motion-toggle');
+  if (toggle) { toggle.textContent = '暂停动作'; toggle.disabled = true; }
+  const statusLine = document.querySelector<HTMLElement>('#external-motion-status');
+  if (statusLine) statusLine.textContent = message;
+}
+
+async function importExternalMotion(file?: File) {
+  if (!file || !stage || loading || packageJob || petMode) return;
+  if (!file.name.toLowerCase().endsWith('.vrma')) { $('#external-motion-status').textContent = '请选择 .vrma 动作文件。'; return; }
+  if (file.size === 0 || file.size > MAX_MODEL_BYTES) { $('#external-motion-status').textContent = '动作文件不能为空且不能超过 64 MiB。'; return; }
+  const button = $<HTMLButtonElement>('#external-motion-import');
+  button.disabled = true;
+  $('#external-motion-status').textContent = '正在本机读取并检查动作…';
+  try {
+    const clips = await stage.loadMotion(await file.arrayBuffer());
+    externalMotionClips = clips;
+    const select = $<HTMLSelectElement>('#external-motion-clip');
+    select.replaceChildren(...clips.map(clip => {
+      const option = document.createElement('option'); option.value = String(clip.index);
+      option.textContent = `${clip.name} · ${clip.duration.toFixed(1)} 秒`; return option;
+    }));
+    $('#external-motion-controls').hidden = false;
+    $<HTMLButtonElement>('#external-motion-toggle').disabled = false;
+    $('#external-motion-status').textContent = `${file.name} · ${clips.length} 段动作，正在预览第 1 段。`;
+  } catch (error) {
+    $('#external-motion-status').textContent = error instanceof Error ? error.message : '动作加载失败。';
+  } finally { button.disabled = false; }
+}
+
 async function importFile(file?: File) {
   if (!file || !stage || loading || packageJob) return;
   if (file.name.toLowerCase().endsWith('.oipet')) { await restoreCharacter(file); return; }
+  if (file.name.toLowerCase().endsWith('.vrma')) {
+    if (document.body.dataset.characterKind !== 'vrm') { status('VRMA 动作预览需要先加载 VRM 角色。', true); return; }
+    await importExternalMotion(file); return;
+  }
   if (file.name.toLowerCase().endsWith('.vrm')) {
     if (file.size > MAX_MODEL_BYTES) { status('模型不能超过 64 MiB。', true); return; }
     await load({ kind: 'vrm', blob: file }, true);
@@ -799,9 +852,33 @@ if (petMode) {
     void importFile(input.files?.[0]); input.value = '';
   };
   $('#load-demo').onclick = () => void demo(true);
-  $('#wave-button').onclick = () => { changeState('waving'); transientUntil = performance.now() + 2000; };
+  const chooseBuiltinMotion = (next: AnimationState) => {
+    if (externalMotionClips.length) resetExternalMotionPreview();
+    changeState(next);
+  };
+  $('#wave-button').onclick = () => { chooseBuiltinMotion('waving'); transientUntil = performance.now() + 2000; };
   $('#pause-button').onclick = () => { paused = !paused; $('#pause-button').textContent = paused ? '继续动画' : '暂停动画'; };
-  document.querySelectorAll<HTMLButtonElement>('[data-state]').forEach((button) => button.onclick = () => { transientUntil = 0; changeState(button.dataset.state as AnimationState); });
+  document.querySelectorAll<HTMLButtonElement>('[data-state]').forEach((button) => button.onclick = () => { transientUntil = 0; chooseBuiltinMotion(button.dataset.state as AnimationState); });
+  $('#external-motion-import').onclick = () => $<HTMLInputElement>('#external-motion-file').click();
+  $<HTMLInputElement>('#external-motion-file').onchange = event => {
+    const input = event.target as HTMLInputElement;
+    void importExternalMotion(input.files?.[0]); input.value = '';
+  };
+  $<HTMLSelectElement>('#external-motion-clip').onchange = event => {
+    const index = Number((event.target as HTMLSelectElement).value);
+    try {
+      stage.playMotion(index);
+      $<HTMLButtonElement>('#external-motion-toggle').textContent = '暂停动作';
+      $('#external-motion-status').textContent = `正在预览：${externalMotionClips[index]?.name ?? '动作'}`;
+    } catch (error) { $('#external-motion-status').textContent = error instanceof Error ? error.message : '动作切换失败。'; }
+  };
+  $('#external-motion-toggle').onclick = () => {
+    const playing = stage.toggleMotion();
+    $('#external-motion-toggle').textContent = playing ? '暂停动作' : '继续动作';
+  };
+  $('#external-motion-clear').onclick = () => {
+    resetExternalMotionPreview('已恢复内置动作。'); transientUntil = 0; changeState('idle');
+  };
   if (desktop) {
     $('#save-diagnostics').onclick = async () => {
       const button = $<HTMLButtonElement>('#save-diagnostics');

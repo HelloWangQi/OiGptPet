@@ -2,6 +2,7 @@ import { SPRITE_MAX_CANVAS_DIMENSION } from '../packages/renderer-sprite';
 import type { ModelInfo } from '../packages/character-core/vrm-file';
 import type { AnimationState } from '../packages/target-chatgpt/contract';
 import { createCompanionRenderer, type CompanionInput, type CompanionRenderer } from './renderer-adapters';
+import type { VrmMotionClipInfo } from '../packages/renderer-vrm';
 
 export type { CompanionInput } from './renderer-adapters';
 
@@ -98,6 +99,23 @@ export class CompanionStage {
     this.speechMouthOpen = Math.min(1, Math.max(0, Number.isFinite(amount) ? amount : 0));
     this.current?.setSpeechMouthOpen(this.speechMouthOpen);
   }
+
+  async loadMotion(buffer: ArrayBuffer): Promise<VrmMotionClipInfo[]> {
+    const renderer = this.current;
+    if (!renderer?.loadMotion) throw new Error('VRM 动作预览仅适用于当前加载的 VRM 角色。');
+    const clips = await renderer.loadMotion(buffer);
+    if (renderer !== this.current) throw new DOMException('角色已切换，动作没有加载。', 'AbortError');
+    return clips;
+  }
+
+  playMotion(index: number) {
+    if (!this.current?.playMotion) throw new Error('当前角色不支持 VRM 动作预览。');
+    this.current.playMotion(index);
+  }
+
+  toggleMotion() { return this.current?.toggleMotion?.() ?? false; }
+
+  clearMotion() { this.current?.clearMotion?.(); }
 
   dispose() {
     this.disposed = true;
