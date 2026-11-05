@@ -1,8 +1,10 @@
 # 接续 0.9.5：VRMA 预览时间轴
 
-当前开发分支 `codex/desktop-prototype`，源码版本号为 0.9.5。工坊导入 `.vrma` 后可拖动时间轴检查动作中的具体姿势；拖动时动作暂停，点击“继续动作”可从定位时间恢复播放。清除动作后时间轴隐藏，VRMA 仍只在工坊内存中使用，不写入角色库或备份包。0.9.4 的单行动作图集导出与轨道映射说明见 [VRMA 本机预览与轨道匹配](VRMA_PREVIEW.md)。
+当前开发分支 `codex/desktop-prototype`，源码版本号为 0.9.5，代码检查点 `b7cf440`。工坊导入 `.vrma` 后可拖动时间轴检查动作中的具体姿势；拖动时动作暂停，点击“继续动作”可从定位时间恢复播放。清除动作后时间轴隐藏，VRMA 仍只在工坊内存中使用，不写入角色库或备份包。0.9.4 的单行动作图集导出与轨道映射说明见 [VRMA 本机预览与轨道匹配](VRMA_PREVIEW.md)。
 
 本轮代码**尚未运行测试、编译或打包**；没有 0.9.5 EXE。不要让用户用 0.9.2 EXE 验收新功能。最近通过桌面验收的仍是 0.9.2 源码 `bba86ac`，包 `release/v0.9.2-1793868490891/OiGptPet-win32-x64/OiGptPet.exe`，结果 `artifacts/release-smoke/run-1793868495078/result.json`。需要验证 0.9.5 时，从当时源码运行 `npm run verify:desktop` 并提供新 EXE 与对应提交。未推送或发布。
+
+代码检查点 `b7cf440` 已保存在本地，未推送、未发布 GitHub Release。工作区继续遵守 `scripts/package-retention.mjs` 的最近 3 个 Windows 包目录保留策略。真实麦克风、Windows 系统朗读、真实用户 VRMA 的视觉质量仍需人工体验。
 
 ## 0.9.3：VRMA 轨道匹配提示
 
