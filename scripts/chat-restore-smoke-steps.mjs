@@ -74,6 +74,9 @@ export async function checkChatRestore(desktop, page, pet, errors) {
     await page.locator('#chat-clear').click(); await page.reload(); await waitReady(page);
     assert.equal(await page.locator('#chat-log p').count(), 0);
     assert.equal((await page.evaluate(() => window.petDesktop.getChatSnapshot())).attempt, null);
+    // Reloading the workshop resets renderer globals, so reinstall the mock service
+    // before checking that a new request works after clearing persisted history.
+    await desktop.evaluate(() => { globalThis.fetch = async () => new Response(JSON.stringify({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: '退出后未恢复旧消息' }] }] })); });
     await page.locator('#chat-input').fill('退出后不应恢复'); await page.locator('#chat-send').click();
     await page.waitForFunction(() => document.querySelector('#chat-status').textContent.includes('回复完成'));
     return { page, pet };
