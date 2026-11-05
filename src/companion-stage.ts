@@ -1,11 +1,9 @@
-import { VrmStage } from '../packages/renderer-vrm';
-import { SpriteStage, SPRITE_MAX_CANVAS_DIMENSION } from '../packages/renderer-sprite';
+import { SPRITE_MAX_CANVAS_DIMENSION } from '../packages/renderer-sprite';
 import type { ModelInfo } from '../packages/character-core/vrm-file';
-import type { AnimationState, AtlasProfile } from '../packages/target-chatgpt/contract';
+import type { AnimationState } from '../packages/target-chatgpt/contract';
+import { createCompanionRenderer, type CompanionInput, type CompanionRenderer } from './renderer-adapters';
 
-export type CompanionInput =
-  | { kind: 'vrm'; blob: Blob }
-  | { kind: 'sprite'; blob: Blob; profile: AtlasProfile };
+export type { CompanionInput } from './renderer-adapters';
 
 export interface PreparedCompanion {
   readonly input: CompanionInput;
@@ -16,7 +14,7 @@ export interface PreparedCompanion {
 
 /** Keeps the visible renderer alive until a replacement has loaded and saved. */
 export class CompanionStage {
-  private current?: VrmStage | SpriteStage;
+  private current?: CompanionRenderer;
   private kind: CompanionInput['kind'] = 'vrm';
   private revision = 0;
   private pending?: () => void;
@@ -36,7 +34,7 @@ export class CompanionStage {
     // SpriteStage writes pixel CSS sizes. A new VRM canvas must follow its host again.
     canvas.style.width = '';
     canvas.style.height = '';
-    const candidate = input.kind === 'vrm' ? new VrmStage(canvas) : new SpriteStage(canvas);
+    const candidate = createCompanionRenderer(input, canvas);
     const controller = new AbortController();
     let released = false;
     let committed = false;
@@ -57,13 +55,7 @@ export class CompanionStage {
     signal?.addEventListener('abort', release, { once: true });
     try {
       check();
-      let info: ModelInfo | null = null;
-      if (candidate instanceof VrmStage) {
-        const bytes = await input.blob.arrayBuffer();
-        check();
-        info = await candidate.load(bytes);
-      }
-      else await candidate.load(input.blob, input.kind === 'sprite' ? input.profile : 'v2', controller.signal);
+      const info: ModelInfo | null = await candidate.load(input, controller.signal);
       check();
       candidate.resize(this.size.width, this.size.height, this.size.ratio);
       return {
@@ -77,7 +69,7 @@ export class CompanionStage {
           this.canvas = canvas;
           this.current = candidate;
           this.kind = input.kind;
-          if (candidate instanceof VrmStage) candidate.setSpeechMouthOpen(this.speechMouthOpen);
+          candidate.setSpeechMouthOpen(this.speechMouthOpen);
           committed = true;
           signal?.removeEventListener('abort', release);
           if (this.pending === release) this.pending = undefined;
@@ -96,10 +88,7 @@ export class CompanionStage {
   }
 
   render(state: AnimationState, seconds: number, delta: number, look?: { yaw: number; pitch: number; angle: number }, stateRevision?: number) {
-    if (this.current instanceof SpriteStage && stateRevision !== undefined) this.current.render(state, seconds, look?.angle, delta, stateRevision);
-    else if (this.current instanceof SpriteStage) this.current.render(state, seconds, look?.angle);
-    else if (this.current && stateRevision !== undefined) this.current.render(state, seconds / 2, delta, look, stateRevision);
-    else this.current?.render(state, seconds / 2, delta, look);
+    this.current?.render(state, seconds, delta, look, stateRevision);
   }
 
   hitTest(x: number, y: number) { return this.current?.hitTest(x, y) ?? false; }
@@ -107,7 +96,7 @@ export class CompanionStage {
 
   setSpeechMouthOpen(amount: number) {
     this.speechMouthOpen = Math.min(1, Math.max(0, Number.isFinite(amount) ? amount : 0));
-    if (this.current instanceof VrmStage) this.current.setSpeechMouthOpen(this.speechMouthOpen);
+    this.current?.setSpeechMouthOpen(this.speechMouthOpen);
   }
 
   dispose() {
