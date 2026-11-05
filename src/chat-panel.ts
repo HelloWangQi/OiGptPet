@@ -1,7 +1,8 @@
 import { CHAT_READINESS_TEXT, chatSettingsIssue } from './chat-readiness';
 import { ChatSpeech } from './chat-speech';
+import { estimateSpeechMouthOpen } from './speech-mouth';
 type Desktop = NonNullable<Window['petDesktop']>;
-export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (state: CompanionChatState) => void) {
+export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (state: CompanionChatState) => void, onSpeechMouthOpen: (amount: number) => void = () => {}) {
   const noop = { dispose() {}, async refresh() {} };
   if (!api) return noop;
   let closed = false; let lastSequence = -1; let latest: CompanionChatState | undefined;
@@ -34,7 +35,9 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
   let pending: { run: number; requestId: string; text: string; row: HTMLElement; partial?: HTMLElement } | undefined;
   const speechRuntime = typeof window.speechSynthesis === 'undefined' || typeof SpeechSynthesisUtterance === 'undefined'
     ? undefined : window.speechSynthesis;
-  const speech = new ChatSpeech(speechRuntime, undefined, () => controls());
+  const speech = new ChatSpeech(speechRuntime, undefined, () => controls(), event => {
+    onSpeechMouthOpen(estimateSpeechMouthOpen(latestReply, event.charIndex, event.charLength));
+  });
   const append = (role: string, text: string) => {
     const row = document.createElement('p'); row.textContent = `${role}：${text}`; log.append(row);
     while (log.children.length > 12) log.firstElementChild?.remove();

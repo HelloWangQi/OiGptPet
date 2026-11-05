@@ -6,13 +6,14 @@ interface FakeUtterance {
   lang: string;
   onend: (() => void) | null;
   onerror: (() => void) | null;
+  onboundary: ((event: { charIndex: number; charLength: number }) => void) | null;
 }
 
 function speechHarness() {
   const utterances: FakeUtterance[] = [];
   const runtime = { speak: vi.fn(), cancel: vi.fn() };
   const createUtterance = (text: string) => {
-    const value: FakeUtterance = { text, lang: '', onend: null, onerror: null };
+    const value: FakeUtterance = { text, lang: '', onend: null, onerror: null, onboundary: null };
     utterances.push(value);
     return value as unknown as SpeechSynthesisUtterance;
   };
@@ -67,7 +68,7 @@ describe('ChatSpeech', () => {
 
   it('recovers when utterance creation or playback throws', () => {
     const runtime = { speak: vi.fn(() => { throw new Error('unavailable'); }), cancel: vi.fn() };
-    const factory = vi.fn((text: string) => ({ text, lang: '', onend: null, onerror: null } as unknown as SpeechSynthesisUtterance));
+    const factory = vi.fn((text: string) => ({ text, lang: '', onend: null, onerror: null, onboundary: null } as unknown as SpeechSynthesisUtterance));
     const speech = new ChatSpeech(runtime, factory);
     expect(speech.speak('试播', 'zh-CN')).toBe(false);
     expect(speech.speaking).toBe(false);

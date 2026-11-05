@@ -14,7 +14,7 @@ function limitedModel(bytes, paired = false) {
     delete vrm.expressions.preset.blink;
   } else {
     delete vrm.humanoid.humanBones.chest; delete vrm.humanoid.humanBones.neck;
-    for (const name of ['blink', 'blinkLeft', 'blinkRight', 'happy', 'sad']) if (vrm.expressions?.preset) delete vrm.expressions.preset[name];
+    for (const name of ['blink', 'blinkLeft', 'blinkRight', 'happy', 'sad', 'aa']) if (vrm.expressions?.preset) delete vrm.expressions.preset[name];
     delete vrm.lookAt;
   }
   const json = Buffer.from(JSON.stringify(doc));
@@ -34,7 +34,7 @@ export async function checkMotionCapabilities(desktop, page, root, output) {
     && (!target.id || document.body.dataset.characterId === target.id) && (!target.name || document.querySelector('#character-name').textContent === target.name), identity);
   await ready({ id: originalId });
   assert.equal(await page.locator('#model-capabilities').isVisible(), true);
-  assert.equal(await page.locator('#motion-capability-rows p').count(), 7);
+  assert.equal(await page.locator('#motion-capability-rows p').count(), 8);
 
   async function saveReport(label) {
     await page.locator('#export-profile').selectOption('v1');
@@ -87,7 +87,7 @@ export async function checkMotionCapabilities(desktop, page, root, output) {
   await page.locator('#model-file').setInputFiles(variantPath); await ready({ name: '适配检查缺少可选能力' });
   assert.equal(await page.locator('#character-name').textContent(), '适配检查缺少可选能力');
   assert.equal(await page.locator('#model-capabilities details').evaluate(el => el.open), true);
-  assert.equal(await page.locator('#motion-capability-rows [data-warning="true"]').count(), 4);
+  assert.equal(await page.locator('#motion-capability-rows [data-warning="true"]').count(), 5);
   assert.match(await page.locator('#motion-capability-rows').textContent(), /缺少胸部、颈部/);
   // Capture the viewport directly: locator.screenshot waits for two stable
   // layout frames, which can time out while the animated renderer keeps the

@@ -12,6 +12,7 @@ import { pointerLook } from './pointer-look';
 import { setupChat } from './chat-panel';
 import { ChatSpeech } from './chat-speech';
 import { PetChatPresentation } from './pet-chat-presentation';
+import { estimateSpeechMouthOpen } from './speech-mouth';
 import { sha256Hex } from '../packages/atlas-preview/sha256';
 import { characterPackageModule, MAX_CHARACTER_BACKUP_BYTES } from './character-package-client';
 import { motionCapabilityRows } from './motion-capabilities-view';
@@ -201,6 +202,7 @@ scheduleRenderReports();
 let resizeStage = () => {};
 let transientUntil = 0;
 const petChat = new PetChatPresentation();
+let petSpeechText = '';
 const petSpeechButton = petMode ? $<HTMLButtonElement>('#pet-read-aloud') : undefined;
 const speechRuntime = typeof window.speechSynthesis === 'undefined' || typeof SpeechSynthesisUtterance === 'undefined'
   ? undefined : window.speechSynthesis;
@@ -209,6 +211,9 @@ const petSpeech = petMode ? new ChatSpeech(speechRuntime, undefined, speaking =>
     petSpeechButton.textContent = speaking ? '停止朗读' : '朗读';
     petSpeechButton.title = '朗读最新完整回复';
   }
+}, event => {
+  stage?.setSpeechMouthOpen(estimateSpeechMouthOpen(petSpeechText, event.charIndex, event.charLength));
+  lastInteraction = performance.now();
 }) : undefined;
 let look: { yaw: number; pitch: number; angle: number } | undefined;
 let lastPointer = 0;
@@ -749,6 +754,7 @@ if (petMode) {
     if (petSpeech?.speaking) { petSpeech.stop(); return; }
     const view = petChat.current(performance.now());
     if (!view || !petChat.canReadAloud() || !petSpeech) return;
+    petSpeechText = view.text;
     if (!petSpeech.speak(view.text, navigator.language || 'zh-CN') && petSpeechButton) {
       petSpeechButton.title = '系统语音播放失败，请检查 Windows 语音设置。';
     }
@@ -829,6 +835,9 @@ if (petMode) {
 const chatUI = setupChat(desktop, petMode, value => {
   if (!petMode) return;
   petChat.update(value, performance.now()); restorePetChat();
+}, amount => {
+  stage?.setSpeechMouthOpen(amount);
+  lastInteraction = performance.now();
 });
 let visibilityRevision = 0;
 const applyNativeVisibility = (visible: boolean) => {

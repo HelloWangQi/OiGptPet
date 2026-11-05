@@ -11,6 +11,7 @@ export interface MotionCapabilities {
   source: 'loaded-vrm';
   bones: { present: MotionBone[]; missing: MotionBone[] };
   expressions: { present: MotionExpression[]; missing: MotionExpression[] };
+  speechMouth: boolean;
   lookAtController: boolean;
   blinkMode?: 'combined' | 'paired' | 'none';
   visualReview: 'not-reviewed';
@@ -18,7 +19,7 @@ export interface MotionCapabilities {
 
 export function inspectMotionCapabilities(probe: {
   hasBone(name: MotionBone): boolean;
-  hasExpression(name: MotionExpression | BlinkChannel): boolean;
+  hasExpression(name: MotionExpression | BlinkChannel | 'aa'): boolean;
   lookAtController: boolean;
 }): MotionCapabilities {
   const bones = MOTION_BONES.filter(name => probe.hasBone(name));
@@ -28,6 +29,7 @@ export function inspectMotionCapabilities(probe: {
     schemaVersion: 1, source: 'loaded-vrm',
     bones: { present: bones, missing: MOTION_BONES.filter(name => !bones.includes(name)) },
     expressions: { present: expressions, missing: MOTION_EXPRESSIONS.filter(name => !expressions.includes(name)) },
+    speechMouth: probe.hasExpression('aa'),
     lookAtController: probe.lookAtController, blinkMode: blink.length === 1 ? 'combined' : blink.length === 2 ? 'paired' : 'none', visualReview: 'not-reviewed',
   };
 }

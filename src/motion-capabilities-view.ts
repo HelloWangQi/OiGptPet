@@ -15,6 +15,7 @@ export function motionCapabilityRows(value: MotionCapabilities) {
     group('头部 / 视线方向', ['head']),
     { label: '眨眼', warning: blink === 'none', text: blink === 'combined' ? '使用通用眨眼表情。' : blink === 'paired' ? '使用左右眼独立表情同步眨眼。' : '缺少通用眨眼或完整左右眼表情，当前动作不会驱动眨眼。' },
     { label: '开心 / 失落表情', warning: emotions.length > 0, text: emotions.length ? `缺少${emotions.map(name => name === 'happy' ? '开心' : '失落').join('、')}表情，对应状态仍播放骨骼动作。` : '已加载开心和失落表情。' },
+    { label: '朗读口型', warning: !value.speechMouth, text: value.speechMouth ? '模型支持 aa 表情；朗读时按系统语音文字边界估算口型，非音量同步。' : '模型缺少 aa 表情；朗读仍可用，但不会驱动口型。' },
     { label: '视线控制', warning: !value.lookAtController, text: value.lookAtController ? '已加载视线控制器，眼睛跟随效果与范围请预览确认。' : '未加载视线控制器，仍尝试通过头部转动表现视线。' },
   ];
 }

@@ -22,6 +22,7 @@ export class CompanionStage {
   private pending?: () => void;
   private disposed = false;
   private size = { width: 320, height: 420, ratio: 1 };
+  private speechMouthOpen = 0;
 
   constructor(private canvas: HTMLCanvasElement) {}
 
@@ -76,6 +77,7 @@ export class CompanionStage {
           this.canvas = canvas;
           this.current = candidate;
           this.kind = input.kind;
+          if (candidate instanceof VrmStage) candidate.setSpeechMouthOpen(this.speechMouthOpen);
           committed = true;
           signal?.removeEventListener('abort', release);
           if (this.pending === release) this.pending = undefined;
@@ -102,6 +104,11 @@ export class CompanionStage {
 
   hitTest(x: number, y: number) { return this.current?.hitTest(x, y) ?? false; }
   get sourceKind() { return this.kind; }
+
+  setSpeechMouthOpen(amount: number) {
+    this.speechMouthOpen = Math.min(1, Math.max(0, Number.isFinite(amount) ? amount : 0));
+    if (this.current instanceof VrmStage) this.current.setSpeechMouthOpen(this.speechMouthOpen);
+  }
 
   dispose() {
     this.disposed = true;

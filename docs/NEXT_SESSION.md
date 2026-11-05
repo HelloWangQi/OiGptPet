@@ -1,5 +1,7 @@
 # 接续 0.9.1 回复朗读
 
+本轮在 0.9.1 源码上继续接入朗读口型：工坊与独立桌宠的系统语音边界事件都会尝试驱动 VRM `aa` 表情，渲染侧平滑开合，精灵图忽略该信号；能力面板显示模型是否有 `aa`。`SpeechSynthesis` 没有暴露真实音频振幅或音素，因此这是文字边界估算，不是音量同步。`npm run build` 通过，已保存本地阶段检查点；本轮未运行测试套件，也未生成 EXE。用户进行桌面验证前按仓库约定从当前源码运行 `npm run verify:desktop`。
+
 2026-11-04。v0.9.0 已在 GitHub 作为正式版发布，源码提交 `d3b637daac9a8f395f229f711e25d6d43c8b4d29`。v0.6.0、v0.8.0、v0.8.5 的 `prerelease` 标记已关闭，名称已去除 Preview，原附件保留。发布页：[OiGptPet v0.9.0](https://github.com/HelloWangQi/OiGptPet/releases/tag/v0.9.0)。
 
 0.9.0 的 34 个测试文件、408 项单测通过；`npm run verify:desktop` 打包与 Windows EXE 冒烟通过，结果 `artifacts/release-smoke/run-1793762162495/result.json`。用户验证包为 [OiGptPet.exe](E:/GitWorkSpace/OiGptPet/release/v0.9.0-1793762152485/OiGptPet-win32-x64/OiGptPet.exe)，对应提交 `d3b637d`。ZIP 与校验文件哈希记录在 `artifacts/github-release-v0.9.0/manifest.json`。动作状态过渡尚未做人工连续播放视觉验收。

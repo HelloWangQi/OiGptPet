@@ -20,6 +20,8 @@ export class VrmStage {
   private lookTarget = new THREE.Object3D();
   private lastState?: AnimationState;
   private lastStateRevision?: number;
+  private speechMouthTarget = 0;
+  private speechMouthCurrent = 0;
   private poseTransition?: {
     elapsed: number;
     bones: Array<{ node: THREE.Object3D; from: THREE.Quaternion; to: THREE.Quaternion }>;
@@ -107,7 +109,11 @@ export class VrmStage {
     this.camera.updateProjectionMatrix();
   }
 
-  private applyPose(state: AnimationState, phase: number, look?: { yaw: number; pitch: number }) {
+  setSpeechMouthOpen(amount: number) {
+    this.speechMouthTarget = THREE.MathUtils.clamp(Number.isFinite(amount) ? amount : 0, 0, 1);
+  }
+
+  private applyPose(state: AnimationState, phase: number, look?: { yaw: number; pitch: number }, mouthOpen = 0) {
     if (!this.vrm) return;
     const vrm = this.vrm;
     vrm.humanoid.resetNormalizedPose();
@@ -133,6 +139,7 @@ export class VrmStage {
     applyBlink(expressions ?? undefined, p.blink);
     expressions?.setValue('happy', p.happy);
     expressions?.setValue('sad', p.sad);
+    expressions?.setValue('aa', mouthOpen);
     if (look) this.lookTarget.position.set(Math.sin(look.yaw) * 3, 1.65 - Math.sin(look.pitch) * 3, 4);
     else this.lookTarget.position.set(0, 1.65, 5);
   }
@@ -156,7 +163,9 @@ export class VrmStage {
     }
     this.lastState = state;
     this.lastStateRevision = stateRevision;
-    this.applyPose(state, phase, look);
+    const boundedDelta = Math.min(Math.max(delta, 0), 1 / 15);
+    this.speechMouthCurrent = THREE.MathUtils.lerp(this.speechMouthCurrent, this.speechMouthTarget, 1 - Math.exp(-boundedDelta * 14));
+    this.applyPose(state, phase, look, this.speechMouthCurrent);
     if (this.poseTransition) {
       const transition = this.poseTransition;
       transition.elapsed += Math.min(Math.max(delta, 0), 1 / 15);
@@ -178,7 +187,7 @@ export class VrmStage {
       }
       if (progress >= 1) this.poseTransition = undefined;
     }
-    this.vrm?.update(Math.min(Math.max(delta, 0), 1 / 15));
+    this.vrm?.update(boundedDelta);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -195,6 +204,7 @@ export class VrmStage {
     steps = 30,
   ) {
     if (!this.vrm) return;
+    this.speechMouthCurrent = 0;
     this.applyPose(state, phase, look);
     this.vrm.update(0);
     const springs = this.vrm.springBoneManager;

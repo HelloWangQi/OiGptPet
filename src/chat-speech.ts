@@ -1,14 +1,17 @@
 type SpeechRuntime = Pick<SpeechSynthesis, 'speak' | 'cancel'>;
 type UtteranceFactory = (text: string) => SpeechSynthesisUtterance;
+type SpeechBoundary = Pick<SpeechSynthesisEvent, 'charIndex' | 'charLength'>;
 
 /** User-triggered system voice playback for a completed chat reply. */
 export class ChatSpeech {
   private current?: SpeechSynthesisUtterance;
+  private boundaryTimer?: ReturnType<typeof setTimeout>;
 
   constructor(
     private readonly runtime: SpeechRuntime | undefined,
     private readonly createUtterance: UtteranceFactory = text => new SpeechSynthesisUtterance(text),
     private readonly onChange: (speaking: boolean) => void = () => {},
+    private readonly onBoundary: (event: SpeechBoundary) => void = () => {},
   ) {}
 
   get available(): boolean {
@@ -32,6 +35,17 @@ export class ChatSpeech {
     utterance.lang = language;
     utterance.onend = () => this.finish(utterance);
     utterance.onerror = () => this.finish(utterance);
+    utterance.onboundary = event => {
+      if (this.current !== utterance) return;
+      clearTimeout(this.boundaryTimer);
+      this.onBoundary(event);
+      const length = Number.isFinite(event.charLength) ? Math.max(0, event.charLength) : 1;
+      const hold = Math.min(700, 160 + length * 45);
+      this.boundaryTimer = setTimeout(() => {
+        this.boundaryTimer = undefined;
+        if (this.current === utterance) this.onBoundary({ charIndex: -1, charLength: 0 });
+      }, hold);
+    };
     this.current = utterance;
     this.onChange(true);
     try {
@@ -47,11 +61,15 @@ export class ChatSpeech {
     const current = this.current;
     if (!current) return;
     this.current = undefined;
+    clearTimeout(this.boundaryTimer);
+    this.boundaryTimer = undefined;
     current.onend = null;
     current.onerror = null;
+    current.onboundary = null;
     try {
       this.runtime?.cancel();
     } finally {
+      this.onBoundary({ charIndex: -1, charLength: 0 });
       this.onChange(false);
     }
   }
@@ -63,6 +81,10 @@ export class ChatSpeech {
   private finish(utterance: SpeechSynthesisUtterance): void {
     if (this.current !== utterance) return;
     this.current = undefined;
+    clearTimeout(this.boundaryTimer);
+    this.boundaryTimer = undefined;
+    utterance.onboundary = null;
+    this.onBoundary({ charIndex: -1, charLength: 0 });
     this.onChange(false);
   }
 }
