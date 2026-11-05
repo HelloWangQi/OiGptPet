@@ -11,6 +11,10 @@ export class PetChatPresentation {
     this.replyUntil = value.status === 'reply' ? now + 2000 : 0;
   }
 
+  canReadAloud(): boolean {
+    return this.latest?.status === 'reply' && Boolean(this.latest.text?.trim());
+  }
+
   current(now: number): { text: string; animation: AnimationState; until: number } | undefined {
     const value = this.latest;
     if (!value) return undefined;

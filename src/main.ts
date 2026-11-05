@@ -10,6 +10,7 @@ import { DEFAULT_PREFERENCES, IDLE_AFTER_MS, PERFORMANCE_POLICIES, normalizePref
 import { FramePacer } from './frame-pacer';
 import { pointerLook } from './pointer-look';
 import { setupChat } from './chat-panel';
+import { ChatSpeech } from './chat-speech';
 import { PetChatPresentation } from './pet-chat-presentation';
 import { sha256Hex } from '../packages/atlas-preview/sha256';
 import { characterPackageModule, MAX_CHARACTER_BACKUP_BYTES } from './character-package-client';
@@ -37,6 +38,7 @@ app.innerHTML = petMode ? `
     <div id="pet-controls" data-interactive>
       <button id="workshop-button" title="角色工坊">工坊</button>
       <button id="pet-wave" title="挥手">挥手</button>
+      <button id="pet-read-aloud" title="朗读最新完整回复" hidden>朗读</button>
       <button id="click-through" title="Ctrl+Alt+P 或托盘恢复互动">穿透</button>
       <button id="hide-pet" title="从托盘重新显示">隐藏</button>
     </div>
@@ -199,6 +201,15 @@ scheduleRenderReports();
 let resizeStage = () => {};
 let transientUntil = 0;
 const petChat = new PetChatPresentation();
+const petSpeechButton = petMode ? $<HTMLButtonElement>('#pet-read-aloud') : undefined;
+const speechRuntime = typeof window.speechSynthesis === 'undefined' || typeof SpeechSynthesisUtterance === 'undefined'
+  ? undefined : window.speechSynthesis;
+const petSpeech = petMode ? new ChatSpeech(speechRuntime, undefined, speaking => {
+  if (petSpeechButton) {
+    petSpeechButton.textContent = speaking ? '停止朗读' : '朗读';
+    petSpeechButton.title = '朗读最新完整回复';
+  }
+}) : undefined;
 let look: { yaw: number; pitch: number; angle: number } | undefined;
 let lastPointer = 0;
 const exportSession = new ExportSession();
@@ -241,6 +252,15 @@ function status(message: string, error = false) {
 function restorePetChat() {
   const view = petChat.current(performance.now());
   status(view?.text ?? '');
+  if (petMode) {
+    if (!petChat.canReadAloud()) petSpeech?.stop();
+    if (petSpeechButton) {
+      petSpeechButton.hidden = !petChat.canReadAloud();
+      petSpeechButton.disabled = !petSpeech?.available;
+      petSpeechButton.textContent = petSpeech?.speaking ? '停止朗读' : '朗读';
+      petSpeechButton.title = petSpeech?.available ? '朗读最新完整回复' : '当前系统语音不可用';
+    }
+  }
   if (view) {
     transientUntil = view.until;
     if (state !== view.animation) changeState(view.animation);
@@ -725,6 +745,14 @@ async function bootstrap() {
 if (petMode) {
   $('#workshop-button').onclick = () => void desktop!.openWorkshop();
   $('#hide-pet').onclick = () => void desktop!.hidePet();
+  $('#pet-read-aloud').onclick = () => {
+    if (petSpeech?.speaking) { petSpeech.stop(); return; }
+    const view = petChat.current(performance.now());
+    if (!view || !petChat.canReadAloud() || !petSpeech) return;
+    if (!petSpeech.speak(view.text, navigator.language || 'zh-CN') && petSpeechButton) {
+      petSpeechButton.title = '系统语音播放失败，请检查 Windows 语音设置。';
+    }
+  };
   $('#pet-wave').onclick = () => { changeState('waving'); transientUntil = performance.now() + 2000; };
   $('#click-through').onclick = () => {
     forcedInteractive = false; ignoringMouse = true;
@@ -805,6 +833,7 @@ const chatUI = setupChat(desktop, petMode, value => {
 let visibilityRevision = 0;
 const applyNativeVisibility = (visible: boolean) => {
   if (closed) return;
+  if (!visible) petSpeech?.stop();
   nativeVisible = visible; framePacer.reset(); lastInteraction = performance.now();
   publishRenderMetrics(); scheduleRenderReports();
 };
@@ -816,6 +845,7 @@ if (desktop) {
 window.addEventListener('beforeunload', () => {
   clearInterval(renderReportTimer);
   stopVisibility?.();
+  petSpeech?.dispose();
   chatUI.dispose();
   closed = true; packageJob?.controller.abort();
   if (packageJob?.nativeStarted) void desktop?.cancelCharacterPackage(packageJob.id).catch(() => {});

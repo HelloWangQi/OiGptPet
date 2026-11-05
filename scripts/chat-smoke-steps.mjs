@@ -46,6 +46,7 @@ export async function checkChat(desktop, page, pet) {
     await page.waitForFunction(() => document.querySelector('#chat-log [data-reply-state="partial"]')?.textContent.includes('你好，'));
     assert.equal(await page.locator('#chat-send').isDisabled(), true);
     await pet.waitForFunction(() => document.querySelector('#pet-message').textContent === '你好，', undefined, { polling: 100 });
+    assert.equal(await pet.locator('#pet-read-aloud').isHidden(), true, 'Partial text must not be offered for speech');
     await desktop.evaluate(() => {
       const response = { status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: '你好，桌宠！<img src=x>' }] }] };
       globalThis.__chatStream.enqueue(new TextEncoder().encode('data: ' + JSON.stringify({ type: 'response.completed', response }) + '\n\n'));
@@ -56,6 +57,7 @@ export async function checkChat(desktop, page, pet) {
     assert.equal(await page.locator('#chat-log p').count(), 2);
     assert.equal(await page.locator('#chat-log img').count(), 0);
     await pet.waitForFunction(() => document.querySelector('#pet-message').textContent.includes('你好，桌宠！'), undefined, { polling: 100 });
+    assert.equal(await pet.locator('#pet-read-aloud').isHidden(), false, 'A complete reply should be available to read aloud');
     await assert.rejects(pet.evaluate(() => window.petDesktop.sendChat('越权')), /Only the workshop/);
     await desktop.evaluate(() => { globalThis.fetch = async () => new Response(new ReadableStream({ start(controller) {
       globalThis.__chatBrokenStream = controller;
@@ -98,6 +100,7 @@ export async function checkChat(desktop, page, pet) {
     await page.waitForFunction(() => document.querySelector('#chat-status').textContent.includes('已取消'));
     assert.equal(await page.locator('#chat-input').inputValue(), '取消期间的新草稿');
     await page.locator('#chat-clear').click(); await page.waitForFunction(() => document.querySelector('#chat-log').children.length === 0);
+    await pet.waitForFunction(() => document.querySelector('#pet-read-aloud').hidden);
     assert.equal(await page.locator('#chat-retry').isHidden(), true);
     await desktop.evaluate(() => { globalThis.__chatLateReply?.(new Response('late ignored response')); delete globalThis.__chatLateReply; });
     await desktop.evaluate(() => { globalThis.fetch = async () => new Response(new ReadableStream({ start(controller) {
