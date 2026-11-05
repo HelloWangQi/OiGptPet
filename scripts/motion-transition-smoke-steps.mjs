@@ -7,6 +7,12 @@ async function captureCanvas(page, output, name) {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
+async function stabilizeGaze(page) {
+  const bounds = await page.locator('#character-canvas').boundingBox();
+  if (!bounds) throw new Error('Character canvas is not visible');
+  await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
+}
+
 export async function checkVrmTransitions(page, output) {
   // Let pointer-driven gaze settle so each capture isolates the animation pose.
   await page.waitForTimeout(1900);
@@ -26,9 +32,11 @@ export async function checkVrmTransitions(page, output) {
   assert.notEqual(replayMid, replaySettled, 'same-action replay should restart through the transition');
 
   await page.evaluate(() => document.querySelector('#pause-button').click());
+  await stabilizeGaze(page);
   await page.waitForTimeout(80);
   const pausedFrame = await captureCanvas(page, output, 'motion-paused-before-switch');
   await page.evaluate(() => document.querySelector('[data-state="failed"]').click());
+  await stabilizeGaze(page);
   await page.waitForTimeout(240);
   const pausedAfterSwitch = await captureCanvas(page, output, 'motion-paused-after-switch');
   assert.equal(pausedAfterSwitch, pausedFrame, 'paused animation should preserve the visible pose');
