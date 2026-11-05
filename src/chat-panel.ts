@@ -16,6 +16,12 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
   if (petMode) {
     const voiceButton = document.getElementById('pet-voice-input') as HTMLButtonElement;
     const sendButton = document.getElementById('pet-voice-send') as HTMLButtonElement;
+    const chatToggle = document.getElementById('pet-chat-toggle') as HTMLButtonElement;
+    const chatComposer = document.getElementById('pet-chat-composer') as HTMLFormElement;
+    const chatInput = document.getElementById('pet-chat-input') as HTMLTextAreaElement;
+    const chatClose = document.getElementById('pet-chat-close') as HTMLButtonElement;
+    const chatSendButton = document.getElementById('pet-chat-send') as HTMLButtonElement;
+    const petShell = document.querySelector<HTMLElement>('.pet-shell')!;
     const message = document.getElementById('pet-message')!;
     let draft = '';
     let sending = false;
@@ -28,11 +34,15 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
       voiceButton.textContent = voiceInput.listening ? '停止' : draft.trim() ? '重录' : '听写';
       voiceButton.dataset.listening = String(voiceInput.listening);
       voiceButton.setAttribute('aria-pressed', String(voiceInput.listening));
-      sendButton.hidden = !draft.trim() || voiceInput.listening;
+      sendButton.hidden = !draft.trim() || voiceInput.listening || !chatComposer.hidden;
       sendButton.disabled = busy || sending;
+      chatToggle.setAttribute('aria-expanded', String(!chatComposer.hidden));
+      chatToggle.dataset.open = String(!chatComposer.hidden);
+      chatSendButton.disabled = busy || sending || !draft.trim() || voiceInput.listening;
     };
     voiceInput = new ChatVoiceInput(() => draft, text => {
       draft = text;
+      chatInput.value = text;
       if (text.trim()) message.textContent = text;
       controls();
     }, (state, text) => {
@@ -44,13 +54,16 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
     voiceButton.title = voiceInput.available
       ? '语音识别由系统服务提供，联网与处理方式由服务决定；检查转写后点击发送'
       : '当前环境不支持语音识别';
-    const onVisibilityChange = () => { if (document.hidden) voiceInput.abort(); };
-    const onWorkshopOpen = () => voiceInput.abort();
+    const closeComposer = () => {
+      chatComposer.hidden = true; petShell.dataset.composerOpen = 'false'; controls();
+    };
+    const onVisibilityChange = () => { if (document.hidden) { voiceInput.abort(); closeComposer(); } };
+    const onWorkshopOpen = () => { voiceInput.abort(); closeComposer(); };
     document.addEventListener('visibilitychange', onVisibilityChange);
     window.addEventListener('pet:open-workshop', onWorkshopOpen);
     receive = value => {
       if (closed) return;
-      if (value.status === 'cleared') { draft = ''; voiceInput.abort(); }
+      if (value.status === 'cleared') { draft = ''; chatInput.value = ''; voiceInput.abort(); closeComposer(); }
       if (chatBusy() && voiceInput.listening) voiceInput.abort();
       onState(value);
       if (draft.trim() && !sending) message.textContent = draft;
@@ -58,24 +71,38 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
     };
     voiceButton.onclick = () => {
       if (voiceInput.listening) { voiceInput.stop(); return; }
-      if (draft) { draft = ''; message.textContent = ''; }
+      if (draft) { draft = ''; chatInput.value = ''; message.textContent = ''; }
       voiceInput.toggle();
     };
-    sendButton.onclick = async () => {
+    const sendDraft = async () => {
       const text = draft.trim();
       if (!text || sending || chatBusy() || voiceInput.listening) return;
-      sending = true; draft = ''; voiceInput.abort(); controls(); message.textContent = '正在发送…';
+      sending = true; draft = ''; chatInput.value = ''; voiceInput.abort(); closeComposer(); controls(); message.textContent = '正在发送…';
       try {
         const result = await api.sendPetMessage(text, crypto.randomUUID());
         if (result.error || result.cancelled) {
           draft = text;
+          chatInput.value = text;
           message.textContent = result.cancelled ? `已停止；草稿已保留：${text}` : `请求未完成；草稿已保留：${text}`;
         }
       } catch {
         draft = text;
+        chatInput.value = text;
         message.textContent = '发送失败或尚未配置对话；草稿已保留，请在工坊检查设置。';
       } finally { sending = false; controls(); }
     };
+    sendButton.onclick = () => void sendDraft();
+    chatToggle.onclick = () => {
+      chatComposer.hidden = !chatComposer.hidden;
+      petShell.dataset.composerOpen = String(!chatComposer.hidden);
+      chatInput.value = draft;
+      controls();
+      if (!chatComposer.hidden) requestAnimationFrame(() => chatInput.focus());
+    };
+    chatClose.onclick = closeComposer;
+    chatInput.oninput = () => { draft = chatInput.value; controls(); };
+    chatComposer.onsubmit = event => { event.preventDefault(); void sendDraft(); };
+    petShell.dataset.composerOpen = 'false';
     controls();
     return { dispose() {
       voiceInput.dispose(); document.removeEventListener('visibilitychange', onVisibilityChange);

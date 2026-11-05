@@ -36,8 +36,14 @@ app.innerHTML = petMode ? `
     <div id="drag-handle" data-interactive>⠿ 拖动我</div>
     <canvas id="character-canvas" aria-label="桌宠角色"></canvas>
     <div id="pet-message" role="status"></div>
+    <form id="pet-chat-composer" data-interactive hidden>
+      <label class="sr-only" for="pet-chat-input">和桌宠聊天</label>
+      <textarea id="pet-chat-input" maxlength="2000" rows="2" placeholder="输入想说的话…"></textarea>
+      <div><button id="pet-chat-close" type="button">收起</button><button id="pet-chat-send" class="pet-chat-send" type="submit">发送</button></div>
+    </form>
     <div id="pet-controls" data-interactive>
       <button id="workshop-button" title="角色工坊">工坊</button>
+      <button id="pet-chat-toggle" title="直接输入文字聊天" aria-expanded="false">聊聊</button>
       <button id="pet-voice-input" title="语音识别由系统服务提供，联网与处理方式由服务决定；检查转写后手动发送" aria-pressed="false">听写</button>
       <button id="pet-voice-send" title="把转写文字发送给伙伴" hidden>发送</button>
       <button id="pet-wave" title="挥手">挥手</button>
