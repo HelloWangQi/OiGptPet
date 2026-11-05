@@ -82,6 +82,7 @@ app.innerHTML = petMode ? `
             <div id="external-motion-controls" class="external-motion-actions" hidden><select id="external-motion-clip" aria-label="选择导入动作"></select><button id="external-motion-toggle" class="text-button" type="button">暂停动作</button><button id="external-motion-clear" class="text-button" type="button">恢复内置动作</button></div>
             <p id="external-motion-status" class="helper" role="status" aria-live="polite"></p>
             <p class="helper">仅在工坊当前 VRM 预览，不保存到桌宠或精灵图导出。</p>
+            <p class="helper">导入结果会对照当前角色检查动作轨道名称；匹配不代表动作绑定或视觉效果合格。</p>
           </section>
         </div>
         <p class="status-line" id="status" role="status" aria-live="polite">正在准备角色工坊…</p>
@@ -567,6 +568,21 @@ function resetExternalMotionPreview(message = '') {
   if (statusLine) statusLine.textContent = message;
 }
 
+function describeExternalMotionCompatibility(clip: VrmMotionClipInfo) {
+  const report = clip.compatibility;
+  const mappedBones = report.totalBones - report.missingBones.length;
+  const mappedExpressions = report.totalExpressions - report.missingExpressions.length;
+  const lookAt = report.lookAt === 'unused' ? '未使用视线轨道' : report.lookAt === 'available' ? '视线轨道可映射' : '缺少视线控制器';
+  const missing: string[] = [];
+  const summarize = (label: string, names: string[]) => {
+    if (names.length) missing.push(`${label}：${names.slice(0, 5).join('、')}${names.length > 5 ? ` 等 ${names.length} 项` : ''}`);
+  };
+  summarize('骨骼', report.missingBones);
+  summarize('表情', report.missingExpressions);
+  if (report.lookAt === 'missing') missing.push('视线控制器');
+  return `${clip.name} · ${clip.duration.toFixed(1)} 秒；骨骼匹配 ${mappedBones}/${report.totalBones}，表情匹配 ${mappedExpressions}/${report.totalExpressions}，${lookAt}。${missing.length ? `可能不会播放的轨道：${missing.join('；')}。` : ''}此检查只看名称映射，不评价动作视觉质量。`;
+}
+
 async function importExternalMotion(file?: File) {
   if (!file || !stage || loading || packageJob || petMode) return;
   if (!file.name.toLowerCase().endsWith('.vrma')) { $('#external-motion-status').textContent = '请选择 .vrma 动作文件。'; return; }
@@ -584,7 +600,7 @@ async function importExternalMotion(file?: File) {
     }));
     $('#external-motion-controls').hidden = false;
     $<HTMLButtonElement>('#external-motion-toggle').disabled = false;
-    $('#external-motion-status').textContent = `${file.name} · ${clips.length} 段动作，正在预览第 1 段。`;
+    $('#external-motion-status').textContent = `${file.name} · ${clips.length} 段动作，正在预览第 1 段。${describeExternalMotionCompatibility(clips[0])}`;
   } catch (error) {
     $('#external-motion-status').textContent = error instanceof Error ? error.message : '动作加载失败。';
   } finally { button.disabled = false; }
@@ -869,7 +885,8 @@ if (petMode) {
     try {
       stage.playMotion(index);
       $<HTMLButtonElement>('#external-motion-toggle').textContent = '暂停动作';
-      $('#external-motion-status').textContent = `正在预览：${externalMotionClips[index]?.name ?? '动作'}`;
+      const clip = externalMotionClips[index];
+      $('#external-motion-status').textContent = clip ? `正在预览：${describeExternalMotionCompatibility(clip)}` : '正在预览动作。';
     } catch (error) { $('#external-motion-status').textContent = error instanceof Error ? error.message : '动作切换失败。'; }
   };
   $('#external-motion-toggle').onclick = () => {

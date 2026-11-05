@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { VRM, VRMLoaderPlugin } from '@pixiv/three-vrm';
+import { VRM, VRMLoaderPlugin, type VRMHumanBoneName } from '@pixiv/three-vrm';
 import { createVRMAnimationClip, VRMAnimationLoaderPlugin, VRMLookAtQuaternionProxy, type VRMAnimation } from '@pixiv/three-vrm-animation';
 import { disposeVrmScene } from './dispose';
 import { inspectMotionCapabilities } from '../character-core/motion-capabilities';
@@ -10,7 +10,20 @@ import { sampleMotion, sampleLook } from '../character-core';
 import { inspectVrmFile, type ModelInfo } from '../character-core/vrm-file';
 import type { AnimationState } from '../target-chatgpt/contract';
 
-export interface VrmMotionClipInfo { index: number; name: string; duration: number }
+export interface VrmMotionClipCompatibility {
+  totalBones: number;
+  missingBones: string[];
+  totalExpressions: number;
+  missingExpressions: string[];
+  lookAt: 'unused' | 'available' | 'missing';
+}
+
+export interface VrmMotionClipInfo {
+  index: number;
+  name: string;
+  duration: number;
+  compatibility: VrmMotionClipCompatibility;
+}
 
 export class VrmStage {
   readonly renderer: THREE.WebGLRenderer;
@@ -145,19 +158,34 @@ export class VrmStage {
       const clips = animations.map((animation, index) => {
         const clip = createVRMAnimationClip(animation, vrm);
         clip.name = gltf.animations[index]?.name?.trim() || `动作 ${index + 1}`;
-        return clip;
+        const bones = new Set<VRMHumanBoneName>(animation.humanoidTracks.rotation.keys());
+        if (animation.humanoidTracks.translation.has('hips')) bones.add('hips');
+        const expressions = new Set<string>([
+          ...animation.expressionTracks.preset.keys(),
+          ...animation.expressionTracks.custom.keys(),
+        ]);
+        const compatibility: VrmMotionClipCompatibility = {
+          totalBones: bones.size,
+          missingBones: [...bones].filter(name => !vrm.humanoid.getNormalizedBoneNode(name)),
+          totalExpressions: expressions.size,
+          missingExpressions: [...expressions].filter(name => !vrm.expressionManager?.getExpression(name)),
+          lookAt: !animation.lookAtTrack ? 'unused' : vrm.lookAt ? 'available' : 'missing',
+        };
+        return { clip, compatibility };
       });
-      if (clips.some(clip => !Number.isFinite(clip.duration) || clip.duration <= 0 || clip.tracks.length === 0)) throw new Error('动作时长无效或没有可播放的骨骼、表情或视线轨道。');
+      if (clips.some(({ clip }) => !Number.isFinite(clip.duration) || clip.duration <= 0 || clip.tracks.length === 0)) throw new Error('动作时长无效或没有可播放的骨骼、表情或视线轨道。');
       if (this.disposed || this.vrm !== vrm || this.generation !== generation || this.motionGeneration !== motionGeneration) {
         throw new DOMException('动作加载已取消。', 'AbortError');
       }
       const mixer = new THREE.AnimationMixer(vrm.scene);
-      const actions = clips.map(clip => mixer.clipAction(clip));
+      const actions = clips.map(({ clip }) => mixer.clipAction(clip));
       this.releaseMotion();
       this.motionMixer = mixer;
       this.motionActions = actions;
       this.playMotion(0);
-      return clips.map((clip, index) => ({ index, name: clip.name.trim() || `动作 ${index + 1}`, duration: clip.duration }));
+      return clips.map(({ clip, compatibility }, index) => ({
+        index, name: clip.name.trim() || `动作 ${index + 1}`, duration: clip.duration, compatibility,
+      }));
     } finally {
       disposeVrmScene(gltf.scene);
     }
