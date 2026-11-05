@@ -101,6 +101,11 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
     };
     chatClose.onclick = closeComposer;
     chatInput.oninput = () => { draft = chatInput.value; controls(); };
+    chatInput.onkeydown = event => {
+      if (event.key !== 'Enter' || event.shiftKey || event.isComposing || event.keyCode === 229) return;
+      event.preventDefault();
+      chatComposer.requestSubmit();
+    };
     chatComposer.onsubmit = event => { event.preventDefault(); void sendDraft(); };
     petShell.dataset.composerOpen = 'false';
     controls();

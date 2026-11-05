@@ -38,7 +38,7 @@ app.innerHTML = petMode ? `
     <div id="pet-message" role="status"></div>
     <form id="pet-chat-composer" data-interactive hidden>
       <label class="sr-only" for="pet-chat-input">和桌宠聊天</label>
-      <textarea id="pet-chat-input" maxlength="2000" rows="2" placeholder="输入想说的话…"></textarea>
+      <textarea id="pet-chat-input" maxlength="2000" rows="2" placeholder="输入想说的话…（Enter 发送，Shift+Enter 换行）"></textarea>
       <div><button id="pet-chat-close" type="button">收起</button><button id="pet-chat-send" class="pet-chat-send" type="submit">发送</button></div>
     </form>
     <div id="pet-controls" data-interactive>
