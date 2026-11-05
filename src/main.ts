@@ -80,6 +80,7 @@ app.innerHTML = petMode ? `
           <section id="external-motion-panel" class="external-motion-panel" hidden aria-label="外部动作预览">
             <div class="external-motion-actions"><button id="external-motion-import" class="text-button" type="button">导入 VRM Animation（.vrma）</button><input id="external-motion-file" type="file" accept=".vrma,model/gltf-binary" hidden /></div>
             <div id="external-motion-controls" class="external-motion-actions" hidden><select id="external-motion-clip" aria-label="选择导入动作"></select><button id="external-motion-toggle" class="text-button" type="button">暂停动作</button><button id="external-motion-clear" class="text-button" type="button">恢复内置动作</button></div>
+            <div id="external-motion-scrubber" class="external-motion-scrubber" hidden><label for="external-motion-time">预览时间</label><input id="external-motion-time" type="range" min="0" max="1000" value="0" aria-label="拖动查看动作时间点" /><output id="external-motion-time-label">0.0 / 0.0 秒</output></div>
             <div id="external-motion-export" hidden><label class="field-label" for="external-motion-export-state">导出图集时替换动作行</label><select id="external-motion-export-state"><option value="">不替换（只预览）</option>${ANIMATION_ROWS.map(row => `<option value="${row.state}">${row.label}</option>`).join('')}</select><p class="helper">只替换一行动作；其余行保留内置动作。保存前请检查该行的动作循环和裁切。</p></div>
             <p id="external-motion-status" class="helper" role="status" aria-live="polite"></p>
             <p class="helper">动作仅暂存在工坊。可选替换导出图集中的一行动作；不会修改角色库或备份包。</p>
@@ -190,6 +191,7 @@ let paused = false;
 let animationTime = 0;
 let externalMotionClips: VrmMotionClipInfo[] = [];
 let externalMotionBuffer: ArrayBuffer | undefined;
+let lastExternalMotionUiUpdate = 0;
 let lastInteraction = performance.now();
 let preferences: DesktopPreferences = { ...DEFAULT_PREFERENCES };
 const framePacer = new FramePacer();
@@ -565,6 +567,12 @@ function resetExternalMotionPreview(message = '') {
   if (exportControls) exportControls.hidden = true;
   const exportState = document.querySelector<HTMLSelectElement>('#external-motion-export-state');
   if (exportState) exportState.value = '';
+  const scrubber = document.querySelector<HTMLElement>('#external-motion-scrubber');
+  if (scrubber) scrubber.hidden = true;
+  const timeInput = document.querySelector<HTMLInputElement>('#external-motion-time');
+  if (timeInput) timeInput.value = '0';
+  const timeLabel = document.querySelector<HTMLOutputElement>('#external-motion-time-label');
+  if (timeLabel) timeLabel.textContent = '0.0 / 0.0 秒';
   const file = document.querySelector<HTMLInputElement>('#external-motion-file');
   if (file) file.value = '';
   const select = document.querySelector<HTMLSelectElement>('#external-motion-clip');
@@ -590,6 +598,16 @@ function describeExternalMotionCompatibility(clip: VrmMotionClipInfo) {
   return `${clip.name} · ${clip.duration.toFixed(1)} 秒；骨骼匹配 ${mappedBones}/${report.totalBones}，表情匹配 ${mappedExpressions}/${report.totalExpressions}，${lookAt}。${missing.length ? `可能不会播放的轨道：${missing.join('；')}。` : ''}此检查只看名称映射，不评价动作视觉质量。`;
 }
 
+function updateExternalMotionTime() {
+  const index = Number($('#external-motion-clip').value);
+  const clip = externalMotionClips.find(item => item.index === index);
+  const time = stage?.motionTime(index) ?? 0;
+  const slider = $<HTMLInputElement>('#external-motion-time');
+  const value = clip && clip.duration > 0 ? Math.min(1000, Math.round(time / clip.duration * 1000)) : 0;
+  if (slider.value !== String(value)) slider.value = String(value);
+  $('#external-motion-time-label').textContent = `${time.toFixed(1)} / ${(clip?.duration ?? 0).toFixed(1)} 秒`;
+}
+
 async function importExternalMotion(file?: File) {
   if (!file || !stage || loading || packageJob || petMode) return;
   if (!file.name.toLowerCase().endsWith('.vrma')) { $('#external-motion-status').textContent = '请选择 .vrma 动作文件。'; return; }
@@ -609,8 +627,10 @@ async function importExternalMotion(file?: File) {
       option.textContent = `${clip.name} · ${clip.duration.toFixed(1)} 秒`; return option;
     }));
     $('#external-motion-controls').hidden = false;
+    $('#external-motion-scrubber').hidden = false;
     $('#external-motion-export').hidden = false;
     $<HTMLButtonElement>('#external-motion-toggle').disabled = false;
+    updateExternalMotionTime();
     $('#external-motion-status').textContent = `${file.name} · ${clips.length} 段动作，正在预览第 1 段。${describeExternalMotionCompatibility(clips[0])}`;
   } catch (error) {
     $('#external-motion-status').textContent = error instanceof Error ? error.message : '动作加载失败。';
@@ -777,6 +797,10 @@ async function bootstrap() {
       stage.render(state, animationTime, paused ? 0 : delta, now - lastPointer < 1800 ? look : undefined, stateRevision);
       renderMonitor.record(performance.now() - started);
     }
+    if (!petMode && externalMotionClips.length && now - lastExternalMotionUiUpdate >= 100) {
+      lastExternalMotionUiUpdate = now;
+      updateExternalMotionTime();
+    }
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);
@@ -920,7 +944,19 @@ if (petMode) {
       $<HTMLButtonElement>('#external-motion-toggle').textContent = '暂停动作';
       const clip = externalMotionClips[index];
       $('#external-motion-status').textContent = clip ? `正在预览：${describeExternalMotionCompatibility(clip)}` : '正在预览动作。';
+      updateExternalMotionTime();
     } catch (error) { $('#external-motion-status').textContent = error instanceof Error ? error.message : '动作切换失败。'; }
+  };
+  $<HTMLInputElement>('#external-motion-time').oninput = event => {
+    const index = Number($<HTMLSelectElement>('#external-motion-clip').value);
+    const clip = externalMotionClips.find(item => item.index === index);
+    if (!clip) return;
+    try {
+      const fraction = Number((event.currentTarget as HTMLInputElement).value) / 1000;
+      stage.seekMotion(index, clip.duration * fraction);
+      $<HTMLButtonElement>('#external-motion-toggle').textContent = '继续动作';
+      updateExternalMotionTime();
+    } catch (error) { $('#external-motion-status').textContent = error instanceof Error ? error.message : '动作定位失败。'; }
   };
   $('#external-motion-toggle').onclick = () => {
     const playing = stage.toggleMotion();

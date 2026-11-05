@@ -212,6 +212,20 @@ export class VrmStage {
     return !action.paused;
   }
 
+  seekMotion(index: number, seconds: number): void {
+    const action = this.motionActions[index];
+    const mixer = this.motionMixer;
+    if (!action || !mixer) throw new RangeError('请选择已加载的 VRM Animation 动作。');
+    const duration = action.getClip().duration;
+    if (!Number.isFinite(seconds) || !Number.isFinite(duration) || duration <= 0) throw new RangeError('动作预览时间无效。');
+    action.paused = true;
+    action.time = THREE.MathUtils.clamp(seconds, 0, Math.max(0, duration - 1e-5));
+    this.activeMotion = index;
+    mixer.update(0);
+  }
+
+  motionTime(index: number): number | undefined { return this.motionActions[index]?.time; }
+
   clearMotion(): void {
     ++this.motionGeneration;
     this.releaseMotion();
