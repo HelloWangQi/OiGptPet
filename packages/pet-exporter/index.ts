@@ -2,10 +2,11 @@ import { VrmStage } from '../renderer-vrm';
 import { sampleLook } from '../character-core';
 import {
   ANIMATION_ROWS, ATLAS_COLUMNS, CELL_HEIGHT, CELL_WIDTH, MAX_ENCODED_BYTES,
-  atlasDimensions, type AtlasProfile,
+  atlasDimensions, type AnimationState, type AtlasProfile,
 } from '../target-chatgpt/contract';
 
 export interface ExportResult { blob: Blob; width: number; height: number; frames: number; profile: AtlasProfile }
+export interface ExternalMotionExport { buffer: ArrayBuffer; clipIndex: number; state: AnimationState }
 
 // Each frame restarts from the captured rest state, so a fixed 60 Hz warm-up
 // removes the dependence on the previously sampled row without unbounded waiting.
@@ -17,6 +18,7 @@ export async function exportAtlas(
   profile: AtlasProfile,
   progress: (done: number, total: number) => void,
   signal?: AbortSignal,
+  externalMotion?: ExternalMotionExport,
 ): Promise<ExportResult> {
   signal?.throwIfAborted();
   const { width, height } = atlasDimensions(profile);
@@ -31,16 +33,23 @@ export async function exportAtlas(
   try {
     await stage.load(source);
     stage.resize(CELL_WIDTH, CELL_HEIGHT, 1);
+    const externalClip = externalMotion
+      ? (await stage.loadMotion(externalMotion.buffer)).find(clip => clip.index === externalMotion.clipIndex)
+      : undefined;
+    if (externalMotion && !externalClip) throw new Error('所选 VRMA 动作片段不存在，已取消图集导出。');
     // Physics is settled consistently for each pose rather than inheriting the previous row.
     for (const [row, definition] of ANIMATION_ROWS.entries()) {
       for (let col = 0; col < definition.frames; col++) {
         signal?.throwIfAborted();
         const phase = definition.state === 'jumping' ? col / (definition.frames - 1) : col / definition.frames;
-        stage.renderSettled(definition.state, phase, undefined, PHYSICS_STEPS);
+        if (externalMotion?.state === definition.state && externalClip) {
+          stage.renderMotionSettled(externalMotion.clipIndex, externalClip.duration * col / definition.frames, PHYSICS_STEPS);
+        } else stage.renderSettled(definition.state, phase, undefined, PHYSICS_STEPS);
         context.drawImage(frame, col * CELL_WIDTH, row * CELL_HEIGHT);
         progress(++done, total);
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
       }
+      if (externalMotion?.state === definition.state) stage.clearMotion();
     }
     if (profile === 'v2') {
       for (let i = 0; i < 16; i++) {

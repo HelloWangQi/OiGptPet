@@ -1,6 +1,6 @@
 {
   "name": "oigptpet",
-  "version": "0.9.3",
+  "version": "0.9.4",
   "private": true,
   "description": "A VRM anime desktop companion with ChatGPT sprite export",
   "type": "module",

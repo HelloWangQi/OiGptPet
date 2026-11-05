@@ -157,7 +157,7 @@ export class VrmStage {
       if (!animations?.length) throw new Error('文件中没有受支持的 VRM Animation 动作。');
       const clips = animations.map((animation, index) => {
         const clip = createVRMAnimationClip(animation, vrm);
-        clip.name = gltf.animations[index]?.name?.trim() || `动作 ${index + 1}`;
+        clip.name = gltf.animations[index]?.name?.trim().slice(0, 120) || `动作 ${index + 1}`;
         const bones = new Set<VRMHumanBoneName>(animation.humanoidTracks.rotation.keys());
         if (animation.humanoidTracks.translation.has('hips')) bones.add('hips');
         const expressions = new Set<string>([
@@ -220,6 +220,39 @@ export class VrmStage {
     this.lastStateRevision = undefined;
   }
 
+  renderMotionSettled(index: number, seconds: number, steps = 30): void {
+    const vrm = this.vrm;
+    const mixer = this.motionMixer;
+    const action = this.motionActions[index];
+    if (!vrm || !mixer || !action) throw new RangeError('请选择已加载的 VRM Animation 动作。');
+    const duration = action.getClip().duration;
+    if (!Number.isFinite(seconds) || !Number.isFinite(duration) || duration <= 0) throw new RangeError('动作采样时间无效。');
+    const time = ((seconds % duration) + duration) % duration;
+    mixer.stopAllAction();
+    action.reset();
+    action.setLoop(THREE.LoopRepeat, Infinity);
+    action.time = time;
+    action.play();
+    vrm.humanoid.resetNormalizedPose();
+    this.root.position.set(0, 0, 0);
+    this.root.rotation.set(0, 0, 0);
+    this.lookTarget.position.set(0, 1.65, 5);
+    this.resetExpressions();
+    mixer.update(0);
+    action.paused = true;
+    vrm.update(0);
+    const springs = vrm.springBoneManager;
+    springs?.reset();
+    springs?.setInitState();
+    for (let step = 0; step < Math.max(0, Math.floor(steps)); step++) springs?.update(1 / 60);
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  private resetExpressions() {
+    const expressions = this.vrm?.expressionManager;
+    for (const name of Object.keys(expressions?.expressionMap ?? {})) expressions?.setValue(name, 0);
+  }
+
   private applyPose(state: AnimationState, phase: number, look?: { yaw: number; pitch: number }, mouthOpen = 0) {
     if (!this.vrm) return;
     const vrm = this.vrm;
@@ -238,11 +271,11 @@ export class VrmStage {
     if (p.chest) rotate('chest', ...p.chest);
     if (p.neck) rotate('neck', ...p.neck);
     rotate('head', look?.pitch ?? p.headPitch, look?.yaw ?? p.headYaw, p.headRoll);
-    this.root.position.y = p.rootY;
-    this.root.rotation.y = p.rootYaw;
+    this.root.position.set(0, p.rootY, 0);
+    this.root.rotation.set(0, p.rootYaw, 0);
     adaptFaceArms(name => vrm.humanoid.getNormalizedBoneNode(name), state);
     const expressions = vrm.expressionManager;
-    for (const name of ['happy', 'sad', 'relaxed']) expressions?.setValue(name, 0);
+    this.resetExpressions();
     applyBlink(expressions ?? undefined, p.blink);
     expressions?.setValue('happy', p.happy);
     expressions?.setValue('sad', p.sad);
@@ -277,7 +310,7 @@ export class VrmStage {
       this.vrm?.humanoid.resetNormalizedPose();
       this.root.position.set(0, 0, 0);
       this.root.quaternion.identity();
-      for (const name of ['blink', 'blinkLeft', 'blinkRight', 'happy', 'sad', 'relaxed', 'aa']) this.vrm?.expressionManager?.setValue(name, 0);
+      this.resetExpressions();
       this.motionMixer?.update(boundedDelta);
     } else this.applyPose(state, phase, look, this.speechMouthCurrent);
     if (this.poseTransition && !externalMotion) {

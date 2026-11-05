@@ -3,7 +3,7 @@ import { CompanionStage, type CompanionInput, type PreparedCompanion } from './c
 import { createCharacterLibrary, type CharacterAsset, type CharacterSummary } from '../packages/character-library';
 import { MAX_MODEL_BYTES, type ModelInfo } from '../packages/character-core/vrm-file';
 import { ANIMATION_ROWS, type AnimationState, type AtlasProfile } from '../packages/target-chatgpt/contract';
-import { exportAtlas } from '../packages/pet-exporter';
+import { exportAtlas, type ExternalMotionExport } from '../packages/pet-exporter';
 import { ExportSession, type PreviewController } from './export-session';
 import { getSavedModel } from './model-store';
 import { DEFAULT_PREFERENCES, IDLE_AFTER_MS, PERFORMANCE_POLICIES, normalizePreferences, readPreferences, savePreferences, type DesktopPreferences } from './desktop-preferences';
@@ -80,8 +80,9 @@ app.innerHTML = petMode ? `
           <section id="external-motion-panel" class="external-motion-panel" hidden aria-label="外部动作预览">
             <div class="external-motion-actions"><button id="external-motion-import" class="text-button" type="button">导入 VRM Animation（.vrma）</button><input id="external-motion-file" type="file" accept=".vrma,model/gltf-binary" hidden /></div>
             <div id="external-motion-controls" class="external-motion-actions" hidden><select id="external-motion-clip" aria-label="选择导入动作"></select><button id="external-motion-toggle" class="text-button" type="button">暂停动作</button><button id="external-motion-clear" class="text-button" type="button">恢复内置动作</button></div>
+            <div id="external-motion-export" hidden><label class="field-label" for="external-motion-export-state">导出图集时替换动作行</label><select id="external-motion-export-state"><option value="">不替换（只预览）</option>${ANIMATION_ROWS.map(row => `<option value="${row.state}">${row.label}</option>`).join('')}</select><p class="helper">只替换一行动作；其余行保留内置动作。保存前请检查该行的动作循环和裁切。</p></div>
             <p id="external-motion-status" class="helper" role="status" aria-live="polite"></p>
-            <p class="helper">仅在工坊当前 VRM 预览，不保存到桌宠或精灵图导出。</p>
+            <p class="helper">动作仅暂存在工坊。可选替换导出图集中的一行动作；不会修改角色库或备份包。</p>
             <p class="helper">导入结果会对照当前角色检查动作轨道名称；匹配不代表动作绑定或视觉效果合格。</p>
           </section>
         </div>
@@ -188,6 +189,7 @@ let loading = false;
 let paused = false;
 let animationTime = 0;
 let externalMotionClips: VrmMotionClipInfo[] = [];
+let externalMotionBuffer: ArrayBuffer | undefined;
 let lastInteraction = performance.now();
 let preferences: DesktopPreferences = { ...DEFAULT_PREFERENCES };
 const framePacer = new FramePacer();
@@ -555,9 +557,14 @@ function changeState(next: AnimationState) {
 
 function resetExternalMotionPreview(message = '') {
   externalMotionClips = [];
+  externalMotionBuffer = undefined;
   stage?.clearMotion();
   const controls = document.querySelector<HTMLElement>('#external-motion-controls');
   if (controls) controls.hidden = true;
+  const exportControls = document.querySelector<HTMLElement>('#external-motion-export');
+  if (exportControls) exportControls.hidden = true;
+  const exportState = document.querySelector<HTMLSelectElement>('#external-motion-export-state');
+  if (exportState) exportState.value = '';
   const file = document.querySelector<HTMLInputElement>('#external-motion-file');
   if (file) file.value = '';
   const select = document.querySelector<HTMLSelectElement>('#external-motion-clip');
@@ -591,14 +598,18 @@ async function importExternalMotion(file?: File) {
   button.disabled = true;
   $('#external-motion-status').textContent = '正在本机读取并检查动作…';
   try {
-    const clips = await stage.loadMotion(await file.arrayBuffer());
+    const buffer = await file.arrayBuffer();
+    const clips = await stage.loadMotion(buffer);
     externalMotionClips = clips;
+    externalMotionBuffer = buffer;
+    $('#external-motion-export-state').value = '';
     const select = $<HTMLSelectElement>('#external-motion-clip');
     select.replaceChildren(...clips.map(clip => {
       const option = document.createElement('option'); option.value = String(clip.index);
       option.textContent = `${clip.name} · ${clip.duration.toFixed(1)} 秒`; return option;
     }));
     $('#external-motion-controls').hidden = false;
+    $('#external-motion-export').hidden = false;
     $<HTMLButtonElement>('#external-motion-toggle').disabled = false;
     $('#external-motion-status').textContent = `${file.name} · ${clips.length} 段动作，正在预览第 1 段。${describeExternalMotionCompatibility(clips[0])}`;
   } catch (error) {
@@ -654,6 +665,16 @@ const previewModules = import.meta.glob<{ createAtlasPreview(host: HTMLElement):
 
 async function runExport() {
   if (!source || !info || exportSession.busy || loading || packageJob) return;
+  const replacementState = $('#external-motion-export-state').value as AnimationState | '';
+  const replacementClipIndex = Number($('#external-motion-clip').value);
+  const replacementClip = replacementState ? externalMotionClips.find(clip => clip.index === replacementClipIndex) : undefined;
+  if (replacementState && (!externalMotionBuffer || !replacementClip || !ANIMATION_ROWS.some(row => row.state === replacementState))) {
+    status('外部动作替换信息不完整，请重新导入动作或恢复“不替换”。', true);
+    return;
+  }
+  const externalMotion: ExternalMotionExport | undefined = replacementState && externalMotionBuffer
+    ? { buffer: externalMotionBuffer.slice(0), clipIndex: replacementClipIndex, state: replacementState }
+    : undefined;
   clearExport(false);
   const revision = runRevision;
   const currentSource = source;
@@ -673,16 +694,27 @@ async function runExport() {
     if (!importPreview) throw new Error('动画预览暂不可用，请稍后重试。');
     const { createAtlasPreview } = await importPreview();
     if (revision !== runRevision) return;
+    const animationOverride = externalMotion && replacementClip
+      ? {
+          state: replacementState as AnimationState,
+          label: ANIMATION_ROWS.find(row => row.state === replacementState)?.label ?? replacementState,
+          clipName: replacementClip.name,
+          duration: replacementClip.duration,
+          sourceSha256: await sha256Hex(externalMotion.buffer.slice(0)),
+        }
+      : undefined;
+    if (revision !== runRevision) return;
     const record = await exportSession.run(profile, {
       model: currentInfo, source: origin,
       sourceUrl: origin === 'official-demo' ? 'https://github.com/pixiv/three-vrm/tree/dev/packages/three-vrm/examples/models' : undefined,
+      ...(animationOverride ? { externalAnimation: animationOverride } : {}),
     }, async (signal) => {
       const rendered = await exportAtlas(currentSource, profile, (done, total) => {
         if (revision !== runRevision) return;
         progress.max = total; progress.value = done;
         $('#local-check-status').textContent = `渲染 ${done} / ${total}`;
         status(`正在导出 ${done} / ${total} 帧…`);
-      }, signal);
+      }, signal, externalMotion);
       if (revision === runRevision) $('#local-check-status').textContent = '正在检查';
       return rendered.blob;
     }, () => createAtlasPreview($('#atlas-preview-host')));
@@ -690,7 +722,8 @@ async function runExport() {
     const { checked, report } = record;
     exportUrl = URL.createObjectURL(checked.blob);
     $<HTMLImageElement>('#atlas-image').src = exportUrl;
-    $('#export-description').textContent = `${report.model.name} · ${report.file.width} × ${report.file.height} · ${checked.inspection.requiredFrames} 帧 · ${(checked.encodedBytes / 1024 / 1024).toFixed(2)} MiB`;
+    const externalAnimationLabel = report.externalAnimation ? ` · ${report.externalAnimation.label}行使用 VRMA「${report.externalAnimation.clipName}」` : '';
+    $('#export-description').textContent = `${report.model.name}${externalAnimationLabel} · ${report.file.width} × ${report.file.height} · ${checked.inspection.requiredFrames} 帧 · ${(checked.encodedBytes / 1024 / 1024).toFixed(2)} MiB`;
     $('#export-sha256').textContent = `SHA-256 ${checked.sha256}`;
     $('#local-check-status').textContent = checked.inspection.valid ? '通过' : '未通过';
     for (const issue of checked.inspection.errors) {
