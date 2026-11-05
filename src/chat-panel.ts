@@ -25,6 +25,7 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
     const petShell = document.querySelector<HTMLElement>('.pet-shell')!;
     const message = document.getElementById('pet-message')!;
     let draft = '';
+    let draftRevision = 0;
     let sending = false;
     let stateReady = false;
     const chatBusy = () => latest?.status === 'thinking' || latest?.status === 'streaming';
@@ -44,6 +45,7 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
       chatSendButton.disabled = busy || sending || !draft.trim() || voiceInput.listening;
     };
     voiceInput = new ChatVoiceInput(() => draft, text => {
+      draftRevision += 1;
       draft = text;
       chatInput.value = text;
       if (text.trim()) message.textContent = text;
@@ -66,7 +68,7 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
     window.addEventListener('pet:open-workshop', onWorkshopOpen);
     receive = value => {
       if (closed) return;
-      if (value.status === 'cleared') { draft = ''; chatInput.value = ''; voiceInput.abort(); closeComposer(); }
+      if (value.status === 'cleared') { draftRevision += 1; draft = ''; chatInput.value = ''; voiceInput.abort(); closeComposer(); }
       if (chatBusy() && voiceInput.listening) voiceInput.abort();
       onState(value);
       if (draft.trim() && !sending) message.textContent = draft;
@@ -80,18 +82,22 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
     const sendDraft = async () => {
       const text = draft.trim();
       if (!text || sending || chatBusy() || voiceInput.listening) return;
+      const revisionAtSend = draftRevision;
       sending = true; draft = ''; chatInput.value = ''; voiceInput.abort(); closeComposer(); controls(); message.textContent = '正在发送…';
       try {
         const result = await api.sendPetMessage(text, crypto.randomUUID());
         if (result.error || result.cancelled) {
-          draft = text;
-          chatInput.value = text;
-          message.textContent = result.cancelled ? `已停止；草稿已保留：${text}` : `请求未完成；草稿已保留：${text}`;
+          if (draftRevision === revisionAtSend) { draft = text; chatInput.value = text; }
+          const retainedDraft = draft.trim();
+          message.textContent = result.cancelled
+            ? retainedDraft ? `已停止；草稿已保留：${retainedDraft}` : '已停止这次对话。'
+            : retainedDraft ? `请求未完成；草稿已保留：${retainedDraft}` : '请求未完成，请在工坊检查。';
         }
       } catch {
-        draft = text;
-        chatInput.value = text;
-        message.textContent = '发送失败或尚未配置对话；草稿已保留，请在工坊检查设置。';
+        if (draftRevision === revisionAtSend) { draft = text; chatInput.value = text; }
+        message.textContent = draft.trim()
+          ? `发送失败；草稿已保留：${draft.trim()}，请在工坊检查设置。`
+          : '发送失败或尚未配置对话，请在工坊检查设置。';
       } finally { sending = false; controls(); }
     };
     sendButton.onclick = () => void sendDraft();
@@ -106,7 +112,7 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
     cancelButton.onclick = () => {
       void api.cancelChat().catch(() => { message.textContent = '停止失败，请在工坊重试。'; });
     };
-    chatInput.oninput = () => { draft = chatInput.value; controls(); };
+    chatInput.oninput = () => { draftRevision += 1; draft = chatInput.value; controls(); };
     chatInput.onkeydown = event => {
       if (event.key !== 'Enter' || event.shiftKey || event.isComposing || event.keyCode === 229) return;
       event.preventDefault();

@@ -40,7 +40,8 @@ class VrmRenderer implements CompanionRenderer {
 
   resize(width: number, height: number, ratio: number) { this.stage.resize(width, height, ratio); }
   render(state: AnimationState, seconds: number, delta: number, look?: { yaw: number; pitch: number; angle: number }, stateRevision?: number) {
-    this.stage.render(state, seconds / 2, delta, look, stateRevision);
+    if (stateRevision !== undefined) this.stage.render(state, seconds / 2, delta, look, stateRevision);
+    else this.stage.render(state, seconds / 2, delta, look);
   }
   hitTest(x: number, y: number) { return this.stage.hitTest(x, y); }
   setSpeechMouthOpen(amount: number) { this.stage.setSpeechMouthOpen(amount); }

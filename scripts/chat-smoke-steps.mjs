@@ -59,6 +59,50 @@ export async function checkChat(desktop, page, pet) {
     await pet.waitForFunction(() => document.querySelector('#pet-message').textContent.includes('你好，桌宠！'), undefined, { polling: 100 });
     assert.equal(await pet.locator('#pet-read-aloud').isHidden(), false, 'A complete reply should be available to read aloud');
     await assert.rejects(pet.evaluate(() => window.petDesktop.sendChat('越权')), /Only the workshop/);
+    await page.locator('#pet-scale').selectOption('0.8');
+    await pet.waitForFunction(() => document.querySelector('.pet-shell').getBoundingClientRect().width < 300);
+    for (const id of ['workshop-button', 'pet-chat-toggle', 'pet-voice-input', 'pet-wave', 'pet-read-aloud', 'click-through', 'hide-pet']) {
+      const button = pet.locator(`#${id}`);
+      await button.evaluate(element => element.scrollIntoView({ inline: 'nearest', block: 'nearest' }));
+      const hit = await button.evaluate(element => {
+        const bounds = element.getBoundingClientRect();
+        const target = document.elementFromPoint(bounds.left + bounds.width / 2, bounds.top + bounds.height / 2);
+        return target === element || element.contains(target);
+      });
+      assert.equal(hit, true, `Pet toolbar button ${id} must be reachable at 80% scale`);
+    }
+    await page.locator('#pet-scale').selectOption('1.2');
+    await pet.waitForFunction(() => document.querySelector('.pet-shell').getBoundingClientRect().width > 300);
+    await pet.locator('#pet-controls').evaluate(element => { element.scrollLeft = 0; });
+    await desktop.evaluate(() => { globalThis.fetch = async () => new Response(JSON.stringify({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: '桌宠直接回复成功' }] }] })); });
+    await pet.locator('#pet-chat-toggle').click();
+    await pet.locator('#pet-chat-input').fill('桌宠直接发消息');
+    await pet.locator('#pet-chat-input').press('Enter');
+    await page.waitForFunction(() => document.querySelector('#chat-log').textContent.includes('桌宠直接发消息') && document.querySelector('#chat-log').textContent.includes('桌宠直接回复成功'));
+    await pet.waitForFunction(() => document.querySelector('#pet-message').textContent === '桌宠直接回复成功');
+    assert.equal(await page.locator('#chat-log p').count(), 4, 'Pet message and reply must sync into workshop history');
+    await desktop.evaluate(() => { globalThis.fetch = () => new Promise(resolve => { globalThis.__petCancelReply = resolve; }); });
+    await pet.locator('#pet-chat-toggle').click();
+    await pet.locator('#pet-chat-input').fill('桌宠待取消消息');
+    await pet.locator('#pet-chat-input').press('Enter');
+    await pet.locator('#pet-chat-cancel').waitFor({ state: 'visible' });
+    await pet.locator('#pet-chat-toggle').click();
+    await pet.locator('#pet-chat-input').fill('取消期间新写的草稿');
+    await pet.locator('#pet-chat-cancel').click();
+    await pet.waitForFunction(() => document.querySelector('#pet-message').textContent.includes('取消期间新写的草稿'));
+    await pet.locator('#pet-chat-toggle').click();
+    assert.equal(await pet.locator('#pet-chat-input').inputValue(), '取消期间新写的草稿', 'Cancelling an older request must preserve a newer pet draft');
+    assert.equal((await page.evaluate(() => window.petDesktop.getChatSnapshot())).history.length, 4, 'Cancelled pet messages must stay out of completed history');
+    assert.equal((await page.evaluate(() => window.petDesktop.getChatSnapshot())).attempt.status, 'cancelled');
+    await pet.locator('#pet-chat-input').fill('无更新时取消需恢复原草稿');
+    await pet.locator('#pet-chat-input').press('Enter');
+    await pet.locator('#pet-chat-cancel').waitFor({ state: 'visible' });
+    await pet.locator('#pet-chat-cancel').click();
+    await pet.waitForFunction(() => document.querySelector('#pet-message').textContent.includes('无更新时取消需恢复原草稿'));
+    await pet.locator('#pet-chat-toggle').click();
+    assert.equal(await pet.locator('#pet-chat-input').inputValue(), '无更新时取消需恢复原草稿', 'Cancel must restore the sent draft when no newer draft exists');
+    await pet.locator('#pet-chat-close').click();
+    await desktop.evaluate(() => { globalThis.__petCancelReply?.(new Response('late pet reply')); delete globalThis.__petCancelReply; });
     await desktop.evaluate(() => { globalThis.fetch = async () => new Response(new ReadableStream({ start(controller) {
       globalThis.__chatBrokenStream = controller;
       controller.enqueue(new TextEncoder().encode('data: {"type":"response.output_text.delta","delta":"还没结束","output_index":0,"content_index":0}\n\n'));
@@ -124,6 +168,7 @@ export async function checkChat(desktop, page, pet) {
     await page.waitForFunction(() => document.querySelector('#chat-status').textContent.includes('配置已保存'));
   } finally { await desktop.evaluate(() => {
     for (const key of ['__chatStream', '__chatBrokenStream', '__chatCancelStream']) { try { globalThis[key]?.error(new Error('test cleanup')); } catch {} delete globalThis[key]; }
+    globalThis.__petCancelReply?.(new Response('cleanup')); delete globalThis.__petCancelReply;
     globalThis.fetch = globalThis.__chatOriginalFetch; delete globalThis.__chatOriginalFetch;
     delete globalThis.__chatRequestCount;
   }); }

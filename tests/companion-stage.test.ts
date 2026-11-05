@@ -4,7 +4,7 @@ const probe = vi.hoisted(() => ({ instances: [] as any[], load: undefined as und
 vi.mock('../packages/renderer-vrm', () => ({ VrmStage: class {
   loaded = false;
   disposed = false;
-  render = vi.fn(); resize = vi.fn(); hitTest = vi.fn(() => true);
+  render = vi.fn(); resize = vi.fn(); hitTest = vi.fn(() => true); setSpeechMouthOpen = vi.fn();
   constructor(public canvas: any) { probe.instances.push(this); }
   async load() {
     await probe.load?.(); this.loaded = true;
