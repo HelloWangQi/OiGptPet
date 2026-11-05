@@ -1,16 +1,16 @@
-# 接续 0.9.1 精灵图视线过渡
+# 接续 0.9.1 快速动作切换
 
 2026-11-04。v0.9.0 已在 GitHub 作为正式版发布，源码提交 `d3b637daac9a8f395f229f711e25d6d43c8b4d29`。v0.6.0、v0.8.0、v0.8.5 的 `prerelease` 标记已关闭，名称已去除 Preview，原附件保留。发布页：[OiGptPet v0.9.0](https://github.com/HelloWangQi/OiGptPet/releases/tag/v0.9.0)。
 
 0.9.0 的 34 个测试文件、408 项单测通过；`npm run verify:desktop` 打包与 Windows EXE 冒烟通过，结果 `artifacts/release-smoke/run-1793762162495/result.json`。用户验证包为 [OiGptPet.exe](E:/GitWorkSpace/OiGptPet/release/v0.9.0-1793762152485/OiGptPet-win32-x64/OiGptPet.exe)，对应提交 `d3b637d`。ZIP 与校验文件哈希记录在 `artifacts/github-release-v0.9.0/manifest.json`。动作状态过渡尚未做人工连续播放视觉验收。
 
-0.9.1 为同动作显式重播增加状态修订号，并将 200 ms 透明度过渡接入精灵图桌宠的动作切换、同动作重播和 v2 视线模式进入/退出。鼠标在视线模式内连续改变方向仍即时响应；图集文件与导出采样不变。34 个测试文件、410 项单测通过。`npm run verify:desktop` 从当前源码打包并通过真实 EXE 冒烟，报告为 `artifacts/release-smoke/run-1793775465401/result.json`，浏览器错误为 0。采样确认 idle→waving alpha 0.926/0.074、同一 waving 行帧 2→帧 0 重播，以及 waving→look row 与 look row→waving 的进入/退出混合；各对 alpha 总和为 1。截图等待和低帧率视线过期边界也已加固。
+0.9.1 为同动作显式重播增加状态修订号，并将 200 ms 透明度过渡接入精灵图桌宠的动作切换、同动作重播和 v2 视线模式进入/退出。鼠标在视线模式内连续改变方向仍即时响应；图集文件与导出采样不变。快速再次切换动作时，从当前可见混合画面继续过渡。34 个测试文件、411 项单测通过。`npm run verify:desktop` 从当前源码打包并通过真实 EXE 冒烟，报告为 `artifacts/release-smoke/run-1793840726106/result.json`，浏览器错误为 0。采样确认 idle→waving、同一 waving 行重播以及 waving/look 行视线进入和退出混合；每组 alpha 总和为 1。测试同时确认中断时复用当前屏幕快照，并在过渡完成后释放画布。
 
-用户验证 EXE：`release/v0.9.1-1793775457009/OiGptPet-win32-x64/OiGptPet.exe`，对应上一个完整验证检查点 `3d00856`；该包尚未发布为 GitHub Release。测试使用 SwiftShader，不等同于用户显卡上的性能或连续运行验收。物理设备体验及长时间运行仍待确认；下次桌面验证前仍从当时源码运行 `npm run verify:desktop` 并提供对应 EXE 与提交。
+用户验证 EXE：`release/v0.9.1-1793840712451/OiGptPet-win32-x64/OiGptPet.exe`，运行时代码对应提交 `a90ede8`；本地检查点后续提交只补充测试与文档。该包尚未发布为 GitHub Release。测试使用 SwiftShader，不等同于用户显卡上的性能或连续运行验收。物理设备体验及长时间运行仍待确认；下次桌面验证前仍从当时源码运行 `npm run verify:desktop` 并提供对应 EXE 与提交。
 
-## 后续开发：快速连续动作切换
+## 本轮完成：快速连续动作切换
 
-在 `packages/renderer-sprite/index.ts` 中，若一段 200 ms 淡入淡出尚未完成又切换动作，现在会先捕获当前可见画布，再从该画面淡向新动作，避免跳回上一个过渡的目标帧。临时画布在过渡完成、资源重载或尺寸调整时释放。`npm run build` 通过；本项尚未运行单测或桌面 EXE 验收，也没有为此生成新 EXE。向用户提供验证包前，必须从当前源码运行 `npm run verify:desktop` 并给出匹配的 EXE 与提交。
+在 `packages/renderer-sprite/index.ts` 中，若一段 200 ms 淡入淡出尚未完成又切换动作，会先捕获当前可见画布，再从该画面淡向新动作，避免跳回上一个过渡的目标帧。中断时复用同一快照；过渡完成、资源重载或尺寸调整时释放。单测覆盖状态切换中断、连续重用快照和资源回收。当前 EXE 与完整验收结果见本节顶部。
 
 ## 0.8.9 托腮姿态调整记录
 

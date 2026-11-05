@@ -175,6 +175,7 @@ class FakeReadCanvas {
   width = 0;
   height = 0;
   source: FakeBitmap | null = null;
+  drawnImage: unknown = null;
 
   constructor(private readonly harness: FakeHarness) {}
 
@@ -183,8 +184,12 @@ class FakeReadCanvas {
       return null;
     }
     return {
-      drawImage: (image: FakeBitmap) => {
-        this.source = image;
+      clearRect: () => {},
+      drawImage: (image: unknown) => {
+        this.drawnImage = image;
+        if (typeof image === 'object' && image !== null && 'pixels' in image) {
+          this.source = image as FakeBitmap;
+        }
       },
       getImageData: (x: number, y: number, width: number, height: number) => {
         this.harness.imageReads += 1;
@@ -276,6 +281,7 @@ class FakeDisplayCanvas {
 class FakeHarness {
   readonly display = new FakeDisplayCanvas(this);
   readonly stage: SpriteStage;
+  readonly createdCanvases: FakeReadCanvas[] = [];
   readonly created: FakeBitmap[] = [];
   readonly pending: PendingDecode[] = [];
   readonly blobs = new WeakMap<Blob, { width: number; height: number; pixels: Uint8ClampedArray }>();
@@ -291,7 +297,9 @@ class FakeHarness {
         if (tag !== 'canvas') {
           throw new Error(`unexpected element: ${tag}`);
         }
-        return new FakeReadCanvas(this);
+        const canvas = new FakeReadCanvas(this);
+        this.createdCanvases.push(canvas);
+        return canvas;
       },
     });
     vi.stubGlobal('createImageBitmap', this.createImageBitmap);
@@ -963,8 +971,8 @@ describe('SpriteStage', () => {
     draws.length = 0;
     stage.render('waving', 0, undefined, 1 / 60, 12);
     expect(draws).toHaveLength(2);
-    expect(draws.map(({ sy }) => sy)).toEqual([3 * CELL_HEIGHT, 3 * CELL_HEIGHT]);
-    expect(draws.map(({ sx }) => sx)).toEqual([CELL_WIDTH, 0]);
+    expect(draws[0].image).toBe(harness.createdCanvases.at(-1));
+    expect(draws[1].sy).toBe(3 * CELL_HEIGHT);
     expect(draws[0].alpha + draws[1].alpha).toBeCloseTo(1);
 
     draws.length = 0;
@@ -975,6 +983,44 @@ describe('SpriteStage', () => {
     stage.render('waving', 0.3, undefined, 1 / 60, 12);
     expect(draws.length).toBe(beforeFinalFrame + 1);
     expect(draws.at(-1)?.composite).toBe('source-over');
+  });
+
+  it('restarts interrupted transitions from the visible frame and releases its snapshot', async () => {
+    await stage.load(harness.createAtlasBlob('v2').blob, 'v2');
+    stage.resize(192, 208, 1);
+    const draws = harness.display.context.draws;
+    const canvasCount = harness.createdCanvases.length;
+    stage.render('idle', 0, undefined, 0, 1);
+    draws.length = 0;
+    stage.render('waving', 0.125, undefined, 1 / 60, 2);
+    expect(draws.map(({ sy }) => sy)).toEqual([0, 3 * CELL_HEIGHT]);
+
+    draws.length = 0;
+    stage.render('failed', 0.05, undefined, 1 / 60, 3);
+    const snapshot = harness.createdCanvases.at(-1);
+    expect(snapshot).toBeDefined();
+    expect(snapshot?.drawnImage).toBe(harness.display);
+    expect(harness.createdCanvases).toHaveLength(canvasCount + 1);
+    expect(draws).toHaveLength(2);
+    expect(draws[0].image).toBe(snapshot);
+    expect(draws[1].sy).toBe(5 * CELL_HEIGHT);
+    expect(draws[0].alpha + draws[1].alpha).toBeCloseTo(1);
+
+    draws.length = 0;
+    stage.render('jumping', 0.125, undefined, 1 / 60, 4);
+    expect(harness.createdCanvases).toHaveLength(canvasCount + 1);
+    expect(snapshot?.drawnImage).toBe(harness.display);
+    expect(draws[0].image).toBe(snapshot);
+    expect(draws[1].sy).toBe(4 * CELL_HEIGHT);
+    expect(draws[0].alpha + draws[1].alpha).toBeCloseTo(1);
+
+    for (let index = 0; index < 3; index += 1) {
+      stage.render('jumping', 0.2 + index / 15, undefined, 1 / 15, 4);
+    }
+    stage.render('jumping', 0.5, undefined, 1 / 60, 4);
+    expect(draws.at(-1)?.composite).toBe('source-over');
+    expect(snapshot?.width).toBe(0);
+    expect(snapshot?.height).toBe(0);
   });
 
   it('crossfades v2 gaze entry and exit but leaves pointer direction changes immediate', async () => {
