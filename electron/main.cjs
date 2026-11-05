@@ -160,7 +160,11 @@ function handlers() {
   ipcMain.handle('chat:save', (event, value) => { chatOwner(event); return chat.save(value); });
   ipcMain.handle('chat:send', (event, text, requestId) => { chatOwner(event); return chat.send(text, requestId); });
   ipcMain.handle('chat:send-pet', (event, text, requestId) => { petChatOwner(event); return chat.send(text, requestId); });
-  ipcMain.handle('chat:cancel', event => { chatOwner(event); chat.cancel(); });
+  ipcMain.handle('chat:cancel', event => {
+    const owner = trusted(event);
+    if (owner !== workshop) petChatOwner(event);
+    chat.cancel();
+  });
   ipcMain.handle('chat:clear', event => { chatOwner(event); chat.clear(); });
   const saveDiagnostics = createDiagnosticsExporter({
     chooseFile: owner => dialog.showSaveDialog(owner, { defaultPath: 'OiGptPet-desktop-diagnostics.json', filters: [{ name: '桌面诊断 JSON', extensions: ['json'] }] }),

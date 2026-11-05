@@ -44,6 +44,7 @@ app.innerHTML = petMode ? `
     <div id="pet-controls" data-interactive>
       <button id="workshop-button" title="角色工坊">工坊</button>
       <button id="pet-chat-toggle" title="直接输入文字聊天" aria-expanded="false">聊聊</button>
+      <button id="pet-chat-cancel" title="停止当前回复" hidden>停止</button>
       <button id="pet-voice-input" title="语音识别由系统服务提供，联网与处理方式由服务决定；检查转写后手动发送" aria-pressed="false">听写</button>
       <button id="pet-voice-send" title="把转写文字发送给伙伴" hidden>发送</button>
       <button id="pet-wave" title="挥手">挥手</button>

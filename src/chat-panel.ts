@@ -17,6 +17,7 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
     const voiceButton = document.getElementById('pet-voice-input') as HTMLButtonElement;
     const sendButton = document.getElementById('pet-voice-send') as HTMLButtonElement;
     const chatToggle = document.getElementById('pet-chat-toggle') as HTMLButtonElement;
+    const cancelButton = document.getElementById('pet-chat-cancel') as HTMLButtonElement;
     const chatComposer = document.getElementById('pet-chat-composer') as HTMLFormElement;
     const chatInput = document.getElementById('pet-chat-input') as HTMLTextAreaElement;
     const chatClose = document.getElementById('pet-chat-close') as HTMLButtonElement;
@@ -31,6 +32,8 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
     const controls = () => {
       const busy = chatBusy();
       voiceButton.disabled = !stateReady || !voiceInput.available || busy || sending;
+      cancelButton.hidden = !busy;
+      cancelButton.disabled = !stateReady;
       voiceButton.textContent = voiceInput.listening ? '停止' : draft.trim() ? '重录' : '听写';
       voiceButton.dataset.listening = String(voiceInput.listening);
       voiceButton.setAttribute('aria-pressed', String(voiceInput.listening));
@@ -100,6 +103,9 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
       if (!chatComposer.hidden) requestAnimationFrame(() => chatInput.focus());
     };
     chatClose.onclick = closeComposer;
+    cancelButton.onclick = () => {
+      void api.cancelChat().catch(() => { message.textContent = '停止失败，请在工坊重试。'; });
+    };
     chatInput.oninput = () => { draft = chatInput.value; controls(); };
     chatInput.onkeydown = event => {
       if (event.key !== 'Enter' || event.shiftKey || event.isComposing || event.keyCode === 229) return;
