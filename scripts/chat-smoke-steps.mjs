@@ -90,16 +90,15 @@ export async function checkChat(desktop, page, pet) {
     await pet.locator('#pet-chat-input').fill('取消期间新写的草稿');
     await pet.locator('#pet-chat-cancel').click();
     await pet.waitForFunction(() => document.querySelector('#pet-message').textContent.includes('取消期间新写的草稿'));
-    await pet.locator('#pet-chat-toggle').click();
     assert.equal(await pet.locator('#pet-chat-input').inputValue(), '取消期间新写的草稿', 'Cancelling an older request must preserve a newer pet draft');
     assert.equal((await page.evaluate(() => window.petDesktop.getChatSnapshot())).history.length, 4, 'Cancelled pet messages must stay out of completed history');
     assert.equal((await page.evaluate(() => window.petDesktop.getChatSnapshot())).attempt.status, 'cancelled');
     await pet.locator('#pet-chat-input').fill('无更新时取消需恢复原草稿');
     await pet.locator('#pet-chat-input').press('Enter');
     await pet.locator('#pet-chat-cancel').waitFor({ state: 'visible' });
+    await pet.locator('#pet-chat-toggle').click();
     await pet.locator('#pet-chat-cancel').click();
     await pet.waitForFunction(() => document.querySelector('#pet-message').textContent.includes('无更新时取消需恢复原草稿'));
-    await pet.locator('#pet-chat-toggle').click();
     assert.equal(await pet.locator('#pet-chat-input').inputValue(), '无更新时取消需恢复原草稿', 'Cancel must restore the sent draft when no newer draft exists');
     await pet.locator('#pet-chat-close').click();
     await desktop.evaluate(() => { globalThis.__petCancelReply?.(new Response('late pet reply')); delete globalThis.__petCancelReply; });
