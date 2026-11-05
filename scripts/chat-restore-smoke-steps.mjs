@@ -78,7 +78,15 @@ export async function checkChatRestore(desktop, page, pet, errors) {
     // before checking that a new request works after clearing persisted history.
     await desktop.evaluate(() => { globalThis.fetch = async () => new Response(JSON.stringify({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: '退出后未恢复旧消息' }] }] })); });
     await page.locator('#chat-input').fill('退出后不应恢复'); await page.locator('#chat-send').click();
-    await page.waitForFunction(() => document.querySelector('#chat-status').textContent.includes('回复完成'));
+    try { await page.waitForFunction(() => document.querySelector('#chat-status').textContent.includes('回复完成')); }
+    catch (error) {
+      const state = await page.evaluate(() => ({ status: document.querySelector('#chat-status')?.textContent,
+        log: document.querySelector('#chat-log')?.textContent, input: document.querySelector('#chat-input')?.value,
+        sendDisabled: document.querySelector('#chat-send')?.disabled, snapshot: window.petDesktop.getChatSnapshot(),
+        settings: window.petDesktop.getChatSettings() })).catch(() => null);
+      console.error('Chat restore final-send diagnostic:', state);
+      throw error;
+    }
     return { page, pet };
   } finally {
     await desktop.evaluate(() => { try { globalThis.__restoreStream?.error(new Error('cleanup')); } catch {} delete globalThis.__restoreStream;
