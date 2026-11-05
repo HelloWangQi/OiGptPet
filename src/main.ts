@@ -115,6 +115,8 @@ app.innerHTML = petMode ? `
             <p class="helper">密钥由系统加密后保存在本机。点击发送会将本次消息及最近四轮对话发送给 OpenAI API，费用由该 API 账户承担。</p>
           </details>
           <div id="chat-log" role="log" aria-label="本次对话"></div>
+          <button id="chat-read-aloud" class="text-button" type="button" disabled>朗读最新回复</button>
+          <p class="helper">手动使用系统语音朗读最新一条完整回复；不会自动播报。</p>
           <form id="chat-form"><label class="field-label" for="chat-input">想说的话</label><textarea id="chat-input" maxlength="2000" rows="3"></textarea>
             <p class="helper">Ctrl / ⌘ + Enter 发送，Enter 换行。</p>
             <button id="chat-send" class="button" type="submit">发送</button><button id="chat-cancel" class="text-button" type="button" hidden>取消请求</button><button id="chat-retry" class="text-button" type="button" hidden>重试上一条</button><button id="chat-clear" class="text-button" type="button">清空对话</button></form>

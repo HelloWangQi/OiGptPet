@@ -1,16 +1,20 @@
-# 接续 0.9.1 快速动作切换
+# 接续 0.9.1 回复朗读
 
 2026-11-04。v0.9.0 已在 GitHub 作为正式版发布，源码提交 `d3b637daac9a8f395f229f711e25d6d43c8b4d29`。v0.6.0、v0.8.0、v0.8.5 的 `prerelease` 标记已关闭，名称已去除 Preview，原附件保留。发布页：[OiGptPet v0.9.0](https://github.com/HelloWangQi/OiGptPet/releases/tag/v0.9.0)。
 
 0.9.0 的 34 个测试文件、408 项单测通过；`npm run verify:desktop` 打包与 Windows EXE 冒烟通过，结果 `artifacts/release-smoke/run-1793762162495/result.json`。用户验证包为 [OiGptPet.exe](E:/GitWorkSpace/OiGptPet/release/v0.9.0-1793762152485/OiGptPet-win32-x64/OiGptPet.exe)，对应提交 `d3b637d`。ZIP 与校验文件哈希记录在 `artifacts/github-release-v0.9.0/manifest.json`。动作状态过渡尚未做人工连续播放视觉验收。
 
-0.9.1 为同动作显式重播增加状态修订号，并将 200 ms 透明度过渡接入精灵图桌宠的动作切换、同动作重播和 v2 视线模式进入/退出。鼠标在视线模式内连续改变方向仍即时响应；图集文件与导出采样不变。快速再次切换动作时，从当前可见混合画面继续过渡。34 个测试文件、411 项单测通过。`npm run verify:desktop` 从当前源码打包并通过真实 EXE 冒烟，报告为 `artifacts/release-smoke/run-1793840726106/result.json`，浏览器错误为 0。采样确认 idle→waving、同一 waving 行重播以及 waving/look 行视线进入和退出混合；每组 alpha 总和为 1。测试同时确认中断时复用当前屏幕快照，并在过渡完成后释放画布。
+0.9.1 为同动作显式重播增加状态修订号，并将 200 ms 透明度过渡接入精灵图桌宠的动作切换、同动作重播和 v2 视线模式进入/退出。鼠标在视线模式内连续改变方向仍即时响应；快速再次切换动作时，从当前可见混合画面继续过渡。精灵图文件与导出采样不变。另为聊天区增加手动系统语音朗读最近一条完整回复，可停止播放；不会自动播报，也不会额外请求 API。35 个测试文件、415 项单测通过。
 
-用户验证 EXE：`release/v0.9.1-1793840712451/OiGptPet-win32-x64/OiGptPet.exe`，运行时代码对应提交 `a90ede8`；本地检查点后续提交只补充测试与文档。该包尚未发布为 GitHub Release。测试使用 SwiftShader，不等同于用户显卡上的性能或连续运行验收。物理设备体验及长时间运行仍待确认；下次桌面验证前仍从当时源码运行 `npm run verify:desktop` 并提供对应 EXE 与提交。
+当前验证 EXE：`release/v0.9.1-1793841357623/OiGptPet-win32-x64/OiGptPet.exe`。`npm run verify:desktop` 的打包通过；首次合并冒烟在工坊尺寸等待处超时，随后对同一 EXE 运行 `npm run test:release` 通过，结果为 `artifacts/release-smoke/run-1793841484208/result.json`，渲染错误为 0。单元测试覆盖语音控制器；未实际播放 Windows 系统语音，语音可用性及口音由目标电脑提供。该包尚未发布为 GitHub Release。SwiftShader 冒烟不等同于用户显卡性能或长时间运行验收。下次桌面验证前仍从当时源码运行 `npm run verify:desktop` 并提供对应 EXE 与提交。
 
 ## 本轮完成：快速连续动作切换
 
 在 `packages/renderer-sprite/index.ts` 中，若一段 200 ms 淡入淡出尚未完成又切换动作，会先捕获当前可见画布，再从该画面淡向新动作，避免跳回上一个过渡的目标帧。中断时复用同一快照；过渡完成、资源重载或尺寸调整时释放。单测覆盖状态切换中断、连续重用快照和资源回收。当前 EXE 与完整验收结果见本节顶部。
+
+## 本轮新增：手动系统语音朗读
+
+工坊新增“朗读最新回复”按钮，只读最近一条完整伙伴回复；朗读中按钮可停止。发送新消息、清空、成功保存对话设置及关闭工坊会停止语音。`ChatSpeech` 封装播放生命周期，处理语音引擎异常和迟到结束事件。自动化单测已通过；尚未在真实 Windows 系统语音上听测，也未实现语音输入或音量同步口型。配置说明见 [CHAT_SETUP.md](CHAT_SETUP.md)。
 
 ## 0.8.9 托腮姿态调整记录
 

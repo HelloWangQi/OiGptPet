@@ -1,4 +1,5 @@
 import { CHAT_READINESS_TEXT, chatSettingsIssue } from './chat-readiness';
+import { ChatSpeech } from './chat-speech';
 type Desktop = NonNullable<Window['petDesktop']>;
 export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (state: CompanionChatState) => void) {
   const noop = { dispose() {}, async refresh() {} };
@@ -24,11 +25,16 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
   const forget = $<HTMLButtonElement>('chat-forget'); const retry = $<HTMLButtonElement>('chat-retry');
   const clear = $<HTMLButtonElement>('chat-clear'); const status = $('chat-status'); const log = $('chat-log');
   const check = $<HTMLButtonElement>('chat-check'); const checkStatus = $('chat-check-status');
+  const readAloud = $<HTMLButtonElement>('chat-read-aloud');
   const settingsPanel = document.querySelector<HTMLDetailsElement>('.chat-panel details')!;
   let savedModel = '';
   let busy = false; let saving = false; let initializing = true; let configured = false; let ready = false; let revision = 0;
+  let latestReply = '';
   let failed: { text: string; row: HTMLElement; partial?: HTMLElement } | undefined;
   let pending: { run: number; requestId: string; text: string; row: HTMLElement; partial?: HTMLElement } | undefined;
+  const speechRuntime = typeof window.speechSynthesis === 'undefined' || typeof SpeechSynthesisUtterance === 'undefined'
+    ? undefined : window.speechSynthesis;
+  const speech = new ChatSpeech(speechRuntime, undefined, () => controls());
   const append = (role: string, text: string) => {
     const row = document.createElement('p'); row.textContent = `${role}：${text}`; log.append(row);
     while (log.children.length > 12) log.firstElementChild?.remove();
@@ -39,6 +45,8 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
     save.disabled = forget.disabled = model.disabled = key.disabled = check.disabled = busy || initializing;
     clear.disabled = saving || initializing; cancel.hidden = !busy || saving;
     retry.hidden = !failed; retry.disabled = busy || initializing || !configured || !ready;
+    readAloud.textContent = speech.speaking ? '停止朗读' : '朗读最新回复';
+    readAloud.disabled = initializing || (!speech.speaking && (busy || !latestReply || !speech.available));
   };
   const configure = (value: { model: string; hasKey: boolean; encryptionAvailable: boolean }) => {
     model.value = value.model; key.value = ''; configured = Boolean(value.model && value.hasKey && value.encryptionAvailable);
@@ -51,7 +59,7 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
     if (!pending) return;
     pending.row.dataset.delivery = 'sent';
     const reply = pending.partial ?? append('伙伴', ''); reply.textContent = `伙伴：${text}`; delete reply.dataset.replyState;
-    pending = undefined; busy = false; failed = undefined; status.textContent = '回复完成。'; log.scrollTop = log.scrollHeight; controls();
+    pending = undefined; busy = false; failed = undefined; latestReply = text; status.textContent = '回复完成。'; log.scrollTop = log.scrollHeight; controls();
   };
   const fail = (message: string, delivery: string) => {
     if (!pending) return;
@@ -63,6 +71,7 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
   const apply = (value: CompanionChatState) => {
     onState(value);
     if (value.status === 'cleared') {
+      speech.stop(); latestReply = '';
       ++revision; pending = undefined; failed = undefined; busy = saving; log.replaceChildren(); status.textContent = '本次对话已清空。'; controls(); return;
     }
     if (!pending || value.requestId !== pending.requestId || pending.run !== revision) return;
@@ -76,6 +85,8 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
   receive = value => { if (ready && !initializing) apply(value); };
   const hydrate = (value: CompanionChatSnapshot) => {
     ++revision; log.replaceChildren(); pending = undefined; failed = undefined; busy = false;
+    speech.stop();
+    latestReply = [...value.history].reverse().find(message => message.role === 'assistant')?.content ?? '';
     for (const message of value.history) {
       const row = append(message.role === 'user' ? '你' : '伙伴', message.content);
       if (message.role === 'user') row.dataset.delivery = 'sent';
@@ -111,11 +122,15 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
     const apiKey = key.value; key.value = '';
     try {
       const value = await api.saveChatSettings({ model: model.value, ...(apiKey ? { apiKey } : {}), forgetKey });
-      if (!closed) { configure(value); ++revision; pending = undefined; ready = true; log.replaceChildren(); failed = undefined; }
+      if (!closed) { speech.stop(); latestReply = ''; configure(value); ++revision; pending = undefined; ready = true; log.replaceChildren(); failed = undefined; }
     } catch { if (!closed) status.textContent = '设置保存失败，请检查模型 ID、密钥和系统安全存储。'; }
     finally { if (!closed) { busy = false; saving = false; controls(); } }
   };
   save.onclick = () => void saveSettings(); forget.onclick = () => void saveSettings(true);
+  readAloud.onclick = () => {
+    if (speech.speaking) { speech.stop(); return; }
+    if (!speech.speak(latestReply, navigator.language || 'zh-CN')) status.textContent = '系统语音不可用，无法朗读。';
+  };
   check.onclick = async () => {
     if (busy || initializing) return;
     if (model.value.trim() !== savedModel || key.value) { checkStatus.textContent = '请先保存更改，再检查已保存的配置。'; return; }
@@ -130,6 +145,7 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
   };
   const submit = async (text: string, previous?: HTMLElement) => {
     if (busy || initializing || !configured || !ready || !text.trim()) return;
+    speech.stop();
     const run = ++revision; const requestId = crypto.randomUUID();
     if (previous && failed?.partial) failed.partial.remove();
     busy = true; failed = undefined;
@@ -151,8 +167,8 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
   cancel.onclick = () => { void api.cancelChat().catch(() => { if (!closed) status.textContent = '取消失败，请重试。'; }); };
   clear.onclick = async () => {
     if (saving || initializing) return;
-    try { await api.clearChat(); if (!closed) { ++revision; busy = false; pending = undefined; failed = undefined; ready = true; log.replaceChildren(); controls(); status.textContent = '本次对话已清空。'; } }
+    try { await api.clearChat(); if (!closed) { speech.stop(); latestReply = ''; ++revision; busy = false; pending = undefined; failed = undefined; ready = true; log.replaceChildren(); controls(); status.textContent = '本次对话已清空。'; } }
     catch { if (!closed) status.textContent = '清空失败，请重试。'; }
   };
-  return { dispose() { ++revision; dispose(); }, async refresh() {} };
+  return { dispose() { speech.dispose(); ++revision; dispose(); }, async refresh() {} };
 }
