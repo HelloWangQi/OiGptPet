@@ -62,68 +62,46 @@ export async function checkSpriteTransitions(page) {
     window.__spriteTransitionProbe = { context, original, log };
   });
 
-  const inspectPair = (fromRow, toRow, replay = false) => page.evaluate(({ fromRow, toRow, replay }) => {
-    const probe = window.__spriteTransitionProbe;
-    for (let index = 0; index + 1 < probe.log.length; index += 1) {
-      const from = probe.log[index];
-      const to = probe.log[index + 1];
-      if (from.composite !== 'lighter' || to.composite !== 'lighter') continue;
-      if (from.sy !== fromRow || to.sy !== toRow) continue;
-      if (Math.abs(from.alpha + to.alpha - 1) > 0.001 || from.alpha <= 0 || to.alpha <= 0) continue;
-      if (replay && from.sx === to.sx) continue;
-      return { from, to };
-    }
-    return null;
-  }, { fromRow, toRow, replay });
+  const waitForPair = async (fromRows, toRows, replay = false, timeout = 2000) => {
+    const args = { fromRows, toRows, replay };
+    const findPair = ({ fromRows, toRows, replay }) => {
+      const log = window.__spriteTransitionProbe.log;
+      for (let index = 0; index + 1 < log.length; index += 1) {
+        const from = log[index]; const to = log[index + 1];
+        if (from.composite !== 'lighter' || to.composite !== 'lighter') continue;
+        if (!fromRows.includes(from.sy) || !toRows.includes(to.sy)) continue;
+        if (Math.abs(from.alpha + to.alpha - 1) > 0.001 || from.alpha <= 0 || to.alpha <= 0) continue;
+        if (replay && from.sx === to.sx) continue;
+        return { from, to };
+      }
+      return null;
+    };
+    await page.waitForFunction(findPair, args, { timeout, polling: 50 });
+    return page.evaluate(findPair, args);
+  };
 
   try {
     await page.evaluate(() => document.querySelector('[data-state="waving"]').click());
-    await page.waitForTimeout(70);
-    const changed = await inspectPair(0, 3 * 208);
-    assert.ok(changed, 'sprite state change should blend the previous and next animation rows');
+    const changed = await waitForPair([0], [3 * 208]);
 
     await page.waitForTimeout(260);
     await page.evaluate(() => { window.__spriteTransitionProbe.log.length = 0; });
     await page.evaluate(() => document.querySelector('[data-state="waving"]').click());
-    await page.waitForTimeout(70);
-    const replay = await inspectPair(3 * 208, 3 * 208, true);
-    assert.ok(replay, 'same-action sprite replay should blend its previous and restarted frames');
+    const replay = await waitForPair([3 * 208], [3 * 208], true);
 
     await page.waitForTimeout(260);
     const bounds = await page.locator('#character-canvas').boundingBox();
     assert.ok(bounds, 'sprite preview canvas should remain visible');
     await page.mouse.move(bounds.x + bounds.width / 2, bounds.y + bounds.height / 2);
-    await page.waitForTimeout(300);
-    const gazeEntry = await page.evaluate(() => {
-      const log = window.__spriteTransitionProbe.log;
-      for (let index = 0; index + 1 < log.length; index += 1) {
-        const from = log[index]; const to = log[index + 1];
-        if (from.composite !== 'lighter' || to.composite !== 'lighter') continue;
-        if (from.sy !== 3 * 208 || (to.sy !== 9 * 208 && to.sy !== 10 * 208)) continue;
-        if (Math.abs(from.alpha + to.alpha - 1) > 0.001 || from.alpha <= 0 || to.alpha <= 0) continue;
-        return { from, to };
-      }
-      return null;
-    });
-    assert.ok(gazeEntry, 'v2 gaze entry should blend from the action row to a look row');
+    const gazeEntry = await waitForPair([3 * 208], [9 * 208, 10 * 208]);
 
     await page.waitForTimeout(250);
     await page.evaluate(() => { window.__spriteTransitionProbe.log.length = 0; });
-    // Pointer gaze expires after 1.8 s; the low idle frame cap can take a few
-    // more frames to finish the same elapsed-time transition.
-    await page.waitForTimeout(2500);
-    const gazeExit = await page.evaluate(() => {
-      const log = window.__spriteTransitionProbe.log;
-      for (let index = 0; index + 1 < log.length; index += 1) {
-        const from = log[index]; const to = log[index + 1];
-        if (from.composite !== 'lighter' || to.composite !== 'lighter') continue;
-        if ((from.sy !== 9 * 208 && from.sy !== 10 * 208) || to.sy !== 3 * 208) continue;
-        if (Math.abs(from.alpha + to.alpha - 1) > 0.001 || from.alpha <= 0 || to.alpha <= 0) continue;
-        return { from, to };
-      }
-      return null;
-    });
-    assert.ok(gazeExit, 'v2 gaze exit should blend back to the current action row');
+    // Begin sampling shortly before gaze expires so idle frame pacing cannot
+    // make the whole crossfade pass between two observations.
+    await page.waitForTimeout(1500);
+    await page.evaluate(() => { window.__spriteTransitionProbe.log.length = 0; });
+    const gazeExit = await waitForPair([9 * 208, 10 * 208], [3 * 208], false, 1800);
     return { stateChange: true, sameActionReplay: true, gazeEntry, gazeExit, blend: changed, replay };
   } finally {
     await page.evaluate(() => {
