@@ -36,13 +36,13 @@ describe('pet conversation across character replacement', () => {
     expect(view.canReadAloud()).toBe(false);
     expect(view.current(2)?.animation).toBe('running');
     view.update({ sequence: 3, status: 'error', text: '工坊详细错误' }, 3);
-    expect(view.current(4)).toEqual({ text: '请求未完成，请在工坊查看。', animation: 'idle', until: 0 });
+    expect(view.current(4)).toEqual({ text: '请求未完成，请在工坊查看。', animation: 'failed', until: 1603 });
   });
   it('does not bring partial text back after cancellation', () => {
     const view = new PetChatPresentation();
     view.update({ sequence: 1, status: 'streaming', text: '片段' }, 0);
     view.update({ sequence: 2, status: 'cancelled' }, 1);
     expect(view.canReadAloud()).toBe(false);
-    expect(view.current(500)).toEqual({ text: '', animation: 'idle', until: 0 });
+    expect(view.current(500)).toEqual({ text: '已停止这次对话。', animation: 'waiting', until: 1201 });
   });
 });

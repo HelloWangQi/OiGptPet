@@ -4,11 +4,13 @@ import type { AnimationState } from '../packages/target-chatgpt/contract';
 export class PetChatPresentation {
   private latest?: CompanionChatState;
   private replyUntil = 0;
+  private reactionUntil = 0;
 
   update(value: CompanionChatState, now: number) {
     if (this.latest && value.sequence <= this.latest.sequence) return;
     this.latest = { ...value };
     this.replyUntil = value.status === 'reply' ? now + 2000 : 0;
+    this.reactionUntil = value.status === 'error' ? now + 1600 : value.status === 'cancelled' ? now + 1200 : 0;
   }
 
   canReadAloud(): boolean {
@@ -25,6 +27,14 @@ export class PetChatPresentation {
       const waving = now < this.replyUntil;
       return { text: value.text ?? '', animation: waving ? 'waving' : 'idle', until: waving ? this.replyUntil : 0 };
     }
-    return { text: value.status === 'error' ? '请求未完成，请在工坊查看。' : '', animation: 'idle', until: 0 };
+    if (value.status === 'error') {
+      const reacting = now < this.reactionUntil;
+      return { text: '请求未完成，请在工坊查看。', animation: reacting ? 'failed' : 'idle', until: reacting ? this.reactionUntil : 0 };
+    }
+    if (value.status === 'cancelled') {
+      const reacting = now < this.reactionUntil;
+      return { text: '已停止这次对话。', animation: reacting ? 'waiting' : 'idle', until: reacting ? this.reactionUntil : 0 };
+    }
+    return { text: '', animation: 'idle', until: 0 };
   }
 }
