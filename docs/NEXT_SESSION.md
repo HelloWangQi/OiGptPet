@@ -1,8 +1,8 @@
-# 接续 0.10.0：多行动作行 VRMA 替换开发中
+# 接续 0.10.0：发布后验收收尾
 
-基线为分支 `codex/desktop-prototype`、提交 `1937725`。本地开发检查点已保存：VRMA 导出支持多行分配的首轮实现；UI 可把所选片段加入/更新某个动作行，导出器按行选片段采样，报告单行时继续输出 `externalAnimation`、多行时输出 `externalAnimations`。旧的只选择一行用法仍可工作。当前源码尚未编译、测试或打包；不要让用户用现存 EXE 验证这些改动。检查点仅在本地，未推送或发布。
+0.10.0 GitHub 正式 Release 已发布：[下载页](https://github.com/HelloWangQi/OiGptPet/releases/tag/v0.10.0)。版本源码提交 `aa398836da33a71de2f4ab55ffcdafecaf4064b3`。本地 EXE：`release/v0.10.0-1793935231062/OiGptPet-win32-x64/OiGptPet.exe`；上传 ZIP SHA-256 为 `e390be6445507d36faff0f4a546f7a0f8effd35b7e8883403a856a284d5c738b`。
 
-下一步先静态检查类型和边界：一个状态最多一个片段、各行引用同一份 VRMA 缓冲、移除最后一行后回到内置动作、导出报告只记一份源哈希、各替换行动作正确采样且未替换行保持内置动作。之后再按用户要求运行针对性测试；在用户开始桌面验收前必须从当前源码运行 `npm run verify:desktop`，提供匹配提交的 EXE 绝对路径和实际冒烟结果。保留最近 3 个本地 EXE 包，不删除模型或用户数据。真实 VRMA/VRM 的动作语义、遮挡和循环接缝仍需人工检查。
+从提交 `aa39883` 执行 `npm run package` 成功（TypeScript 检查、Vite 构建、Electron Windows x64 打包）。本次发布没有运行测试套件、`npm run verify:desktop` 或打包后 EXE 冒烟，因此发布 EXE 尚无实际运行验收。下一步在用户安排验证后覆盖多行动作行实际导出，检查替换行与未替换行；用户桌面验收前先从最终源码运行 `npm run verify:desktop`，提供匹配提交的 EXE 与冒烟结果。真实 VRMA/VRM 的语义、循环接缝、遮挡和裁切仍需人工检查。`release/` 保留最近 3 个 Windows 包；不删除模型或用户数据。
 
 ## 0.9.9 已验收基线
 
