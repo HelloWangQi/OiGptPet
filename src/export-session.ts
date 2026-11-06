@@ -1,4 +1,4 @@
-import { atlasDimensions, type AnimationState, type AtlasInspection, type AtlasProfile } from '../packages/target-chatgpt/contract';
+import { ANIMATION_ROWS, atlasDimensions, type AnimationState, type AtlasInspection, type AtlasProfile } from '../packages/target-chatgpt/contract';
 import type { ModelInfo } from '../packages/character-core/vrm-file';
 
 /** Structural contract shared with the independently developed preview component. */
@@ -25,6 +25,7 @@ export interface ModelProvenance {
   source: 'local-import' | 'official-demo';
   sourceUrl?: string;
   externalAnimation?: ExternalAnimationProvenance;
+  externalAnimations?: ExternalAnimationProvenance[];
 }
 
 function webLink(value?: string) {
@@ -36,8 +37,15 @@ export function createExportReport(result: CheckedAtlas, provenance: ModelProven
   if (!/^[a-f0-9]{64}$/.test(result.sha256) || result.encodedBytes !== result.blob.size || result.profile !== result.inspection.profile) {
     throw new Error('检查结果与导出文件不一致，请重新导出。');
   }
-  if (provenance.externalAnimation && (!/^[a-f0-9]{64}$/.test(provenance.externalAnimation.sourceSha256)
-    || !Number.isFinite(provenance.externalAnimation.duration) || provenance.externalAnimation.duration <= 0)) {
+  const externalAnimations = provenance.externalAnimations ?? (provenance.externalAnimation ? [provenance.externalAnimation] : []);
+  const externalStates = new Set<AnimationState>();
+  if (externalAnimations.some(animation => {
+    const duplicateState = externalStates.has(animation.state);
+    externalStates.add(animation.state);
+    return !ANIMATION_ROWS.some(row => row.state === animation.state)
+      || !/^[a-f0-9]{64}$/.test(animation.sourceSha256)
+      || !Number.isFinite(animation.duration) || animation.duration <= 0 || duplicateState;
+  })) {
     throw new Error('外部动作来源信息无效，请重新导出。');
   }
   return {
@@ -49,7 +57,8 @@ export function createExportReport(result: CheckedAtlas, provenance: ModelProven
       source: provenance.source, sourceUrl: webLink(provenance.sourceUrl), licenseUrl: webLink(provenance.model.licenseUrl),
     },
     ...(provenance.model.motionCapabilities ? { modelCapabilities: structuredClone(provenance.model.motionCapabilities) } : {}),
-    ...(provenance.externalAnimation ? { externalAnimation: structuredClone(provenance.externalAnimation) } : {}),
+    ...(externalAnimations.length === 1 ? { externalAnimation: structuredClone(externalAnimations[0]) } : {}),
+    ...(externalAnimations.length > 1 ? { externalAnimations: structuredClone(externalAnimations) } : {}),
     localInspection: structuredClone(result.inspection),
     platformPreflight: { status: 'not-run' },
     platformInstallation: { status: 'not-run' },

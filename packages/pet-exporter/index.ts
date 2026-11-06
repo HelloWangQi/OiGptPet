@@ -18,7 +18,7 @@ export async function exportAtlas(
   profile: AtlasProfile,
   progress: (done: number, total: number) => void,
   signal?: AbortSignal,
-  externalMotion?: ExternalMotionExport,
+  externalMotion?: ExternalMotionExport | readonly ExternalMotionExport[],
 ): Promise<ExportResult> {
   signal?.throwIfAborted();
   const { width, height } = atlasDimensions(profile);
@@ -33,23 +33,37 @@ export async function exportAtlas(
   try {
     await stage.load(source);
     stage.resize(CELL_WIDTH, CELL_HEIGHT, 1);
-    const externalClip = externalMotion
-      ? (await stage.loadMotion(externalMotion.buffer)).find(clip => clip.index === externalMotion.clipIndex)
-      : undefined;
-    if (externalMotion && !externalClip) throw new Error('所选 VRMA 动作片段不存在，已取消图集导出。');
+    const externalMotions: readonly ExternalMotionExport[] = externalMotion === undefined ? []
+      : 'clipIndex' in externalMotion ? [externalMotion] : externalMotion;
+    const externalByState = new Map<AnimationState, { clipIndex: number; duration: number }>();
+    if (externalMotions.length) {
+      const motionBuffer = externalMotions[0].buffer;
+      if (externalMotions.some(motion => motion.buffer !== motionBuffer)) throw new Error('同一图集导出的多个动作行必须来自同一份 VRMA。');
+      for (const motion of externalMotions) {
+        if (!ANIMATION_ROWS.some(row => row.state === motion.state) || externalByState.has(motion.state)) {
+          throw new Error('VRMA 替换行无效或重复，请检查动作行清单。');
+        }
+      }
+      const clips = await stage.loadMotion(motionBuffer);
+      for (const motion of externalMotions) {
+        const clip = clips.find(item => item.index === motion.clipIndex);
+        if (!clip) throw new Error('所选 VRMA 动作片段不存在，已取消图集导出。');
+        externalByState.set(motion.state, { clipIndex: motion.clipIndex, duration: clip.duration });
+      }
+    }
     // Physics is settled consistently for each pose rather than inheriting the previous row.
     for (const [row, definition] of ANIMATION_ROWS.entries()) {
       for (let col = 0; col < definition.frames; col++) {
         signal?.throwIfAborted();
         const phase = definition.state === 'jumping' ? col / (definition.frames - 1) : col / definition.frames;
-        if (externalMotion?.state === definition.state && externalClip) {
-          stage.renderMotionSettled(externalMotion.clipIndex, externalClip.duration * col / definition.frames, PHYSICS_STEPS);
+        const replacement = externalByState.get(definition.state);
+        if (replacement) {
+          stage.renderMotionSettled(replacement.clipIndex, replacement.duration * col / definition.frames, PHYSICS_STEPS);
         } else stage.renderSettled(definition.state, phase, undefined, PHYSICS_STEPS);
         context.drawImage(frame, col * CELL_WIDTH, row * CELL_HEIGHT);
         progress(++done, total);
         await new Promise<void>((resolve) => setTimeout(resolve, 0));
       }
-      if (externalMotion?.state === definition.state) stage.clearMotion();
     }
     if (profile === 'v2') {
       for (let i = 0; i < 16; i++) {
