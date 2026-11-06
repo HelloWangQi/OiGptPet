@@ -1,15 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const probe = vi.hoisted(() => ({ instances: [] as any[], load: undefined as undefined | (() => Promise<void>) }));
+const probe = vi.hoisted(() => ({ instances: [] as any[], load: undefined as undefined | (() => Promise<void>), motionLoad: undefined as undefined | (() => Promise<void>) }));
 vi.mock('../packages/renderer-vrm', () => ({ VrmStage: class {
   loaded = false;
   disposed = false;
-  render = vi.fn(); resize = vi.fn(); hitTest = vi.fn(() => true);
+  render = vi.fn(); resize = vi.fn(); hitTest = vi.fn(() => true); setSpeechMouthOpen = vi.fn();
+  playMotion = vi.fn(); toggleMotion = vi.fn(() => true); clearMotion = vi.fn();
   constructor(public canvas: any) { probe.instances.push(this); }
   async load() {
     await probe.load?.(); this.loaded = true;
     return { name: 'test', authors: [], version: '1.0', expressions: [], licenseUrl: '', avatarPermission: '', allowRedistribution: false };
   }
+  async loadMotion() { await probe.motionLoad?.(); return [{ index: 0, name: 'Wave', duration: 1.25 }]; }
   dispose() { this.disposed = true; this.loaded = false; }
 } }));
 vi.mock('../packages/renderer-sprite', () => ({ SPRITE_MAX_CANVAS_DIMENSION: 4096, SpriteStage: class {
@@ -31,7 +33,7 @@ function fixture() {
 const vrm = () => ({ kind: 'vrm' as const, blob: new Blob(['vrm']) });
 const sprite = () => ({ kind: 'sprite' as const, blob: new Blob(['sprite']), profile: 'v2' as const });
 
-beforeEach(() => { probe.instances = []; probe.load = undefined; });
+beforeEach(() => { probe.instances = []; probe.load = undefined; probe.motionLoad = undefined; });
 describe('transactional visible companion replacement', () => {
   it('keeps the visible renderer until a candidate commits; rollback disposes only candidate', async () => {
     const { stage, host } = fixture();
@@ -78,8 +80,12 @@ describe('transactional visible companion replacement', () => {
     const instance = probe.instances[0]; expect(instance.resize).toHaveBeenLastCalledWith(500, 600, 2);
     stage.render('waving', 1.25, 0.02, { yaw: 0, pitch: 0, angle: 90 });
     expect(instance.render).toHaveBeenCalledWith('waving', 1.25, 90);
+    stage.render('failed', 1.3, 0.03, undefined, 7);
+    expect(instance.render).toHaveBeenLastCalledWith('failed', 1.3, undefined, 0.03, 7);
     (await stage.prepare(vrm())).commit(); stage.render('jumping', 1.25, 0.02);
     expect(probe.instances[1].render).toHaveBeenCalledWith('jumping', 0.625, 0.02, undefined);
+    stage.render('waving', 1.4, 0.03, undefined, 8);
+    expect(probe.instances[1].render).toHaveBeenLastCalledWith('waving', 0.7, 0.03, undefined, 8);
   });
   it('dispose invalidates prepared work and cannot resurrect a canvas', async () => {
     const { stage } = fixture(); const next = await stage.prepare(sprite());
@@ -93,5 +99,20 @@ describe('transactional visible companion replacement', () => {
     expect(host.visible.style).toEqual({ width: '', height: '' });
     stage.resize(541, 400, 1);
     expect(probe.instances[1].resize).toHaveBeenLastCalledWith(541, 400, 1);
+  });
+  it('keeps external motion preview scoped to the current VRM renderer', async () => {
+    const { stage } = fixture(); (await stage.prepare(vrm())).commit();
+    expect(await stage.loadMotion(new ArrayBuffer(0))).toEqual([{ index: 0, name: 'Wave', duration: 1.25 }]);
+    stage.playMotion(0); expect(probe.instances[0].playMotion).toHaveBeenCalledWith(0);
+    expect(stage.toggleMotion()).toBe(true); stage.clearMotion(); expect(probe.instances[0].clearMotion).toHaveBeenCalledOnce();
+    (await stage.prepare(sprite())).commit();
+    await expect(stage.loadMotion(new ArrayBuffer(0))).rejects.toThrow('仅适用于当前加载的 VRM');
+  });
+  it('drops a late imported motion when its VRM renderer is replaced', async () => {
+    const { stage } = fixture(); (await stage.prepare(vrm())).commit();
+    let finish!: () => void; probe.motionLoad = () => new Promise<void>(resolve => { finish = resolve; });
+    const pending = stage.loadMotion(new ArrayBuffer(0));
+    (await stage.prepare(sprite())).commit(); finish();
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
   });
 });

@@ -17,6 +17,7 @@ interface Window {
     getChatState(): Promise<CompanionChatState>;
     saveChatSettings(value: { model: string; apiKey?: string; forgetKey?: boolean }): Promise<{ model: string; hasKey: boolean; encryptionAvailable: boolean }>;
     sendChat(text: string, requestId?: string): Promise<{ text?: string; error?: string; cancelled?: boolean }>;
+    sendPetMessage(text: string, requestId?: string): Promise<{ text?: string; error?: string; cancelled?: boolean }>;
     cancelChat(): Promise<void>;
     clearChat(): Promise<void>;
     onChatState(callback: (state: CompanionChatState) => void): () => void;

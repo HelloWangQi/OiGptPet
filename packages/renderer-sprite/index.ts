@@ -4,6 +4,7 @@ import {
   type AnimationState,
   type AtlasInspection,
   type AtlasProfile,
+  type FrameRect,
 } from '../target-chatgpt/contract';
 import {
   validateAtlasMetadata,
@@ -59,6 +60,16 @@ interface RenderRequest {
 interface CommittedFrame {
   sourceX: number;
   sourceY: number;
+}
+
+type SpriteTransitionSource =
+  | { kind: 'request'; request: RenderRequest }
+  | { kind: 'snapshot'; canvas: HTMLCanvasElement };
+
+interface SpriteTransition {
+  from: SpriteTransitionSource;
+  elapsed: number;
+  progress: number;
 }
 
 function abortError(message = '精灵图加载已取消。'): DOMException {
@@ -133,6 +144,8 @@ export class SpriteStage {
   private profile: AtlasProfile | null = null;
   private lastRender: RenderRequest | null = null;
   private lastFrame: CommittedFrame | null = null;
+  private lastStateRevision?: number;
+  private transition?: SpriteTransition;
 
   constructor(canvas: HTMLCanvasElement) {
     const context = canvas.getContext('2d');
@@ -221,6 +234,7 @@ export class SpriteStage {
     this.canvas.height = backingHeight;
     this.canvas.style.width = `${width}px`;
     this.canvas.style.height = `${height}px`;
+    if (this.transition) this.clearTransition();
     if (this.lastRender && this.loaded) {
       this.draw(this.lastRender);
     }
@@ -230,11 +244,41 @@ export class SpriteStage {
     state: AnimationState,
     timeSeconds: number,
     lookAngleDegrees?: number,
+    delta = 0,
+    stateRevision?: number,
   ): void {
     if (this.disposed || !this.loaded) {
       return;
     }
-    this.draw({ state, timeSeconds, lookAngleDegrees });
+    const request = { state, timeSeconds, lookAngleDegrees };
+    const repeated = stateRevision !== undefined
+      && this.lastStateRevision !== undefined
+      && stateRevision !== this.lastStateRevision;
+    const gazeModeChanged = this.profile === 'v2'
+      && this.lastRender !== null
+      && (this.lastRender.lookAngleDegrees === undefined) !== (lookAngleDegrees === undefined);
+    if (stateRevision !== undefined && this.lastRender
+      && (this.lastRender.state !== state || repeated || gazeModeChanged)) {
+      const interrupted = this.transition;
+      const snapshot = interrupted ? this.captureTransitionSnapshot(interrupted) : null;
+      this.transition = {
+        from: snapshot
+          ? { kind: 'snapshot', canvas: snapshot }
+          : { kind: 'request', request: this.lastRender },
+        elapsed: 0,
+        progress: 0,
+      };
+    }
+    if (stateRevision !== undefined) this.lastStateRevision = stateRevision;
+    let transitionComplete = false;
+    if (this.transition) {
+      this.transition.elapsed += Math.min(Math.max(delta, 0), 1 / 15);
+      const progress = Math.min(1, this.transition.elapsed / 0.2);
+      this.transition.progress = progress * progress * (3 - 2 * progress);
+      transitionComplete = progress >= 1;
+    }
+    this.draw(request);
+    if (transitionComplete) this.clearTransition();
   }
 
   hitTest(clientX: number, clientY: number): boolean {
@@ -470,6 +514,8 @@ export class SpriteStage {
     this.profile = profile;
     this.lastRender = null;
     this.lastFrame = null;
+    this.lastStateRevision = undefined;
+    this.clearTransition();
   }
 
   private releaseImage(): void {
@@ -482,6 +528,34 @@ export class SpriteStage {
     this.profile = null;
     this.lastRender = null;
     this.lastFrame = null;
+    this.lastStateRevision = undefined;
+    this.clearTransition();
+  }
+
+  private captureTransitionSnapshot(transition: SpriteTransition): HTMLCanvasElement | null {
+    try {
+      const snapshot = transition.from.kind === 'snapshot'
+        ? transition.from.canvas
+        : document.createElement('canvas');
+      if (snapshot.width !== this.canvas.width) snapshot.width = this.canvas.width;
+      if (snapshot.height !== this.canvas.height) snapshot.height = this.canvas.height;
+      const context = snapshot.getContext('2d');
+      if (!context) return null;
+      context.clearRect(0, 0, snapshot.width, snapshot.height);
+      context.drawImage(this.canvas, 0, 0);
+      return snapshot;
+    } catch {
+      return null;
+    }
+  }
+
+  private clearTransition(): void {
+    const previous = this.transition;
+    this.transition = undefined;
+    if (previous?.from.kind === 'snapshot') {
+      previous.from.canvas.width = 0;
+      previous.from.canvas.height = 0;
+    }
   }
 
   private clearCanvas(): void {
@@ -493,9 +567,7 @@ export class SpriteStage {
       return;
     }
 
-    const source = this.profile === 'v2' && request.lookAngleDegrees !== undefined
-      ? getLookFrameRect(request.lookAngleDegrees)
-      : getAnimationFrameRect(request.state, request.timeSeconds);
+    const source = this.sourceRect(request);
 
     const canvasWidth = this.canvas.width;
     const canvasHeight = this.canvas.height;
@@ -507,8 +579,35 @@ export class SpriteStage {
       return;
     }
 
+    const transition = this.transition;
+    if (transition) {
+      this.context.save();
+      this.context.globalCompositeOperation = 'lighter';
+      this.context.globalAlpha = 1 - transition.progress;
+      if (transition.from.kind === 'snapshot') {
+        this.context.drawImage(transition.from.canvas, 0, 0);
+      } else {
+        const previous = this.sourceRect(transition.from.request);
+        this.drawSource(previous, destination);
+      }
+      this.context.globalAlpha = transition.progress;
+      this.drawSource(source, destination);
+      this.context.restore();
+    } else this.drawSource(source, destination);
+
+    this.lastRender = request;
+    this.lastFrame = { sourceX: source.x, sourceY: source.y };
+  }
+
+  private sourceRect(request: RenderRequest): FrameRect {
+    return this.profile === 'v2' && request.lookAngleDegrees !== undefined
+      ? getLookFrameRect(request.lookAngleDegrees)
+      : getAnimationFrameRect(request.state, request.timeSeconds);
+  }
+
+  private drawSource(source: FrameRect, destination: DestinationRect) {
     this.context.drawImage(
-      this.bitmap,
+      this.bitmap!,
       source.x,
       source.y,
       CELL_WIDTH,
@@ -518,7 +617,5 @@ export class SpriteStage {
       destination.width,
       destination.height,
     );
-    this.lastRender = request;
-    this.lastFrame = { sourceX: source.x, sourceY: source.y };
   }
 }

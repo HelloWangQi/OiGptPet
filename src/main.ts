@@ -3,18 +3,21 @@ import { CompanionStage, type CompanionInput, type PreparedCompanion } from './c
 import { createCharacterLibrary, type CharacterAsset, type CharacterSummary } from '../packages/character-library';
 import { MAX_MODEL_BYTES, type ModelInfo } from '../packages/character-core/vrm-file';
 import { ANIMATION_ROWS, type AnimationState, type AtlasProfile } from '../packages/target-chatgpt/contract';
-import { exportAtlas } from '../packages/pet-exporter';
+import { exportAtlas, type ExternalMotionExport } from '../packages/pet-exporter';
 import { ExportSession, type PreviewController } from './export-session';
 import { getSavedModel } from './model-store';
 import { DEFAULT_PREFERENCES, IDLE_AFTER_MS, PERFORMANCE_POLICIES, normalizePreferences, readPreferences, savePreferences, type DesktopPreferences } from './desktop-preferences';
 import { FramePacer } from './frame-pacer';
 import { pointerLook } from './pointer-look';
 import { setupChat } from './chat-panel';
+import { ChatSpeech } from './chat-speech';
 import { PetChatPresentation } from './pet-chat-presentation';
+import { estimateSpeechMouthOpen } from './speech-mouth';
 import { sha256Hex } from '../packages/atlas-preview/sha256';
 import { characterPackageModule, MAX_CHARACTER_BACKUP_BYTES } from './character-package-client';
 import { motionCapabilityRows } from './motion-capabilities-view';
 import { RenderMonitor, renderSampleText, type RenderContext } from './render-monitor';
+import type { VrmMotionClipInfo } from '../packages/renderer-vrm';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 const desktop = window.petDesktop;
@@ -34,9 +37,19 @@ app.innerHTML = petMode ? `
     <div id="drag-handle" data-interactive>⠿ 拖动我</div>
     <canvas id="character-canvas" aria-label="桌宠角色"></canvas>
     <div id="pet-message" role="status"></div>
+    <form id="pet-chat-composer" data-interactive hidden>
+      <label class="sr-only" for="pet-chat-input">和桌宠聊天</label>
+      <textarea id="pet-chat-input" maxlength="2000" rows="2" placeholder="输入想说的话…（Enter 发送，Shift+Enter 换行）"></textarea>
+      <div><button id="pet-chat-close" type="button">收起</button><button id="pet-chat-send" class="pet-chat-send" type="submit">发送</button></div>
+    </form>
     <div id="pet-controls" data-interactive>
       <button id="workshop-button" title="角色工坊">工坊</button>
+      <button id="pet-chat-toggle" title="直接输入文字聊天" aria-expanded="false">聊聊</button>
+      <button id="pet-chat-cancel" title="停止当前回复" hidden>停止</button>
+      <button id="pet-voice-input" title="语音识别由系统服务提供，联网与处理方式由服务决定；检查转写后手动发送" aria-pressed="false">听写</button>
+      <button id="pet-voice-send" title="把转写文字发送给伙伴" hidden>发送</button>
       <button id="pet-wave" title="挥手">挥手</button>
+      <button id="pet-read-aloud" title="朗读最新完整回复" hidden>朗读</button>
       <button id="click-through" title="Ctrl+Alt+P 或托盘恢复互动">穿透</button>
       <button id="hide-pet" title="从托盘重新显示">隐藏</button>
     </div>
@@ -63,7 +76,18 @@ app.innerHTML = petMode ? `
           <div class="stage-caption"><div><span class="eyebrow">CURRENT COMPANION</span><h3 id="character-name">等待角色</h3><span id="character-author">仅在本机处理你的模型</span></div><button class="round-button" id="wave-button" title="向你挥手">✧</button></div>
           <span class="stage-tip">移动鼠标，和 TA 对视 · 支持拖入 VRM / PNG / WebP</span>
         </div>
-        <div class="motion-panel"><div class="motion-heading"><h2>今天是什么心情？</h2><button id="pause-button" class="text-button">暂停动画</button></div><div class="motion-list">${ANIMATION_ROWS.map((row, i) => `<button class="motion-button ${i === 0 ? 'active' : ''}" data-state="${row.state}"><span class="motion-index">${String(i + 1).padStart(2, '0')}</span>${row.label}</button>`).join('')}</div></div>
+        <div class="motion-panel"><div class="motion-heading"><h2>今天是什么心情？</h2><button id="pause-button" class="text-button">暂停动画</button></div><div class="motion-list">${ANIMATION_ROWS.map((row, i) => `<button class="motion-button ${i === 0 ? 'active' : ''}" data-state="${row.state}"><span class="motion-index">${String(i + 1).padStart(2, '0')}</span>${row.label}</button>`).join('')}</div>
+          <section id="external-motion-panel" class="external-motion-panel" hidden aria-label="外部动作预览">
+            <div class="external-motion-actions"><button id="external-motion-import" class="text-button" type="button">导入 VRM Animation（.vrma）</button><input id="external-motion-file" type="file" accept=".vrma,model/gltf-binary" hidden /></div>
+            <div id="external-motion-controls" class="external-motion-actions" hidden><select id="external-motion-clip" aria-label="选择导入动作"></select><select id="external-motion-speed" aria-label="动作播放速度"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select><select id="external-motion-loop" aria-label="动作循环模式"><option value="repeat" selected>循环</option><option value="once">播放一次</option><option value="pingpong">往返</option></select><button id="external-motion-toggle" class="text-button" type="button">暂停动作</button><button id="external-motion-clear" class="text-button" type="button">恢复内置动作</button></div>
+            <div id="external-motion-scrubber" class="external-motion-scrubber" hidden><label for="external-motion-time">预览时间</label><input id="external-motion-time" type="range" min="0" max="1000" value="0" aria-label="拖动查看动作时间点" /><output id="external-motion-time-label">0.0 / 0.0 秒</output><label class="external-motion-exact-label" for="external-motion-exact-time">精确时间</label><input id="external-motion-exact-time" type="number" min="0" step="0.01" value="0" aria-label="输入精确动作时间（秒）" /><span>秒</span></div>
+            <div id="external-motion-export" hidden><label class="field-label" for="external-motion-export-state">选择目标动作行</label><div class="external-motion-actions"><select id="external-motion-export-state"><option value="">选择要替换的动作行</option>${ANIMATION_ROWS.map(row => `<option value="${row.state}">${row.label}</option>`).join('')}</select><button id="external-motion-assign" class="text-button" type="button">添加 / 更新此行</button></div><div id="external-motion-assignments" class="external-motion-assignment-list" hidden aria-label="待导出的 VRMA 动作行"></div><p class="helper">可将同一文件中的不同片段分配给多行动作；未加入清单的行保留内置动作。保存前请检查动作语义、循环和裁切。</p></div>
+            <div id="external-motion-sample-preview" class="external-motion-sample-preview" hidden><label class="field-label" for="external-motion-sample-frame">预览目标行的导出采样帧</label><div class="external-motion-actions"><select id="external-motion-sample-frame" aria-label="选择导出采样帧"></select><button id="external-motion-sample-jump" class="text-button" type="button">定位此帧</button></div><p id="external-motion-sample-description" class="helper"></p></div>
+            <p id="external-motion-status" class="helper" role="status" aria-live="polite"></p>
+            <p class="helper">动作仅暂存在工坊。可将不同片段分配给多行动作行；不会修改角色库或备份包。</p>
+            <p class="helper">导入结果会对照当前角色检查动作轨道名称；匹配不代表动作绑定或视觉效果合格。</p>
+          </section>
+        </div>
         <p class="status-line" id="status" role="status" aria-live="polite">正在准备角色工坊…</p>
       </section>
       <aside class="detail-column" tabindex="0" aria-label="角色和陪伴设置">
@@ -115,8 +139,12 @@ app.innerHTML = petMode ? `
             <p class="helper">密钥由系统加密后保存在本机。点击发送会将本次消息及最近四轮对话发送给 OpenAI API，费用由该 API 账户承担。</p>
           </details>
           <div id="chat-log" role="log" aria-label="本次对话"></div>
+          <button id="chat-read-aloud" class="text-button" type="button" disabled>朗读最新回复</button>
+          <p class="helper">手动使用系统语音朗读最新一条完整回复；不会自动播报。</p>
           <form id="chat-form"><label class="field-label" for="chat-input">想说的话</label><textarea id="chat-input" maxlength="2000" rows="3"></textarea>
             <p class="helper">Ctrl / ⌘ + Enter 发送，Enter 换行。</p>
+            <button id="chat-voice-input" class="text-button" type="button" aria-pressed="false">语音输入</button>
+            <span id="chat-voice-status" class="helper voice-note" role="status" aria-live="polite"></span><br />
             <button id="chat-send" class="button" type="submit">发送</button><button id="chat-cancel" class="text-button" type="button" hidden>取消请求</button><button id="chat-retry" class="text-button" type="button" hidden>重试上一条</button><button id="chat-clear" class="text-button" type="button">清空对话</button></form>
           <p class="helper" id="chat-status" role="status">请先配置对话设置。</p>
           <p class="helper">本次对话保留到应用退出。关闭工坊会取消未完成请求；未发送草稿不保留。</p>
@@ -157,10 +185,16 @@ let committing = false;
 let syncRequested = false;
 let source: ArrayBuffer | null = null;
 let state: AnimationState = 'idle';
+let stateRevision = 0;
 let info: ModelInfo | null = null;
 let loading = false;
 let paused = false;
 let animationTime = 0;
+let externalMotionClips: VrmMotionClipInfo[] = [];
+let externalMotionBuffer: ArrayBuffer | undefined;
+let externalMotionAssignments: Array<{ state: AnimationState; clipIndex: number }> = [];
+let externalMotionImportRevision = 0;
+let lastExternalMotionUiUpdate = 0;
 let lastInteraction = performance.now();
 let preferences: DesktopPreferences = { ...DEFAULT_PREFERENCES };
 const framePacer = new FramePacer();
@@ -196,6 +230,19 @@ scheduleRenderReports();
 let resizeStage = () => {};
 let transientUntil = 0;
 const petChat = new PetChatPresentation();
+let petSpeechText = '';
+const petSpeechButton = petMode ? $<HTMLButtonElement>('#pet-read-aloud') : undefined;
+const speechRuntime = typeof window.speechSynthesis === 'undefined' || typeof SpeechSynthesisUtterance === 'undefined'
+  ? undefined : window.speechSynthesis;
+const petSpeech = petMode ? new ChatSpeech(speechRuntime, undefined, speaking => {
+  if (petSpeechButton) {
+    petSpeechButton.textContent = speaking ? '停止朗读' : '朗读';
+    petSpeechButton.title = '朗读最新完整回复';
+  }
+}, event => {
+  stage?.setSpeechMouthOpen(estimateSpeechMouthOpen(petSpeechText, event.charIndex, event.charLength));
+  lastInteraction = performance.now();
+}) : undefined;
 let look: { yaw: number; pitch: number; angle: number } | undefined;
 let lastPointer = 0;
 const exportSession = new ExportSession();
@@ -238,6 +285,15 @@ function status(message: string, error = false) {
 function restorePetChat() {
   const view = petChat.current(performance.now());
   status(view?.text ?? '');
+  if (petMode) {
+    if (!petChat.canReadAloud()) petSpeech?.stop();
+    if (petSpeechButton) {
+      petSpeechButton.hidden = !petChat.canReadAloud();
+      petSpeechButton.disabled = !petSpeech?.available;
+      petSpeechButton.textContent = petSpeech?.speaking ? '停止朗读' : '朗读';
+      petSpeechButton.title = petSpeech?.available ? '朗读最新完整回复' : '当前系统语音不可用';
+    }
+  }
   if (view) {
     transientUntil = view.until;
     if (state !== view.animation) changeState(view.animation);
@@ -367,6 +423,7 @@ function showCharacter(summary: CharacterSummary | null, value: ModelInfo | null
   document.body.dataset.characterId = summary?.id ?? '';
   if (value) showInfo(value);
   if (petMode) { restorePetChat(); return; }
+  $('#external-motion-panel').hidden = input.kind !== 'vrm';
   $('#stage-empty').hidden = true;
   $('#format-badge').textContent = input.kind === 'vrm' ? 'VRM 1.0' : `SPRITE ${input.profile}`;
   $('#character-name').textContent = summary?.name ?? value?.name ?? '本地精灵图';
@@ -433,6 +490,7 @@ async function load(input: CompanionInput, persist: boolean, origin: 'local-impo
       if (persist && summary) await library.activate(summary.id);
     }
     prepared.commit();
+    resetExternalMotionPreview();
     currentCharacter = summary;
     info = prepared.info; source = nextSource; modelSource = origin;
     animationTime = 0; changeState('idle'); framePacer.reset(); resizeStage();
@@ -447,7 +505,12 @@ async function load(input: CompanionInput, persist: boolean, origin: 'local-impo
   } finally {
     options?.signal?.removeEventListener('abort', relayAbort);
     prepared?.dispose(); loading = false; committing = false; loadController = null;
-    if (!petMode) { $<HTMLButtonElement>('#export-button').disabled = !source; $('#cancel-load').hidden = true; $<HTMLButtonElement>('#import-button').disabled = false; }
+    if (!petMode) {
+      $<HTMLButtonElement>('#export-button').disabled = !source;
+      $('#cancel-load').hidden = true;
+      $<HTMLButtonElement>('#import-button').disabled = false;
+      $<HTMLButtonElement>('#external-motion-import').disabled = false;
+    }
     updatePackageControls();
     try { await refreshLibrary(); } catch { status('角色库读取失败，请重试。', true); }
     if (syncRequested && !packageJob) { syncRequested = false; void syncLibrary(); }
@@ -498,13 +561,181 @@ async function demo(persist: boolean) {
 }
 
 function changeState(next: AnimationState) {
-  state = next; animationTime = 0;
+  state = next; stateRevision += 1; animationTime = 0;
   document.querySelectorAll<HTMLButtonElement>('[data-state]').forEach((button) => button.classList.toggle('active', button.dataset.state === next));
+}
+
+function resetExternalMotionPreview(message = '') {
+  externalMotionImportRevision += 1;
+  externalMotionClips = [];
+  externalMotionBuffer = undefined;
+  externalMotionAssignments = [];
+  stage?.clearMotion();
+  const controls = document.querySelector<HTMLElement>('#external-motion-controls');
+  if (controls) controls.hidden = true;
+  const exportControls = document.querySelector<HTMLElement>('#external-motion-export');
+  if (exportControls) exportControls.hidden = true;
+  const samplePreview = document.querySelector<HTMLElement>('#external-motion-sample-preview');
+  if (samplePreview) samplePreview.hidden = true;
+  const sampleFrame = document.querySelector<HTMLSelectElement>('#external-motion-sample-frame');
+  if (sampleFrame) { sampleFrame.replaceChildren(); delete sampleFrame.dataset.sampleKey; }
+  const exportState = document.querySelector<HTMLSelectElement>('#external-motion-export-state');
+  if (exportState) exportState.value = '';
+  renderExternalMotionAssignments();
+  const scrubber = document.querySelector<HTMLElement>('#external-motion-scrubber');
+  if (scrubber) scrubber.hidden = true;
+  const timeInput = document.querySelector<HTMLInputElement>('#external-motion-time');
+  if (timeInput) timeInput.value = '0';
+  const exactTimeInput = document.querySelector<HTMLInputElement>('#external-motion-exact-time');
+  if (exactTimeInput) { exactTimeInput.value = '0'; exactTimeInput.max = '0'; }
+  const timeLabel = document.querySelector<HTMLOutputElement>('#external-motion-time-label');
+  if (timeLabel) timeLabel.textContent = '0.0 / 0.0 秒';
+  const file = document.querySelector<HTMLInputElement>('#external-motion-file');
+  if (file) file.value = '';
+  const importButton = document.querySelector<HTMLButtonElement>('#external-motion-import');
+  if (importButton) importButton.disabled = loading || Boolean(packageJob);
+  const select = document.querySelector<HTMLSelectElement>('#external-motion-clip');
+  if (select) select.replaceChildren();
+  const toggle = document.querySelector<HTMLButtonElement>('#external-motion-toggle');
+  if (toggle) { toggle.textContent = '暂停动作'; toggle.disabled = true; }
+  const speed = document.querySelector<HTMLSelectElement>('#external-motion-speed');
+  if (speed) speed.value = '1';
+  const loop = document.querySelector<HTMLSelectElement>('#external-motion-loop');
+  if (loop) loop.value = 'repeat';
+  const statusLine = document.querySelector<HTMLElement>('#external-motion-status');
+  if (statusLine) statusLine.textContent = message;
+}
+
+function renderExternalMotionAssignments() {
+  const host = document.querySelector<HTMLElement>('#external-motion-assignments');
+  if (!host) return;
+  host.replaceChildren();
+  const ordered = ANIMATION_ROWS.flatMap(row => {
+    const assignment = externalMotionAssignments.find(item => item.state === row.state);
+    return assignment ? [{ row, assignment }] : [];
+  });
+  for (const { row, assignment } of ordered) {
+    const clip = externalMotionClips.find(item => item.index === assignment.clipIndex);
+    if (!clip) continue;
+    const item = document.createElement('div');
+    item.className = 'external-motion-assignment';
+    const description = document.createElement('span');
+    description.textContent = `${row.label} ← ${clip.name} · ${clip.duration.toFixed(1)} 秒`;
+    const remove = document.createElement('button');
+    remove.className = 'text-button';
+    remove.type = 'button';
+    remove.dataset.removeMotionState = row.state;
+    remove.setAttribute('aria-label', `移除${row.label}动作替换`);
+    remove.textContent = '移除';
+    item.append(description, remove);
+    host.append(item);
+  }
+  host.hidden = host.childElementCount === 0;
+}
+
+function describeExternalMotionCompatibility(clip: VrmMotionClipInfo) {
+  const report = clip.compatibility;
+  const mappedBones = report.totalBones - report.missingBones.length;
+  const mappedExpressions = report.totalExpressions - report.missingExpressions.length;
+  const lookAt = report.lookAt === 'unused' ? '未使用视线轨道' : report.lookAt === 'available' ? '视线轨道可映射' : '缺少视线控制器';
+  const missing: string[] = [];
+  const summarize = (label: string, names: string[]) => {
+    if (names.length) missing.push(`${label}：${names.slice(0, 5).join('、')}${names.length > 5 ? ` 等 ${names.length} 项` : ''}`);
+  };
+  summarize('骨骼', report.missingBones);
+  summarize('表情', report.missingExpressions);
+  if (report.lookAt === 'missing') missing.push('视线控制器');
+  return `${clip.name} · ${clip.duration.toFixed(1)} 秒；骨骼匹配 ${mappedBones}/${report.totalBones}，表情匹配 ${mappedExpressions}/${report.totalExpressions}，${lookAt}。${missing.length ? `可能不会播放的轨道：${missing.join('；')}。` : ''}此检查只看名称映射，不评价动作视觉质量。`;
+}
+
+function updateExternalMotionTime() {
+  const index = Number($<HTMLSelectElement>('#external-motion-clip').value);
+  const clip = externalMotionClips.find(item => item.index === index);
+  const time = stage?.motionTime(index) ?? 0;
+  const slider = $<HTMLInputElement>('#external-motion-time');
+  const value = clip && clip.duration > 0 ? Math.min(1000, Math.round(time / clip.duration * 1000)) : 0;
+  if (slider.value !== String(value)) slider.value = String(value);
+  const exactTime = $<HTMLInputElement>('#external-motion-exact-time');
+  exactTime.max = String(clip?.duration ?? 0);
+  if (document.activeElement !== exactTime) exactTime.value = time.toFixed(2);
+  $('#external-motion-time-label').textContent = `${time.toFixed(1)} / ${(clip?.duration ?? 0).toFixed(1)} 秒`;
+  $<HTMLButtonElement>('#external-motion-toggle').textContent = stage?.motionIsPlaying() ? '暂停动作' : '继续动作';
+}
+
+function updateExternalMotionSamplePreview() {
+  const panel = $<HTMLElement>('#external-motion-sample-preview');
+  const state = $<HTMLSelectElement>('#external-motion-export-state').value as AnimationState | '';
+  const row = ANIMATION_ROWS.find(item => item.state === state);
+  const clipIndex = Number($<HTMLSelectElement>('#external-motion-clip').value);
+  const clip = externalMotionClips.find(item => item.index === clipIndex);
+  if (!row || !clip || clip.duration <= 0) { panel.hidden = true; return; }
+  panel.hidden = false;
+  const select = $<HTMLSelectElement>('#external-motion-sample-frame');
+  const previous = Number(select.value);
+  const sampleKey = `${clip.index}:${row.state}:${clip.duration}`;
+  if (select.dataset.sampleKey !== sampleKey || select.options.length !== row.frames) {
+    const selectedBefore = Number.isInteger(previous) ? Math.max(0, Math.min(row.frames - 1, previous)) : 0;
+    select.replaceChildren(...Array.from({ length: row.frames }, (_, frameIndex) => {
+      const option = document.createElement('option');
+      option.value = String(frameIndex);
+      option.textContent = `第 ${frameIndex + 1} / ${row.frames} 帧 · ${(clip.duration * frameIndex / row.frames).toFixed(2)} 秒`;
+      return option;
+    }));
+    select.dataset.sampleKey = sampleKey;
+    select.value = String(selectedBefore);
+  }
+  const selectedValue = Number(select.value);
+  const selected = Number.isInteger(selectedValue) ? Math.max(0, Math.min(row.frames - 1, selectedValue)) : 0;
+  select.value = String(selected);
+  const seconds = clip.duration * selected / row.frames;
+  $('#external-motion-sample-description').textContent = `导出器以 ${row.frames} 帧均匀采样，所选帧对应 ${seconds.toFixed(3)} 秒。此处只对齐采样时间；正式导出会重新渲染并稳定化物理效果。`;
+}
+
+async function importExternalMotion(file?: File) {
+  if (!file || !stage || loading || packageJob || petMode) return;
+  if (!file.name.toLowerCase().endsWith('.vrma')) { $('#external-motion-status').textContent = '请选择 .vrma 动作文件。'; return; }
+  if (file.size === 0 || file.size > MAX_MODEL_BYTES) { $('#external-motion-status').textContent = '动作文件不能为空且不能超过 64 MiB。'; return; }
+  const importRevision = ++externalMotionImportRevision;
+  const targetStage = stage;
+  const button = $<HTMLButtonElement>('#external-motion-import');
+  button.disabled = true;
+  $('#external-motion-status').textContent = '正在本机读取并检查动作…';
+  try {
+    const buffer = await file.arrayBuffer();
+    if (importRevision !== externalMotionImportRevision || targetStage !== stage || loading || packageJob) return;
+    const clips = await targetStage.loadMotion(buffer);
+    if (importRevision !== externalMotionImportRevision || targetStage !== stage || loading || packageJob) return;
+    externalMotionClips = clips;
+    externalMotionBuffer = buffer;
+    externalMotionAssignments = [];
+    renderExternalMotionAssignments();
+    $<HTMLSelectElement>('#external-motion-export-state').value = '';
+    const select = $<HTMLSelectElement>('#external-motion-clip');
+    select.replaceChildren(...clips.map(clip => {
+      const option = document.createElement('option'); option.value = String(clip.index);
+      option.textContent = `${clip.name} · ${clip.duration.toFixed(1)} 秒`; return option;
+    }));
+    $('#external-motion-controls').hidden = false;
+    $('#external-motion-scrubber').hidden = false;
+    $('#external-motion-export').hidden = false;
+    $<HTMLSelectElement>('#external-motion-speed').value = '1';
+    $<HTMLSelectElement>('#external-motion-loop').value = 'repeat';
+    $<HTMLButtonElement>('#external-motion-toggle').disabled = false;
+    updateExternalMotionTime();
+    updateExternalMotionSamplePreview();
+    $('#external-motion-status').textContent = `${file.name} · ${clips.length} 段动作，正在预览第 1 段。${describeExternalMotionCompatibility(clips[0])}`;
+  } catch (error) {
+    if (importRevision === externalMotionImportRevision) $('#external-motion-status').textContent = error instanceof Error ? error.message : '动作加载失败。';
+  } finally { if (importRevision === externalMotionImportRevision) button.disabled = false; }
 }
 
 async function importFile(file?: File) {
   if (!file || !stage || loading || packageJob) return;
   if (file.name.toLowerCase().endsWith('.oipet')) { await restoreCharacter(file); return; }
+  if (file.name.toLowerCase().endsWith('.vrma')) {
+    if (document.body.dataset.characterKind !== 'vrm') { status('VRMA 动作预览需要先加载 VRM 角色。', true); return; }
+    await importExternalMotion(file); return;
+  }
   if (file.name.toLowerCase().endsWith('.vrm')) {
     if (file.size > MAX_MODEL_BYTES) { status('模型不能超过 64 MiB。', true); return; }
     await load({ kind: 'vrm', blob: file }, true);
@@ -546,6 +777,29 @@ const previewModules = import.meta.glob<{ createAtlasPreview(host: HTMLElement):
 
 async function runExport() {
   if (!source || !info || exportSession.busy || loading || packageJob) return;
+  const selectedState = $<HTMLSelectElement>('#external-motion-export-state').value as AnimationState | '';
+  const selectedClipIndex = Number($<HTMLSelectElement>('#external-motion-clip').value);
+  // Keep compatibility with existing automation and older usage: a selected row
+  // exports as a one-row replacement until the user starts a multi-row list.
+  const assignments: Array<{ state: AnimationState; clipIndex: number }> = externalMotionAssignments.length
+    ? externalMotionAssignments.map(item => ({ ...item }))
+    : selectedState ? [{ state: selectedState, clipIndex: selectedClipIndex }] : [];
+  const assignmentStates = new Set<AnimationState>();
+  const resolvedAssignments = assignments.map(assignment => {
+    const row = ANIMATION_ROWS.find(item => item.state === assignment.state);
+    const clip = externalMotionClips.find(item => item.index === assignment.clipIndex);
+    if (!row || assignmentStates.has(assignment.state) || !clip || !externalMotionBuffer) return undefined;
+    assignmentStates.add(assignment.state);
+    return { ...assignment, row, clip };
+  });
+  if (resolvedAssignments.some(item => !item)) {
+    status('外部动作替换信息不完整，请重新导入动作或检查替换清单。', true);
+    return;
+  }
+  const exportMotionBuffer = assignments.length ? externalMotionBuffer?.slice(0) : undefined;
+  const externalMotion: ExternalMotionExport[] = exportMotionBuffer
+    ? resolvedAssignments.map(item => ({ buffer: exportMotionBuffer, clipIndex: item!.clipIndex, state: item!.state }))
+    : [];
   clearExport(false);
   const revision = runRevision;
   const currentSource = source;
@@ -565,16 +819,29 @@ async function runExport() {
     if (!importPreview) throw new Error('动画预览暂不可用，请稍后重试。');
     const { createAtlasPreview } = await importPreview();
     if (revision !== runRevision) return;
+    const sourceSha256 = externalMotion.length ? await sha256Hex(exportMotionBuffer!.slice(0)) : undefined;
+    const animationOverrides = externalMotion.length
+      ? resolvedAssignments.map(item => ({
+          state: item!.state,
+          label: item!.row.label,
+          clipName: item!.clip.name,
+          duration: item!.clip.duration,
+          sourceSha256: sourceSha256!,
+        }))
+      : [];
+    if (revision !== runRevision) return;
     const record = await exportSession.run(profile, {
       model: currentInfo, source: origin,
       sourceUrl: origin === 'official-demo' ? 'https://github.com/pixiv/three-vrm/tree/dev/packages/three-vrm/examples/models' : undefined,
+      ...(animationOverrides.length === 1 ? { externalAnimation: animationOverrides[0] } : {}),
+      ...(animationOverrides.length > 1 ? { externalAnimations: animationOverrides } : {}),
     }, async (signal) => {
       const rendered = await exportAtlas(currentSource, profile, (done, total) => {
         if (revision !== runRevision) return;
         progress.max = total; progress.value = done;
         $('#local-check-status').textContent = `渲染 ${done} / ${total}`;
         status(`正在导出 ${done} / ${total} 帧…`);
-      }, signal);
+      }, signal, externalMotion.length ? externalMotion : undefined);
       if (revision === runRevision) $('#local-check-status').textContent = '正在检查';
       return rendered.blob;
     }, () => createAtlasPreview($('#atlas-preview-host')));
@@ -582,7 +849,11 @@ async function runExport() {
     const { checked, report } = record;
     exportUrl = URL.createObjectURL(checked.blob);
     $<HTMLImageElement>('#atlas-image').src = exportUrl;
-    $('#export-description').textContent = `${report.model.name} · ${report.file.width} × ${report.file.height} · ${checked.inspection.requiredFrames} 帧 · ${(checked.encodedBytes / 1024 / 1024).toFixed(2)} MiB`;
+    const exportedAnimations = report.externalAnimations ?? (report.externalAnimation ? [report.externalAnimation] : []);
+    const externalAnimationLabel = exportedAnimations.length
+      ? ` · ${exportedAnimations.map(animation => `${animation.label}行使用「${animation.clipName}」`).join('、')}`
+      : '';
+    $('#export-description').textContent = `${report.model.name}${externalAnimationLabel} · ${report.file.width} × ${report.file.height} · ${checked.inspection.requiredFrames} 帧 · ${(checked.encodedBytes / 1024 / 1024).toFixed(2)} MiB`;
     $('#export-sha256').textContent = `SHA-256 ${checked.sha256}`;
     $('#local-check-status').textContent = checked.inspection.valid ? '通过' : '未通过';
     for (const issue of checked.inspection.errors) {
@@ -633,8 +904,12 @@ async function bootstrap() {
       if (!paused) animationTime += delta;
       if (transientUntil && now > transientUntil) { transientUntil = 0; changeState('idle'); }
       const started = performance.now();
-      stage.render(state, animationTime, paused ? 0 : delta, now - lastPointer < 1800 ? look : undefined);
+      stage.render(state, animationTime, paused ? 0 : delta, now - lastPointer < 1800 ? look : undefined, stateRevision);
       renderMonitor.record(performance.now() - started);
+    }
+    if (!petMode && externalMotionClips.length && now - lastExternalMotionUiUpdate >= 100) {
+      lastExternalMotionUiUpdate = now;
+      updateExternalMotionTime();
     }
     requestAnimationFrame(frame);
   };
@@ -720,8 +995,20 @@ async function bootstrap() {
 }
 
 if (petMode) {
-  $('#workshop-button').onclick = () => void desktop!.openWorkshop();
+  $('#workshop-button').onclick = () => {
+    window.dispatchEvent(new Event('pet:open-workshop'));
+    void desktop!.openWorkshop();
+  };
   $('#hide-pet').onclick = () => void desktop!.hidePet();
+  $('#pet-read-aloud').onclick = () => {
+    if (petSpeech?.speaking) { petSpeech.stop(); return; }
+    const view = petChat.current(performance.now());
+    if (!view || !petChat.canReadAloud() || !petSpeech) return;
+    petSpeechText = view.text;
+    if (!petSpeech.speak(view.text, navigator.language || 'zh-CN') && petSpeechButton) {
+      petSpeechButton.title = '系统语音播放失败，请检查 Windows 语音设置。';
+    }
+  };
   $('#pet-wave').onclick = () => { changeState('waving'); transientUntil = performance.now() + 2000; };
   $('#click-through').onclick = () => {
     forcedInteractive = false; ignoringMouse = true;
@@ -748,9 +1035,117 @@ if (petMode) {
     void importFile(input.files?.[0]); input.value = '';
   };
   $('#load-demo').onclick = () => void demo(true);
-  $('#wave-button').onclick = () => { changeState('waving'); transientUntil = performance.now() + 2000; };
+  const chooseBuiltinMotion = (next: AnimationState) => {
+    if (externalMotionClips.length) resetExternalMotionPreview();
+    changeState(next);
+  };
+  $('#wave-button').onclick = () => { chooseBuiltinMotion('waving'); transientUntil = performance.now() + 2000; };
   $('#pause-button').onclick = () => { paused = !paused; $('#pause-button').textContent = paused ? '继续动画' : '暂停动画'; };
-  document.querySelectorAll<HTMLButtonElement>('[data-state]').forEach((button) => button.onclick = () => { transientUntil = 0; changeState(button.dataset.state as AnimationState); });
+  document.querySelectorAll<HTMLButtonElement>('[data-state]').forEach((button) => button.onclick = () => { transientUntil = 0; chooseBuiltinMotion(button.dataset.state as AnimationState); });
+  $('#external-motion-import').onclick = () => $<HTMLInputElement>('#external-motion-file').click();
+  $<HTMLInputElement>('#external-motion-file').onchange = event => {
+    const input = event.target as HTMLInputElement;
+    void importExternalMotion(input.files?.[0]); input.value = '';
+  };
+  $<HTMLSelectElement>('#external-motion-clip').onchange = event => {
+    const index = Number((event.target as HTMLSelectElement).value);
+    try {
+      stage.playMotion(index);
+      $<HTMLButtonElement>('#external-motion-toggle').textContent = '暂停动作';
+      const clip = externalMotionClips[index];
+      $('#external-motion-status').textContent = clip ? `正在预览：${describeExternalMotionCompatibility(clip)}` : '正在预览动作。';
+      updateExternalMotionTime();
+      updateExternalMotionSamplePreview();
+    } catch (error) { $('#external-motion-status').textContent = error instanceof Error ? error.message : '动作切换失败。'; }
+  };
+  $<HTMLSelectElement>('#external-motion-export-state').onchange = updateExternalMotionSamplePreview;
+  $('#external-motion-assign').onclick = () => {
+    const targetState = $<HTMLSelectElement>('#external-motion-export-state').value as AnimationState | '';
+    const clipIndex = Number($<HTMLSelectElement>('#external-motion-clip').value);
+    const row = ANIMATION_ROWS.find(item => item.state === targetState);
+    const clip = externalMotionClips.find(item => item.index === clipIndex);
+    if (!row || !clip || !externalMotionBuffer) {
+      $('#external-motion-status').textContent = '先选择目标动作行和 VRMA 片段，再加入替换清单。';
+      return;
+    }
+    const existing = externalMotionAssignments.find(item => item.state === row.state);
+    if (existing) existing.clipIndex = clip.index;
+    else externalMotionAssignments.push({ state: row.state, clipIndex: clip.index });
+    renderExternalMotionAssignments();
+    $('#external-motion-status').textContent = `已将「${clip.name}」分配给${row.label}行。`;
+  };
+  $('#external-motion-assignments').onclick = event => {
+    if (!(event.target instanceof Element)) return;
+    const button = event.target.closest<HTMLButtonElement>('[data-remove-motion-state]');
+    const targetState = button?.dataset.removeMotionState as AnimationState | undefined;
+    if (!targetState) return;
+    externalMotionAssignments = externalMotionAssignments.filter(item => item.state !== targetState);
+    if (externalMotionAssignments.length === 0) $<HTMLSelectElement>('#external-motion-export-state').value = '';
+    renderExternalMotionAssignments();
+    updateExternalMotionSamplePreview();
+    $('#external-motion-status').textContent = '已移除该行替换，导出时将使用内置动作。';
+  };
+  $<HTMLSelectElement>('#external-motion-sample-frame').onchange = updateExternalMotionSamplePreview;
+  $('#external-motion-sample-jump').onclick = () => {
+    const clipIndex = Number($<HTMLSelectElement>('#external-motion-clip').value);
+    const clip = externalMotionClips.find(item => item.index === clipIndex);
+    const state = $<HTMLSelectElement>('#external-motion-export-state').value as AnimationState | '';
+    const row = ANIMATION_ROWS.find(item => item.state === state);
+    const frameIndex = Number($<HTMLSelectElement>('#external-motion-sample-frame').value);
+    if (!clip || !row || !Number.isInteger(frameIndex) || frameIndex < 0 || frameIndex >= row.frames) return;
+    try {
+      const seconds = clip.duration * frameIndex / row.frames;
+      stage.seekMotion(clipIndex, seconds);
+      updateExternalMotionTime();
+      $('#external-motion-status').textContent = `已定位到导出采样第 ${frameIndex + 1} / ${row.frames} 帧（${seconds.toFixed(3)} 秒）。`;
+    } catch (error) { $('#external-motion-status').textContent = error instanceof Error ? error.message : '采样帧定位失败。'; }
+  };
+  $<HTMLSelectElement>('#external-motion-speed').onchange = event => {
+    try {
+      const rate = Number((event.currentTarget as HTMLSelectElement).value);
+      stage.setMotionPlaybackRate(rate);
+      $('#external-motion-status').textContent = `动作预览速度：${rate}×。`;
+    } catch (error) { $('#external-motion-status').textContent = error instanceof Error ? error.message : '动作速度设置失败。'; }
+  };
+  $<HTMLSelectElement>('#external-motion-loop').onchange = event => {
+    try {
+      const mode = (event.currentTarget as HTMLSelectElement).value as 'repeat' | 'once' | 'pingpong';
+      stage.setMotionLoopMode(mode);
+      $('#external-motion-status').textContent = `动作循环模式：${mode === 'once' ? '播放一次' : mode === 'pingpong' ? '往返' : '循环'}。`;
+    } catch (error) { $('#external-motion-status').textContent = error instanceof Error ? error.message : '动作循环模式设置失败。'; }
+  };
+  $<HTMLInputElement>('#external-motion-time').oninput = event => {
+    const index = Number($<HTMLSelectElement>('#external-motion-clip').value);
+    const clip = externalMotionClips.find(item => item.index === index);
+    if (!clip) return;
+    try {
+      const fraction = Number((event.currentTarget as HTMLInputElement).value) / 1000;
+      stage.seekMotion(index, clip.duration * fraction);
+      $<HTMLButtonElement>('#external-motion-toggle').textContent = '继续动作';
+      updateExternalMotionTime();
+    } catch (error) { $('#external-motion-status').textContent = error instanceof Error ? error.message : '动作定位失败。'; }
+  };
+  $<HTMLInputElement>('#external-motion-exact-time').onchange = event => {
+    const index = Number($<HTMLSelectElement>('#external-motion-clip').value);
+    const clip = externalMotionClips.find(item => item.index === index);
+    const input = event.currentTarget as HTMLInputElement;
+    if (!clip) return;
+    const requested = Number(input.value);
+    if (!Number.isFinite(requested)) { $('#external-motion-status').textContent = '请输入有效的动作时间。'; updateExternalMotionTime(); return; }
+    try {
+      stage.seekMotion(index, Math.min(clip.duration, Math.max(0, requested)));
+      input.value = (stage.motionTime(index) ?? 0).toFixed(2);
+      $<HTMLButtonElement>('#external-motion-toggle').textContent = '继续动作';
+      updateExternalMotionTime();
+    } catch (error) { $('#external-motion-status').textContent = error instanceof Error ? error.message : '动作定位失败。'; }
+  };
+  $('#external-motion-toggle').onclick = () => {
+    const playing = stage.toggleMotion();
+    $('#external-motion-toggle').textContent = playing ? '暂停动作' : '继续动作';
+  };
+  $('#external-motion-clear').onclick = () => {
+    resetExternalMotionPreview('已恢复内置动作。'); transientUntil = 0; changeState('idle');
+  };
   if (desktop) {
     $('#save-diagnostics').onclick = async () => {
       const button = $<HTMLButtonElement>('#save-diagnostics');
@@ -798,10 +1193,14 @@ if (petMode) {
 const chatUI = setupChat(desktop, petMode, value => {
   if (!petMode) return;
   petChat.update(value, performance.now()); restorePetChat();
+}, amount => {
+  stage?.setSpeechMouthOpen(amount);
+  lastInteraction = performance.now();
 });
 let visibilityRevision = 0;
 const applyNativeVisibility = (visible: boolean) => {
   if (closed) return;
+  if (!visible) petSpeech?.stop();
   nativeVisible = visible; framePacer.reset(); lastInteraction = performance.now();
   publishRenderMetrics(); scheduleRenderReports();
 };
@@ -813,6 +1212,7 @@ if (desktop) {
 window.addEventListener('beforeunload', () => {
   clearInterval(renderReportTimer);
   stopVisibility?.();
+  petSpeech?.dispose();
   chatUI.dispose();
   closed = true; packageJob?.controller.abort();
   if (packageJob?.nativeStarted) void desktop?.cancelCharacterPackage(packageJob.id).catch(() => {});

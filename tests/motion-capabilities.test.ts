@@ -16,7 +16,7 @@ describe('loaded procedural motion capabilities', () => {
     expect(report.bones.missing).toEqual(['chest', 'neck']);
     expect(report.bones.present).not.toContain('chest');
     const rows = motionCapabilityRows(report);
-    expect(rows.filter(row => row.warning)).toHaveLength(4);
+    expect(rows.filter(row => row.warning)).toHaveLength(5);
     expect(rows.find(row => row.label.startsWith('躯干'))?.text).toContain('胸部、颈部');
     expect(rows.find(row => row.label === '眨眼')?.text).toContain('不会驱动');
     expect(rows.find(row => row.label === '开心 / 失落表情')?.text).toContain('仍播放骨骼动作');
@@ -28,7 +28,7 @@ describe('loaded procedural motion capabilities', () => {
     absent.bones.missing.splice(0); absent.expressions.missing.splice(0);
     expect(full.bones.present).toHaveLength(10); expect(full.expressions.present).toHaveLength(3);
     const rows = motionCapabilityRows(inspectMotionCapabilities({ hasBone: () => false, hasExpression: () => false, lookAtController: false }));
-    expect(rows.filter(row => row.warning)).toHaveLength(7);
+    expect(rows.filter(row => row.warning)).toHaveLength(8);
     expect(rows.find(row => row.label.startsWith('头部'))?.text).toContain('缺少头部');
   });
 });

@@ -75,6 +75,19 @@ function secureWindow(options) {
   return win;
 }
 
+function isTrustedUiUrl(value) {
+  try {
+    const url = new URL(value);
+    return (url.protocol === 'oipet:' && url.hostname === 'app')
+      || (url.protocol === 'http:' && url.hostname === '127.0.0.1' && url.port === '5173');
+  } catch { return false; }
+}
+
+function isActiveVoiceWindow(wc, requestingUrl) {
+  return [workshop, pet].some(win => win && !win.isDestroyed() && win.isVisible() && win.webContents === wc
+    && isTrustedUiUrl(wc.getURL()) && isTrustedUiUrl(requestingUrl ?? wc.getURL()));
+}
+
 async function loadView(win, mode) {
   if (process.env.OIGPTPET_DEV_URL === 'http://127.0.0.1:5173') await win.loadURL(`${process.env.OIGPTPET_DEV_URL}/?mode=${mode}`);
   else await win.loadURL(`oipet://app/index.html?mode=${mode}`);
@@ -136,13 +149,22 @@ function handlers() {
   ipcMain.handle('window:visibility-get', event => trusted(event).isVisible());
   ipcMain.handle('render:metrics', (event, value) => { const owner = trusted(event); renderMetrics.update(owner.webContents.id, value); });
   const chatOwner = event => { if (trusted(event) !== workshop) throw new Error('Only the workshop can control chat'); };
+  const petChatOwner = event => {
+    const owner = trusted(event);
+    if (owner !== pet || !owner.isVisible() || !isTrustedUiUrl(owner.webContents.getURL())) throw new Error('Only the visible pet can send a pet message');
+  };
   ipcMain.handle('chat:get', event => { chatOwner(event); return chat.get(); });
   ipcMain.handle('chat:check', event => { chatOwner(event); return chat.check(); });
   ipcMain.handle('chat:snapshot', event => { chatOwner(event); return chat.snapshot(); });
   ipcMain.handle('chat:state-get', event => { trusted(event); return chat.getState(); });
   ipcMain.handle('chat:save', (event, value) => { chatOwner(event); return chat.save(value); });
   ipcMain.handle('chat:send', (event, text, requestId) => { chatOwner(event); return chat.send(text, requestId); });
-  ipcMain.handle('chat:cancel', event => { chatOwner(event); chat.cancel(); });
+  ipcMain.handle('chat:send-pet', (event, text, requestId) => { petChatOwner(event); return chat.send(text, requestId); });
+  ipcMain.handle('chat:cancel', event => {
+    const owner = trusted(event);
+    if (owner !== workshop) petChatOwner(event);
+    chat.cancel();
+  });
   ipcMain.handle('chat:clear', event => { chatOwner(event); chat.clear(); });
   const saveDiagnostics = createDiagnosticsExporter({
     chooseFile: owner => dialog.showSaveDialog(owner, { defaultPath: 'OiGptPet-desktop-diagnostics.json', filters: [{ name: '桌面诊断 JSON', extensions: ['json'] }] }),
@@ -236,8 +258,14 @@ else {
     try { await chat.load(); } catch { console.warn('Chat settings could not be loaded; save them again in the workshop.'); }
     try { savedBounds = await windowState.load(); } catch (error) { console.error('Window position could not be read:', error.message); }
     try { const bytes = await fs.readFile(modelPath()); if (bytes.length <= 64 * 1024 * 1024) modelBytes = bytes; } catch { /* No imported model yet. */ }
-    session.defaultSession.setPermissionRequestHandler((_wc, _permission, callback) => callback(false));
-    session.defaultSession.setPermissionCheckHandler(() => false);
+    session.defaultSession.setPermissionRequestHandler((wc, permission, callback, details) => {
+      const mediaTypes = details?.mediaTypes ?? [];
+      const microphoneOnly = mediaTypes.includes('audio') && !mediaTypes.includes('video');
+      callback(permission === 'media' && microphoneOnly && isActiveVoiceWindow(wc, details?.requestingUrl));
+    });
+    session.defaultSession.setPermissionCheckHandler((wc, permission, origin) => {
+      return permission === 'media' && isActiveVoiceWindow(wc, origin);
+    });
     handlers();
     tray = new Tray(makeTrayIcon());
     tray.setToolTip('OiGptPet · Ctrl+Alt+P 恢复互动');

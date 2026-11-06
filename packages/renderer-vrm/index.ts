@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { VRM, VRMLoaderPlugin } from '@pixiv/three-vrm';
+import { VRM, VRMLoaderPlugin, type VRMHumanBoneName } from '@pixiv/three-vrm';
+import { createVRMAnimationClip, VRMAnimationLoaderPlugin, VRMLookAtQuaternionProxy, type VRMAnimation } from '@pixiv/three-vrm-animation';
 import { disposeVrmScene } from './dispose';
 import { inspectMotionCapabilities } from '../character-core/motion-capabilities';
 import { applyBlink } from '../character-core/blink';
@@ -8,6 +9,24 @@ import { adaptFaceArms } from './arm-reach';
 import { sampleMotion, sampleLook } from '../character-core';
 import { inspectVrmFile, type ModelInfo } from '../character-core/vrm-file';
 import type { AnimationState } from '../target-chatgpt/contract';
+import { actionTimeToPoseTime, poseTimeToActionTime, type VrmMotionLoopMode } from './motion-time';
+
+export type { VrmMotionLoopMode } from './motion-time';
+
+export interface VrmMotionClipCompatibility {
+  totalBones: number;
+  missingBones: string[];
+  totalExpressions: number;
+  missingExpressions: string[];
+  lookAt: 'unused' | 'available' | 'missing';
+}
+
+export interface VrmMotionClipInfo {
+  index: number;
+  name: string;
+  duration: number;
+  compatibility: VrmMotionClipCompatibility;
+}
 
 export class VrmStage {
   readonly renderer: THREE.WebGLRenderer;
@@ -15,10 +34,20 @@ export class VrmStage {
   readonly camera = new THREE.OrthographicCamera(-1.4, 1.4, 2.45, -0.25, 0.1, 30);
   readonly root = new THREE.Group();
   private vrm?: VRM;
+  private lookAtProxy?: VRMLookAtQuaternionProxy;
   private generation = 0;
+  private motionGeneration = 0;
+  private motionMixer?: THREE.AnimationMixer;
+  private motionActions: THREE.AnimationAction[] = [];
+  private activeMotion?: number;
+  private motionPlaybackRate = 1;
+  private motionLoopMode: VrmMotionLoopMode = 'repeat';
   private disposed = false;
   private lookTarget = new THREE.Object3D();
   private lastState?: AnimationState;
+  private lastStateRevision?: number;
+  private speechMouthTarget = 0;
+  private speechMouthCurrent = 0;
   private poseTransition?: {
     elapsed: number;
     bones: Array<{ node: THREE.Object3D; from: THREE.Quaternion; to: THREE.Quaternion }>;
@@ -63,7 +92,13 @@ export class VrmStage {
     }
     this.releaseModel();
     this.vrm = candidate;
+    if (candidate.lookAt) {
+      this.lookAtProxy = new VRMLookAtQuaternionProxy(candidate.lookAt);
+      this.lookAtProxy.name = 'lookAtQuaternionProxy';
+      candidate.scene.add(this.lookAtProxy);
+    }
     this.lastState = undefined;
+    this.lastStateRevision = undefined;
     this.poseTransition = undefined;
     candidate.scene.position.set(0, 0, 0);
     candidate.scene.rotation.set(0, 0, 0);
@@ -105,7 +140,178 @@ export class VrmStage {
     this.camera.updateProjectionMatrix();
   }
 
-  private applyPose(state: AnimationState, phase: number, look?: { yaw: number; pitch: number }) {
+  setSpeechMouthOpen(amount: number) {
+    this.speechMouthTarget = THREE.MathUtils.clamp(Number.isFinite(amount) ? amount : 0, 0, 1);
+  }
+
+  async loadMotion(buffer: ArrayBuffer): Promise<VrmMotionClipInfo[]> {
+    const vrm = this.vrm;
+    if (!vrm) throw new Error('请先加载 VRM 角色。');
+    const generation = this.generation;
+    const motionGeneration = ++this.motionGeneration;
+    const manager = new THREE.LoadingManager();
+    manager.setURLModifier(url => {
+      if (!url.startsWith('blob:') && !url.startsWith('data:')) throw new Error('已阻止动作文件的外部资源请求。');
+      return url;
+    });
+    const loader = new GLTFLoader(manager);
+    loader.register(parser => new VRMAnimationLoaderPlugin(parser));
+    const gltf = await loader.parseAsync(buffer, '');
+    try {
+      const animations = gltf.userData.vrmAnimations as VRMAnimation[] | undefined;
+      if (!animations?.length) throw new Error('文件中没有受支持的 VRM Animation 动作。');
+      const clips = animations.map((animation, index) => {
+        const clip = createVRMAnimationClip(animation, vrm);
+        clip.name = gltf.animations[index]?.name?.trim().slice(0, 120) || `动作 ${index + 1}`;
+        const bones = new Set<VRMHumanBoneName>(animation.humanoidTracks.rotation.keys());
+        if (animation.humanoidTracks.translation.has('hips')) bones.add('hips');
+        const expressions = new Set<string>([
+          ...animation.expressionTracks.preset.keys(),
+          ...animation.expressionTracks.custom.keys(),
+        ]);
+        const compatibility: VrmMotionClipCompatibility = {
+          totalBones: bones.size,
+          missingBones: [...bones].filter(name => !vrm.humanoid.getNormalizedBoneNode(name)),
+          totalExpressions: expressions.size,
+          missingExpressions: [...expressions].filter(name => !vrm.expressionManager?.getExpression(name)),
+          lookAt: !animation.lookAtTrack ? 'unused' : vrm.lookAt ? 'available' : 'missing',
+        };
+        return { clip, compatibility };
+      });
+      if (clips.some(({ clip }) => !Number.isFinite(clip.duration) || clip.duration <= 0 || clip.tracks.length === 0)) throw new Error('动作时长无效或没有可播放的骨骼、表情或视线轨道。');
+      if (this.disposed || this.vrm !== vrm || this.generation !== generation || this.motionGeneration !== motionGeneration) {
+        throw new DOMException('动作加载已取消。', 'AbortError');
+      }
+      const mixer = new THREE.AnimationMixer(vrm.scene);
+      const actions = clips.map(({ clip }) => mixer.clipAction(clip));
+      this.releaseMotion();
+      this.motionMixer = mixer;
+      this.motionActions = actions;
+      this.playMotion(0);
+      return clips.map(({ clip, compatibility }, index) => ({
+        index, name: clip.name.trim() || `动作 ${index + 1}`, duration: clip.duration, compatibility,
+      }));
+    } finally {
+      disposeVrmScene(gltf.scene);
+    }
+  }
+
+  playMotion(index: number): void {
+    const action = this.motionActions[index];
+    if (!action) throw new RangeError('请选择有效的 VRM Animation 动作。');
+    this.motionMixer?.stopAllAction();
+    action.reset();
+    action.timeScale = this.motionPlaybackRate;
+    action.clampWhenFinished = this.motionLoopMode === 'once';
+    action.setLoop(this.motionLoopMode === 'once' ? THREE.LoopOnce : this.motionLoopMode === 'pingpong' ? THREE.LoopPingPong : THREE.LoopRepeat, this.motionLoopMode === 'once' ? 1 : Infinity);
+    action.play();
+    this.activeMotion = index;
+    this.poseTransition = undefined;
+    this.lastState = undefined;
+    this.lastStateRevision = undefined;
+  }
+
+  toggleMotion(): boolean {
+    if (this.activeMotion === undefined) return false;
+    const action = this.motionActions[this.activeMotion];
+    if (!action) return false;
+    if (this.motionLoopMode === 'once' && action.paused && action.time >= action.getClip().duration) {
+      this.playMotion(this.activeMotion);
+      return true;
+    }
+    action.paused = !action.paused;
+    return !action.paused;
+  }
+
+  motionIsPlaying(): boolean {
+    return this.activeMotion === undefined ? false : this.motionActions[this.activeMotion]?.isRunning() ?? false;
+  }
+
+  setMotionPlaybackRate(rate: number): void {
+    if (!Number.isFinite(rate) || rate < 0.25 || rate > 2) throw new RangeError('动作速度必须在 0.25 到 2 倍之间。');
+    this.motionPlaybackRate = rate;
+    for (const action of this.motionActions) action.timeScale = rate;
+  }
+
+  setMotionLoopMode(mode: VrmMotionLoopMode): void {
+    if (mode !== 'repeat' && mode !== 'once' && mode !== 'pingpong') throw new RangeError('请选择有效的动作循环模式。');
+    const action = this.activeMotion === undefined ? undefined : this.motionActions[this.activeMotion];
+    const loopCount = action ? this.getMotionLoopCount(action) : -1;
+    const duration = action?.getClip().duration ?? 0;
+    const poseTime = action ? actionTimeToPoseTime(action.time, duration, this.motionLoopMode, loopCount) : 0;
+    this.motionLoopMode = mode;
+    if (!action) return;
+    action.clampWhenFinished = mode === 'once';
+    action.setLoop(mode === 'once' ? THREE.LoopOnce : mode === 'pingpong' ? THREE.LoopPingPong : THREE.LoopRepeat, mode === 'once' ? 1 : Infinity);
+    action.time = poseTimeToActionTime(poseTime, duration, mode, loopCount);
+    this.motionMixer?.update(0);
+  }
+
+  seekMotion(index: number, seconds: number): void {
+    const action = this.motionActions[index];
+    const mixer = this.motionMixer;
+    if (!action || !mixer) throw new RangeError('请选择已加载的 VRM Animation 动作。');
+    const duration = action.getClip().duration;
+    if (!Number.isFinite(seconds) || !Number.isFinite(duration) || duration <= 0) throw new RangeError('动作预览时间无效。');
+    action.paused = true;
+    const poseTime = THREE.MathUtils.clamp(seconds, 0, Math.max(0, duration - 1e-5));
+    action.time = poseTimeToActionTime(poseTime, duration, this.motionLoopMode, this.getMotionLoopCount(action));
+    this.activeMotion = index;
+    mixer.update(0);
+  }
+
+  motionTime(index: number): number | undefined {
+    const action = this.motionActions[index];
+    return action ? actionTimeToPoseTime(action.time, action.getClip().duration, this.motionLoopMode, this.getMotionLoopCount(action)) : undefined;
+  }
+
+  private getMotionLoopCount(action: THREE.AnimationAction): number {
+    // Three.js keeps ping-pong direction in this internal counter; `action.time` is the raw leg time.
+    return (action as THREE.AnimationAction & { _loopCount: number })._loopCount;
+  }
+
+  clearMotion(): void {
+    ++this.motionGeneration;
+    this.releaseMotion();
+    this.poseTransition = undefined;
+    this.lastState = undefined;
+    this.lastStateRevision = undefined;
+  }
+
+  renderMotionSettled(index: number, seconds: number, steps = 30): void {
+    const vrm = this.vrm;
+    const mixer = this.motionMixer;
+    const action = this.motionActions[index];
+    if (!vrm || !mixer || !action) throw new RangeError('请选择已加载的 VRM Animation 动作。');
+    const duration = action.getClip().duration;
+    if (!Number.isFinite(seconds) || !Number.isFinite(duration) || duration <= 0) throw new RangeError('动作采样时间无效。');
+    const time = ((seconds % duration) + duration) % duration;
+    mixer.stopAllAction();
+    action.reset();
+    action.setLoop(THREE.LoopRepeat, Infinity);
+    action.time = time;
+    action.play();
+    vrm.humanoid.resetNormalizedPose();
+    this.root.position.set(0, 0, 0);
+    this.root.rotation.set(0, 0, 0);
+    this.lookTarget.position.set(0, 1.65, 5);
+    this.resetExpressions();
+    mixer.update(0);
+    action.paused = true;
+    vrm.update(0);
+    const springs = vrm.springBoneManager;
+    springs?.reset();
+    springs?.setInitState();
+    for (let step = 0; step < Math.max(0, Math.floor(steps)); step++) springs?.update(1 / 60);
+    this.renderer.render(this.scene, this.camera);
+  }
+
+  private resetExpressions() {
+    const expressions = this.vrm?.expressionManager;
+    for (const name of Object.keys(expressions?.expressionMap ?? {})) expressions?.setValue(name, 0);
+  }
+
+  private applyPose(state: AnimationState, phase: number, look?: { yaw: number; pitch: number }, mouthOpen = 0) {
     if (!this.vrm) return;
     const vrm = this.vrm;
     vrm.humanoid.resetNormalizedPose();
@@ -123,20 +329,22 @@ export class VrmStage {
     if (p.chest) rotate('chest', ...p.chest);
     if (p.neck) rotate('neck', ...p.neck);
     rotate('head', look?.pitch ?? p.headPitch, look?.yaw ?? p.headYaw, p.headRoll);
-    this.root.position.y = p.rootY;
-    this.root.rotation.y = p.rootYaw;
+    this.root.position.set(0, p.rootY, 0);
+    this.root.rotation.set(0, p.rootYaw, 0);
     adaptFaceArms(name => vrm.humanoid.getNormalizedBoneNode(name), state);
     const expressions = vrm.expressionManager;
-    for (const name of ['happy', 'sad', 'relaxed']) expressions?.setValue(name, 0);
+    this.resetExpressions();
     applyBlink(expressions ?? undefined, p.blink);
     expressions?.setValue('happy', p.happy);
     expressions?.setValue('sad', p.sad);
+    expressions?.setValue('aa', mouthOpen);
     if (look) this.lookTarget.position.set(Math.sin(look.yaw) * 3, 1.65 - Math.sin(look.pitch) * 3, 4);
     else this.lookTarget.position.set(0, 1.65, 5);
   }
 
-  render(state: AnimationState, phase: number, delta: number, look?: { yaw: number; pitch: number }) {
-    if (this.lastState !== undefined && this.lastState !== state && this.vrm) {
+  render(state: AnimationState, phase: number, delta: number, look?: { yaw: number; pitch: number }, stateRevision?: number) {
+    const restarted = stateRevision !== undefined && this.lastStateRevision !== undefined && stateRevision !== this.lastStateRevision;
+    if (this.lastState !== undefined && (this.lastState !== state || restarted) && this.vrm) {
       const nodes = new Set(Object.values(this.vrm.humanoid.normalizedHumanBones).map(bone => bone.node));
       const bones = [...nodes].map(node => ({ node, from: node.quaternion.clone(), to: new THREE.Quaternion() }));
       const expressions = ['blink', 'blinkLeft', 'blinkRight', 'happy', 'sad', 'relaxed']
@@ -152,8 +360,18 @@ export class VrmStage {
       };
     }
     this.lastState = state;
-    this.applyPose(state, phase, look);
-    if (this.poseTransition) {
+    this.lastStateRevision = stateRevision;
+    const boundedDelta = Math.min(Math.max(delta, 0), 1 / 15);
+    this.speechMouthCurrent = THREE.MathUtils.lerp(this.speechMouthCurrent, this.speechMouthTarget, 1 - Math.exp(-boundedDelta * 14));
+    const externalMotion = this.motionMixer !== undefined && this.activeMotion !== undefined;
+    if (externalMotion) {
+      this.vrm?.humanoid.resetNormalizedPose();
+      this.root.position.set(0, 0, 0);
+      this.root.quaternion.identity();
+      this.resetExpressions();
+      this.motionMixer?.update(boundedDelta);
+    } else this.applyPose(state, phase, look, this.speechMouthCurrent);
+    if (this.poseTransition && !externalMotion) {
       const transition = this.poseTransition;
       transition.elapsed += Math.min(Math.max(delta, 0), 1 / 15);
       const progress = Math.min(1, transition.elapsed / 0.2);
@@ -174,7 +392,7 @@ export class VrmStage {
       }
       if (progress >= 1) this.poseTransition = undefined;
     }
-    this.vrm?.update(Math.min(Math.max(delta, 0), 1 / 15));
+    this.vrm?.update(boundedDelta);
     this.renderer.render(this.scene, this.camera);
   }
 
@@ -191,6 +409,7 @@ export class VrmStage {
     steps = 30,
   ) {
     if (!this.vrm) return;
+    this.speechMouthCurrent = 0;
     this.applyPose(state, phase, look);
     this.vrm.update(0);
     const springs = this.vrm.springBoneManager;
@@ -211,13 +430,27 @@ export class VrmStage {
   }
   get loaded() { return Boolean(this.vrm); }
   private releaseModel() {
+    ++this.motionGeneration;
+    this.releaseMotion();
     if (this.vrm) {
       this.lastState = undefined;
+      this.lastStateRevision = undefined;
       this.poseTransition = undefined;
+      if (this.lookAtProxy) this.vrm.scene.remove(this.lookAtProxy);
+      this.lookAtProxy = undefined;
       this.root.remove(this.vrm.scene);
       disposeVrmScene(this.vrm.scene);
       this.vrm = undefined;
     }
+  }
+  private releaseMotion() {
+    this.motionMixer?.stopAllAction();
+    if (this.vrm && this.motionMixer) this.motionMixer.uncacheRoot(this.vrm.scene);
+    this.motionMixer = undefined;
+    this.motionActions = [];
+    this.activeMotion = undefined;
+    this.motionPlaybackRate = 1;
+    this.motionLoopMode = 'repeat';
   }
   dispose() {
     this.disposed = true;

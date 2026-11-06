@@ -2,10 +2,11 @@ import { VrmStage } from '../renderer-vrm';
 import { sampleLook } from '../character-core';
 import {
   ANIMATION_ROWS, ATLAS_COLUMNS, CELL_HEIGHT, CELL_WIDTH, MAX_ENCODED_BYTES,
-  atlasDimensions, type AtlasProfile,
+  atlasDimensions, type AnimationState, type AtlasProfile,
 } from '../target-chatgpt/contract';
 
 export interface ExportResult { blob: Blob; width: number; height: number; frames: number; profile: AtlasProfile }
+export interface ExternalMotionExport { buffer: ArrayBuffer; clipIndex: number; state: AnimationState }
 
 // Each frame restarts from the captured rest state, so a fixed 60 Hz warm-up
 // removes the dependence on the previously sampled row without unbounded waiting.
@@ -17,6 +18,7 @@ export async function exportAtlas(
   profile: AtlasProfile,
   progress: (done: number, total: number) => void,
   signal?: AbortSignal,
+  externalMotion?: ExternalMotionExport | readonly ExternalMotionExport[],
 ): Promise<ExportResult> {
   signal?.throwIfAborted();
   const { width, height } = atlasDimensions(profile);
@@ -31,12 +33,33 @@ export async function exportAtlas(
   try {
     await stage.load(source);
     stage.resize(CELL_WIDTH, CELL_HEIGHT, 1);
+    const externalMotions: readonly ExternalMotionExport[] = externalMotion === undefined ? []
+      : 'clipIndex' in externalMotion ? [externalMotion] : externalMotion;
+    const externalByState = new Map<AnimationState, { clipIndex: number; duration: number }>();
+    if (externalMotions.length) {
+      const motionBuffer = externalMotions[0].buffer;
+      if (externalMotions.some(motion => motion.buffer !== motionBuffer)) throw new Error('同一图集导出的多个动作行必须来自同一份 VRMA。');
+      for (const motion of externalMotions) {
+        if (!ANIMATION_ROWS.some(row => row.state === motion.state) || externalByState.has(motion.state)) {
+          throw new Error('VRMA 替换行无效或重复，请检查动作行清单。');
+        }
+      }
+      const clips = await stage.loadMotion(motionBuffer);
+      for (const motion of externalMotions) {
+        const clip = clips.find(item => item.index === motion.clipIndex);
+        if (!clip) throw new Error('所选 VRMA 动作片段不存在，已取消图集导出。');
+        externalByState.set(motion.state, { clipIndex: motion.clipIndex, duration: clip.duration });
+      }
+    }
     // Physics is settled consistently for each pose rather than inheriting the previous row.
     for (const [row, definition] of ANIMATION_ROWS.entries()) {
       for (let col = 0; col < definition.frames; col++) {
         signal?.throwIfAborted();
         const phase = definition.state === 'jumping' ? col / (definition.frames - 1) : col / definition.frames;
-        stage.renderSettled(definition.state, phase, undefined, PHYSICS_STEPS);
+        const replacement = externalByState.get(definition.state);
+        if (replacement) {
+          stage.renderMotionSettled(replacement.clipIndex, replacement.duration * col / definition.frames, PHYSICS_STEPS);
+        } else stage.renderSettled(definition.state, phase, undefined, PHYSICS_STEPS);
         context.drawImage(frame, col * CELL_WIDTH, row * CELL_HEIGHT);
         progress(++done, total);
         await new Promise<void>((resolve) => setTimeout(resolve, 0));

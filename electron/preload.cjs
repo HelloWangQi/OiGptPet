@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('petDesktop', Object.freeze({
   getChatState: () => ipcRenderer.invoke('chat:state-get'),
   saveChatSettings: value => ipcRenderer.invoke('chat:save', value),
   sendChat: (text, requestId) => ipcRenderer.invoke('chat:send', text, requestId),
+  sendPetMessage: (text, requestId) => ipcRenderer.invoke('chat:send-pet', text, requestId),
   cancelChat: () => ipcRenderer.invoke('chat:cancel'),
   clearChat: () => ipcRenderer.invoke('chat:clear'),
   onChatState: callback => {
