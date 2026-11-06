@@ -80,7 +80,7 @@ app.innerHTML = petMode ? `
           <section id="external-motion-panel" class="external-motion-panel" hidden aria-label="外部动作预览">
             <div class="external-motion-actions"><button id="external-motion-import" class="text-button" type="button">导入 VRM Animation（.vrma）</button><input id="external-motion-file" type="file" accept=".vrma,model/gltf-binary" hidden /></div>
             <div id="external-motion-controls" class="external-motion-actions" hidden><select id="external-motion-clip" aria-label="选择导入动作"></select><select id="external-motion-speed" aria-label="动作播放速度"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select><select id="external-motion-loop" aria-label="动作循环模式"><option value="repeat" selected>循环</option><option value="once">播放一次</option><option value="pingpong">往返</option></select><button id="external-motion-toggle" class="text-button" type="button">暂停动作</button><button id="external-motion-clear" class="text-button" type="button">恢复内置动作</button></div>
-            <div id="external-motion-scrubber" class="external-motion-scrubber" hidden><label for="external-motion-time">预览时间</label><input id="external-motion-time" type="range" min="0" max="1000" value="0" aria-label="拖动查看动作时间点" /><output id="external-motion-time-label">0.0 / 0.0 秒</output></div>
+            <div id="external-motion-scrubber" class="external-motion-scrubber" hidden><label for="external-motion-time">预览时间</label><input id="external-motion-time" type="range" min="0" max="1000" value="0" aria-label="拖动查看动作时间点" /><output id="external-motion-time-label">0.0 / 0.0 秒</output><label class="external-motion-exact-label" for="external-motion-exact-time">精确时间</label><input id="external-motion-exact-time" type="number" min="0" step="0.01" value="0" aria-label="输入精确动作时间（秒）" /><span>秒</span></div>
             <div id="external-motion-export" hidden><label class="field-label" for="external-motion-export-state">导出图集时替换动作行</label><select id="external-motion-export-state"><option value="">不替换（只预览）</option>${ANIMATION_ROWS.map(row => `<option value="${row.state}">${row.label}</option>`).join('')}</select><p class="helper">只替换一行动作；其余行保留内置动作。保存前请检查该行的动作循环和裁切。</p></div>
             <p id="external-motion-status" class="helper" role="status" aria-live="polite"></p>
             <p class="helper">动作仅暂存在工坊。可选替换导出图集中的一行动作；不会修改角色库或备份包。</p>
@@ -571,6 +571,8 @@ function resetExternalMotionPreview(message = '') {
   if (scrubber) scrubber.hidden = true;
   const timeInput = document.querySelector<HTMLInputElement>('#external-motion-time');
   if (timeInput) timeInput.value = '0';
+  const exactTimeInput = document.querySelector<HTMLInputElement>('#external-motion-exact-time');
+  if (exactTimeInput) { exactTimeInput.value = '0'; exactTimeInput.max = '0'; }
   const timeLabel = document.querySelector<HTMLOutputElement>('#external-motion-time-label');
   if (timeLabel) timeLabel.textContent = '0.0 / 0.0 秒';
   const file = document.querySelector<HTMLInputElement>('#external-motion-file');
@@ -609,6 +611,9 @@ function updateExternalMotionTime() {
   const slider = $<HTMLInputElement>('#external-motion-time');
   const value = clip && clip.duration > 0 ? Math.min(1000, Math.round(time / clip.duration * 1000)) : 0;
   if (slider.value !== String(value)) slider.value = String(value);
+  const exactTime = $<HTMLInputElement>('#external-motion-exact-time');
+  exactTime.max = String(clip?.duration ?? 0);
+  if (document.activeElement !== exactTime) exactTime.value = time.toFixed(2);
   $('#external-motion-time-label').textContent = `${time.toFixed(1)} / ${(clip?.duration ?? 0).toFixed(1)} 秒`;
   $<HTMLButtonElement>('#external-motion-toggle').textContent = stage?.motionIsPlaying() ? '暂停动作' : '继续动作';
 }
@@ -975,6 +980,20 @@ if (petMode) {
     try {
       const fraction = Number((event.currentTarget as HTMLInputElement).value) / 1000;
       stage.seekMotion(index, clip.duration * fraction);
+      $<HTMLButtonElement>('#external-motion-toggle').textContent = '继续动作';
+      updateExternalMotionTime();
+    } catch (error) { $('#external-motion-status').textContent = error instanceof Error ? error.message : '动作定位失败。'; }
+  };
+  $<HTMLInputElement>('#external-motion-exact-time').onchange = event => {
+    const index = Number($<HTMLSelectElement>('#external-motion-clip').value);
+    const clip = externalMotionClips.find(item => item.index === index);
+    const input = event.currentTarget as HTMLInputElement;
+    if (!clip) return;
+    const requested = Number(input.value);
+    if (!Number.isFinite(requested)) { $('#external-motion-status').textContent = '请输入有效的动作时间。'; updateExternalMotionTime(); return; }
+    try {
+      stage.seekMotion(index, Math.min(clip.duration, Math.max(0, requested)));
+      input.value = (stage.motionTime(index) ?? 0).toFixed(2);
       $<HTMLButtonElement>('#external-motion-toggle').textContent = '继续动作';
       updateExternalMotionTime();
     } catch (error) { $('#external-motion-status').textContent = error instanceof Error ? error.message : '动作定位失败。'; }
