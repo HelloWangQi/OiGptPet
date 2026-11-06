@@ -199,6 +199,7 @@ let externalMotionClips: VrmMotionClipInfo[] = [];
 let externalMotionAssignments: ExternalMotionAssignment[] = [];
 let nextExternalMotionSourceId = 1;
 let externalMotionImportRevision = 0;
+let externalMotionAssignmentPreviewRevision = 0;
 let lastExternalMotionUiUpdate = 0;
 let lastInteraction = performance.now();
 let preferences: DesktopPreferences = { ...DEFAULT_PREFERENCES };
@@ -572,6 +573,7 @@ function changeState(next: AnimationState) {
 
 function resetExternalMotionPreview(message = '') {
   externalMotionImportRevision += 1;
+  externalMotionAssignmentPreviewRevision += 1;
   externalMotionSources = [];
   activeExternalMotionSourceId = undefined;
   externalMotionClips = [];
@@ -616,10 +618,10 @@ function resetExternalMotionPreview(message = '') {
 function renderExternalMotionSources() {
   const select = document.querySelector<HTMLSelectElement>('#external-motion-source');
   if (!select) return;
-  select.replaceChildren(...externalMotionSources.map(source => {
+  select.replaceChildren(...externalMotionSources.map((source, index) => {
     const option = document.createElement('option');
     option.value = source.id;
-    option.textContent = `${source.name} · ${source.clips.length} 段`;
+    option.textContent = `文件 ${index + 1} · ${source.name} · ${source.clips.length} 段`;
     return option;
   }));
   if (activeExternalMotionSourceId) select.value = activeExternalMotionSourceId;
@@ -629,6 +631,7 @@ function renderExternalMotionSources() {
 
 function removeActiveExternalMotionSource() {
   if (!activeExternalMotionSourceId) return;
+  externalMotionAssignmentPreviewRevision += 1;
   const removedId = activeExternalMotionSourceId;
   const removed = externalMotionSources.find(item => item.id === removedId);
   const selectedState = $<HTMLSelectElement>('#external-motion-export-state').value;
@@ -663,17 +666,51 @@ function renderExternalMotionAssignments() {
     const item = document.createElement('div');
     item.className = 'external-motion-assignment';
     const description = document.createElement('span');
-    description.textContent = `${row.label} ← ${source.name} / ${clip.name} · ${clip.duration.toFixed(1)} 秒`;
+    const sourceIndex = externalMotionSources.findIndex(item => item.id === source.id);
+    description.textContent = `${row.label} ← 文件 ${sourceIndex + 1} · ${source.name} / ${clip.name} · ${clip.duration.toFixed(1)} 秒`;
+    const actions = document.createElement('div');
+    actions.className = 'external-motion-assignment-actions';
+    const preview = document.createElement('button');
+    preview.className = 'text-button';
+    preview.type = 'button';
+    preview.dataset.previewMotionState = row.state;
+    preview.setAttribute('aria-label', `预览分配给${row.label}行的动作`);
+    preview.textContent = '预览';
     const remove = document.createElement('button');
     remove.className = 'text-button';
     remove.type = 'button';
     remove.dataset.removeMotionState = row.state;
     remove.setAttribute('aria-label', `移除${row.label}动作替换`);
     remove.textContent = '移除';
-    item.append(description, remove);
+    actions.append(preview, remove);
+    item.append(description, actions);
     host.append(item);
   }
   host.hidden = host.childElementCount === 0;
+}
+
+async function previewExternalMotionAssignment(state: AnimationState) {
+  const assignment = externalMotionAssignments.find(item => item.state === state);
+  const motionSource = assignment && externalMotionSources.find(item => item.id === assignment.sourceId);
+  const clip = motionSource?.clips.find(item => item.index === assignment?.clipIndex);
+  if (!assignment || !motionSource || !clip) return;
+  const revision = ++externalMotionAssignmentPreviewRevision;
+  $<HTMLSelectElement>('#external-motion-export-state').value = state;
+  if (motionSource.id !== activeExternalMotionSourceId) {
+    $<HTMLSelectElement>('#external-motion-source').value = motionSource.id;
+    await activateExternalMotionSource(motionSource.id);
+  }
+  if (revision !== externalMotionAssignmentPreviewRevision || activeExternalMotionSourceId !== motionSource.id) return;
+  try {
+    $<HTMLSelectElement>('#external-motion-clip').value = String(clip.index);
+    stage.playMotion(clip.index);
+    $<HTMLButtonElement>('#external-motion-toggle').textContent = '暂停动作';
+    updateExternalMotionTime();
+    updateExternalMotionSamplePreview();
+    $('#external-motion-status').textContent = `正在预览分配给${ANIMATION_ROWS.find(row => row.state === state)?.label ?? state}行的动作：${motionSource.name} / ${clip.name}。`;
+  } catch (error) {
+    $('#external-motion-status').textContent = error instanceof Error ? error.message : '分配动作预览失败。';
+  }
 }
 
 function describeExternalMotionCompatibility(clip: VrmMotionClipInfo) {
@@ -793,6 +830,7 @@ async function importExternalMotion(file?: File) {
   if (file.size === 0 || file.size > MAX_MODEL_BYTES) { $('#external-motion-status').textContent = '动作文件不能为空且不能超过 64 MiB。'; return; }
   const storedBytes = externalMotionSources.reduce((total, item) => total + item.buffer.byteLength, 0);
   if (storedBytes + file.size > MAX_EXTERNAL_MOTION_LIBRARY_BYTES) { $('#external-motion-status').textContent = '当前动作库最多占用 256 MiB，请先移除不使用的动作文件。'; return; }
+  externalMotionAssignmentPreviewRevision += 1;
   const importRevision = ++externalMotionImportRevision;
   const targetStage = stage;
   const button = $<HTMLButtonElement>('#external-motion-import');
@@ -1207,9 +1245,16 @@ if (petMode) {
   };
   $('#external-motion-assignments').onclick = event => {
     if (!(event.target instanceof Element)) return;
+    const previewButton = event.target.closest<HTMLButtonElement>('[data-preview-motion-state]');
+    const previewState = previewButton?.dataset.previewMotionState as AnimationState | undefined;
+    if (previewState) {
+      void previewExternalMotionAssignment(previewState);
+      return;
+    }
     const button = event.target.closest<HTMLButtonElement>('[data-remove-motion-state]');
     const targetState = button?.dataset.removeMotionState as AnimationState | undefined;
     if (!targetState) return;
+    externalMotionAssignmentPreviewRevision += 1;
     externalMotionAssignments = externalMotionAssignments.filter(item => item.state !== targetState);
     if (externalMotionAssignments.length === 0) $<HTMLSelectElement>('#external-motion-export-state').value = '';
     renderExternalMotionAssignments();
