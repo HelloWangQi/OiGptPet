@@ -1,8 +1,14 @@
-# 接续 0.10.0：发布后验收收尾
+# 接续 0.11.0：跨多个 VRMA 文件组合动作
 
-0.10.0 GitHub 正式 Release 已发布：[下载页](https://github.com/HelloWangQi/OiGptPet/releases/tag/v0.10.0)。版本源码提交 `aa398836da33a71de2f4ab55ffcdafecaf4064b3`。本地 EXE：`release/v0.10.0-1793935231062/OiGptPet-win32-x64/OiGptPet.exe`；上传 ZIP SHA-256 为 `e390be6445507d36faff0f4a546f7a0f8effd35b7e8883403a856a284d5c738b`。
+0.10.0 GitHub 正式 Release 已发布：[下载页](https://github.com/HelloWangQi/OiGptPet/releases/tag/v0.10.0)，源码提交 `aa398836da33a71de2f4ab55ffcdafecaf4064b3`。当前本地源码进入 0.11.0 开发。目标是让多行动作行分别引用不同 `.vrma` 文件中的片段，文件仅保留在工坊会话，单文件 64 MiB、总量 256 MiB。
 
-从提交 `aa39883` 执行 `npm run package` 成功（TypeScript 检查、Vite 构建、Electron Windows x64 打包）。本次发布没有运行测试套件、`npm run verify:desktop` 或打包后 EXE 冒烟，因此发布 EXE 尚无实际运行验收。下一步在用户安排验证后覆盖多行动作行实际导出，检查替换行与未替换行；用户桌面验收前先从最终源码运行 `npm run verify:desktop`，提供匹配提交的 EXE 与冒烟结果。真实 VRMA/VRM 的语义、循环接缝、遮挡和裁切仍需人工检查。`release/` 保留最近 3 个 Windows 包；不删除模型或用户数据。
+本轮改动尚未编译、测试或打包。实现支持添加/切换/移除多个 VRMA 文件；分配项保存来源文件 ID 和片段 ID；导出时按目标行动作行切换来源文件，同一文件的相邻行动作可复用当前加载结果；报告按行记录各自的文件 SHA-256，不写本机路径。移除文件应连带清除其行分配；保留旧版“选择一行即替换”兼容逻辑。
+
+先静态核对添加、切换、移除文件期间的异步竞争和总量限制，以及导出器切换来源后的内置行动作回退。自动化测试与 EXE 冒烟尚未运行；用户安排验收时覆盖跨文件多行导出、同文件多行和未分配内置行，再从最终源码运行 `npm run verify:desktop`，提供匹配提交的 EXE。真实 VRMA/VRM 的语义、循环接缝、遮挡和裁切仍需人工检查。`release/` 保留最近 3 个 Windows 包；不删除模型或用户数据。
+
+## 0.10.0 发布记录
+
+`npm run package` 成功；该版本未运行测试套件、`npm run verify:desktop` 或打包后 EXE 冒烟。发布包和 SHA-256 见 [0.10.0 版本记录](releases/v0.10.0.md)。
 
 ## 0.9.9 已验收基线
 

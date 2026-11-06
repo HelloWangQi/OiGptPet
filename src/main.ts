@@ -20,6 +20,7 @@ import { RenderMonitor, renderSampleText, type RenderContext } from './render-mo
 import type { VrmMotionClipInfo } from '../packages/renderer-vrm';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
+const MAX_EXTERNAL_MOTION_LIBRARY_BYTES = 256 * 1024 * 1024;
 const desktop = window.petDesktop;
 const petMode = new URLSearchParams(location.search).get('mode') === 'pet' && Boolean(desktop);
 document.body.classList.toggle('pet-mode', petMode);
@@ -78,13 +79,13 @@ app.innerHTML = petMode ? `
         </div>
         <div class="motion-panel"><div class="motion-heading"><h2>今天是什么心情？</h2><button id="pause-button" class="text-button">暂停动画</button></div><div class="motion-list">${ANIMATION_ROWS.map((row, i) => `<button class="motion-button ${i === 0 ? 'active' : ''}" data-state="${row.state}"><span class="motion-index">${String(i + 1).padStart(2, '0')}</span>${row.label}</button>`).join('')}</div>
           <section id="external-motion-panel" class="external-motion-panel" hidden aria-label="外部动作预览">
-            <div class="external-motion-actions"><button id="external-motion-import" class="text-button" type="button">导入 VRM Animation（.vrma）</button><input id="external-motion-file" type="file" accept=".vrma,model/gltf-binary" hidden /></div>
-            <div id="external-motion-controls" class="external-motion-actions" hidden><select id="external-motion-clip" aria-label="选择导入动作"></select><select id="external-motion-speed" aria-label="动作播放速度"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select><select id="external-motion-loop" aria-label="动作循环模式"><option value="repeat" selected>循环</option><option value="once">播放一次</option><option value="pingpong">往返</option></select><button id="external-motion-toggle" class="text-button" type="button">暂停动作</button><button id="external-motion-clear" class="text-button" type="button">恢复内置动作</button></div>
+            <div class="external-motion-actions"><button id="external-motion-import" class="text-button" type="button">添加 VRMA 文件</button><input id="external-motion-file" type="file" accept=".vrma,model/gltf-binary" hidden /></div>
+            <div id="external-motion-controls" class="external-motion-actions" hidden><select id="external-motion-source" aria-label="选择动作文件"></select><button id="external-motion-source-remove" class="text-button" type="button">移除此文件</button><select id="external-motion-clip" aria-label="选择导入动作"></select><select id="external-motion-speed" aria-label="动作播放速度"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select><select id="external-motion-loop" aria-label="动作循环模式"><option value="repeat" selected>循环</option><option value="once">播放一次</option><option value="pingpong">往返</option></select><button id="external-motion-toggle" class="text-button" type="button">暂停动作</button><button id="external-motion-clear" class="text-button" type="button">恢复内置动作</button></div>
             <div id="external-motion-scrubber" class="external-motion-scrubber" hidden><label for="external-motion-time">预览时间</label><input id="external-motion-time" type="range" min="0" max="1000" value="0" aria-label="拖动查看动作时间点" /><output id="external-motion-time-label">0.0 / 0.0 秒</output><label class="external-motion-exact-label" for="external-motion-exact-time">精确时间</label><input id="external-motion-exact-time" type="number" min="0" step="0.01" value="0" aria-label="输入精确动作时间（秒）" /><span>秒</span></div>
-            <div id="external-motion-export" hidden><label class="field-label" for="external-motion-export-state">选择目标动作行</label><div class="external-motion-actions"><select id="external-motion-export-state"><option value="">选择要替换的动作行</option>${ANIMATION_ROWS.map(row => `<option value="${row.state}">${row.label}</option>`).join('')}</select><button id="external-motion-assign" class="text-button" type="button">添加 / 更新此行</button></div><div id="external-motion-assignments" class="external-motion-assignment-list" hidden aria-label="待导出的 VRMA 动作行"></div><p class="helper">可将同一文件中的不同片段分配给多行动作；未加入清单的行保留内置动作。保存前请检查动作语义、循环和裁切。</p></div>
+            <div id="external-motion-export" hidden><label class="field-label" for="external-motion-export-state">选择目标动作行</label><div class="external-motion-actions"><select id="external-motion-export-state"><option value="">选择要替换的动作行</option>${ANIMATION_ROWS.map(row => `<option value="${row.state}">${row.label}</option>`).join('')}</select><button id="external-motion-assign" class="text-button" type="button">添加 / 更新此行</button></div><div id="external-motion-assignments" class="external-motion-assignment-list" hidden aria-label="待导出的 VRMA 动作行"></div><p class="helper">可从多个文件中选择动作片段并分配给多行动作；未加入清单的行保留内置动作。保存前请检查动作语义、循环和裁切。</p></div>
             <div id="external-motion-sample-preview" class="external-motion-sample-preview" hidden><label class="field-label" for="external-motion-sample-frame">预览目标行的导出采样帧</label><div class="external-motion-actions"><select id="external-motion-sample-frame" aria-label="选择导出采样帧"></select><button id="external-motion-sample-jump" class="text-button" type="button">定位此帧</button></div><p id="external-motion-sample-description" class="helper"></p></div>
             <p id="external-motion-status" class="helper" role="status" aria-live="polite"></p>
-            <p class="helper">动作仅暂存在工坊。可将不同片段分配给多行动作行；不会修改角色库或备份包。</p>
+            <p class="helper">动作文件仅暂存在工坊。可将多个文件中的片段分配给多行动作行；单文件不超过 64 MiB，动作库总量不超过 256 MiB，不会修改角色库或备份包。</p>
             <p class="helper">导入结果会对照当前角色检查动作轨道名称；匹配不代表动作绑定或视觉效果合格。</p>
           </section>
         </div>
@@ -190,9 +191,13 @@ let info: ModelInfo | null = null;
 let loading = false;
 let paused = false;
 let animationTime = 0;
+interface ExternalMotionSource { id: string; name: string; buffer: ArrayBuffer; clips: VrmMotionClipInfo[] }
+interface ExternalMotionAssignment { state: AnimationState; sourceId: string; clipIndex: number }
+let externalMotionSources: ExternalMotionSource[] = [];
+let activeExternalMotionSourceId: string | undefined;
 let externalMotionClips: VrmMotionClipInfo[] = [];
-let externalMotionBuffer: ArrayBuffer | undefined;
-let externalMotionAssignments: Array<{ state: AnimationState; clipIndex: number }> = [];
+let externalMotionAssignments: ExternalMotionAssignment[] = [];
+let nextExternalMotionSourceId = 1;
 let externalMotionImportRevision = 0;
 let lastExternalMotionUiUpdate = 0;
 let lastInteraction = performance.now();
@@ -567,8 +572,9 @@ function changeState(next: AnimationState) {
 
 function resetExternalMotionPreview(message = '') {
   externalMotionImportRevision += 1;
+  externalMotionSources = [];
+  activeExternalMotionSourceId = undefined;
   externalMotionClips = [];
-  externalMotionBuffer = undefined;
   externalMotionAssignments = [];
   stage?.clearMotion();
   const controls = document.querySelector<HTMLElement>('#external-motion-controls');
@@ -596,6 +602,7 @@ function resetExternalMotionPreview(message = '') {
   if (importButton) importButton.disabled = loading || Boolean(packageJob);
   const select = document.querySelector<HTMLSelectElement>('#external-motion-clip');
   if (select) select.replaceChildren();
+  renderExternalMotionSources();
   const toggle = document.querySelector<HTMLButtonElement>('#external-motion-toggle');
   if (toggle) { toggle.textContent = '暂停动作'; toggle.disabled = true; }
   const speed = document.querySelector<HTMLSelectElement>('#external-motion-speed');
@@ -604,6 +611,41 @@ function resetExternalMotionPreview(message = '') {
   if (loop) loop.value = 'repeat';
   const statusLine = document.querySelector<HTMLElement>('#external-motion-status');
   if (statusLine) statusLine.textContent = message;
+}
+
+function renderExternalMotionSources() {
+  const select = document.querySelector<HTMLSelectElement>('#external-motion-source');
+  if (!select) return;
+  select.replaceChildren(...externalMotionSources.map(source => {
+    const option = document.createElement('option');
+    option.value = source.id;
+    option.textContent = `${source.name} · ${source.clips.length} 段`;
+    return option;
+  }));
+  if (activeExternalMotionSourceId) select.value = activeExternalMotionSourceId;
+  const remove = document.querySelector<HTMLButtonElement>('#external-motion-source-remove');
+  if (remove) remove.disabled = externalMotionSources.length === 0;
+}
+
+function removeActiveExternalMotionSource() {
+  if (!activeExternalMotionSourceId) return;
+  const removedId = activeExternalMotionSourceId;
+  const removed = externalMotionSources.find(item => item.id === removedId);
+  const selectedState = $<HTMLSelectElement>('#external-motion-export-state').value;
+  const selectedAssignmentRemoved = externalMotionAssignments.some(item => item.sourceId === removedId && item.state === selectedState);
+  externalMotionSources = externalMotionSources.filter(item => item.id !== removedId);
+  externalMotionAssignments = externalMotionAssignments.filter(item => item.sourceId !== removedId);
+  if (selectedAssignmentRemoved || externalMotionAssignments.length === 0) $<HTMLSelectElement>('#external-motion-export-state').value = '';
+  activeExternalMotionSourceId = undefined;
+  externalMotionClips = [];
+  stage?.clearMotion();
+  renderExternalMotionSources();
+  renderExternalMotionAssignments();
+  if (!externalMotionSources.length) {
+    resetExternalMotionPreview(`已移除 ${removed?.name ?? '动作文件'}，动作库已清空。`);
+    return;
+  }
+  void activateExternalMotionSource(externalMotionSources[0].id);
 }
 
 function renderExternalMotionAssignments() {
@@ -615,12 +657,13 @@ function renderExternalMotionAssignments() {
     return assignment ? [{ row, assignment }] : [];
   });
   for (const { row, assignment } of ordered) {
-    const clip = externalMotionClips.find(item => item.index === assignment.clipIndex);
-    if (!clip) continue;
+    const source = externalMotionSources.find(item => item.id === assignment.sourceId);
+    const clip = source?.clips.find(item => item.index === assignment.clipIndex);
+    if (!source || !clip) continue;
     const item = document.createElement('div');
     item.className = 'external-motion-assignment';
     const description = document.createElement('span');
-    description.textContent = `${row.label} ← ${clip.name} · ${clip.duration.toFixed(1)} 秒`;
+    description.textContent = `${row.label} ← ${source.name} / ${clip.name} · ${clip.duration.toFixed(1)} 秒`;
     const remove = document.createElement('button');
     remove.className = 'text-button';
     remove.type = 'button';
@@ -691,23 +734,90 @@ function updateExternalMotionSamplePreview() {
   $('#external-motion-sample-description').textContent = `导出器以 ${row.frames} 帧均匀采样，所选帧对应 ${seconds.toFixed(3)} 秒。此处只对齐采样时间；正式导出会重新渲染并稳定化物理效果。`;
 }
 
+async function activateExternalMotionSource(sourceId: string) {
+  const motionSource = externalMotionSources.find(item => item.id === sourceId);
+  if (!motionSource || !stage || loading || packageJob || petMode) return;
+  if (sourceId === activeExternalMotionSourceId) return;
+  const revision = ++externalMotionImportRevision;
+  const targetStage = stage;
+  const sourceSelect = $<HTMLSelectElement>('#external-motion-source');
+  const clipSelect = $<HTMLSelectElement>('#external-motion-clip');
+  const removeButton = $<HTMLButtonElement>('#external-motion-source-remove');
+  const assignButton = $<HTMLButtonElement>('#external-motion-assign');
+  const toggleButton = $<HTMLButtonElement>('#external-motion-toggle');
+  const importButton = $<HTMLButtonElement>('#external-motion-import');
+  sourceSelect.disabled = true;
+  clipSelect.disabled = true;
+  removeButton.disabled = true;
+  assignButton.disabled = true;
+  toggleButton.disabled = true;
+  importButton.disabled = true;
+  $('#external-motion-status').textContent = `正在加载预览：${motionSource.name}…`;
+  try {
+    const clips = await targetStage.loadMotion(motionSource.buffer.slice(0));
+    if (revision !== externalMotionImportRevision || targetStage !== stage || loading || packageJob) return;
+    motionSource.clips = clips;
+    activeExternalMotionSourceId = motionSource.id;
+    externalMotionClips = clips;
+    renderExternalMotionSources();
+    clipSelect.replaceChildren(...clips.map(clip => {
+      const option = document.createElement('option'); option.value = String(clip.index);
+      option.textContent = `${clip.name} · ${clip.duration.toFixed(1)} 秒`; return option;
+    }));
+    clipSelect.value = String(clips[0].index);
+    targetStage.setMotionPlaybackRate(Number($<HTMLSelectElement>('#external-motion-speed').value));
+    targetStage.setMotionLoopMode($<HTMLSelectElement>('#external-motion-loop').value as 'repeat' | 'once' | 'pingpong');
+    $<HTMLButtonElement>('#external-motion-toggle').textContent = '暂停动作';
+    $<HTMLButtonElement>('#external-motion-toggle').disabled = false;
+    updateExternalMotionTime();
+    updateExternalMotionSamplePreview();
+    $('#external-motion-status').textContent = `正在预览 ${motionSource.name}：${describeExternalMotionCompatibility(clips[0])}`;
+  } catch (error) {
+    if (revision === externalMotionImportRevision) $('#external-motion-status').textContent = error instanceof Error ? error.message : '动作文件切换失败。';
+  } finally {
+    if (revision === externalMotionImportRevision) {
+      sourceSelect.disabled = false;
+      clipSelect.disabled = false;
+      removeButton.disabled = false;
+      assignButton.disabled = false;
+      toggleButton.disabled = false;
+      importButton.disabled = false;
+      sourceSelect.value = activeExternalMotionSourceId ?? '';
+    }
+  }
+}
+
 async function importExternalMotion(file?: File) {
   if (!file || !stage || loading || packageJob || petMode) return;
   if (!file.name.toLowerCase().endsWith('.vrma')) { $('#external-motion-status').textContent = '请选择 .vrma 动作文件。'; return; }
   if (file.size === 0 || file.size > MAX_MODEL_BYTES) { $('#external-motion-status').textContent = '动作文件不能为空且不能超过 64 MiB。'; return; }
+  const storedBytes = externalMotionSources.reduce((total, item) => total + item.buffer.byteLength, 0);
+  if (storedBytes + file.size > MAX_EXTERNAL_MOTION_LIBRARY_BYTES) { $('#external-motion-status').textContent = '当前动作库最多占用 256 MiB，请先移除不使用的动作文件。'; return; }
   const importRevision = ++externalMotionImportRevision;
   const targetStage = stage;
   const button = $<HTMLButtonElement>('#external-motion-import');
+  const sourceSelect = $<HTMLSelectElement>('#external-motion-source');
+  const clipSelect = $<HTMLSelectElement>('#external-motion-clip');
+  const removeButton = $<HTMLButtonElement>('#external-motion-source-remove');
+  const assignButton = $<HTMLButtonElement>('#external-motion-assign');
+  const toggleButton = $<HTMLButtonElement>('#external-motion-toggle');
   button.disabled = true;
+  sourceSelect.disabled = true;
+  clipSelect.disabled = true;
+  removeButton.disabled = true;
+  assignButton.disabled = true;
+  toggleButton.disabled = true;
   $('#external-motion-status').textContent = '正在本机读取并检查动作…';
   try {
     const buffer = await file.arrayBuffer();
     if (importRevision !== externalMotionImportRevision || targetStage !== stage || loading || packageJob) return;
-    const clips = await targetStage.loadMotion(buffer);
+    const clips = await targetStage.loadMotion(buffer.slice(0));
     if (importRevision !== externalMotionImportRevision || targetStage !== stage || loading || packageJob) return;
+    const motionSource = { id: `vrma-${nextExternalMotionSourceId++}`, name: file.name, buffer, clips };
+    externalMotionSources.push(motionSource);
+    activeExternalMotionSourceId = motionSource.id;
     externalMotionClips = clips;
-    externalMotionBuffer = buffer;
-    externalMotionAssignments = [];
+    renderExternalMotionSources();
     renderExternalMotionAssignments();
     $<HTMLSelectElement>('#external-motion-export-state').value = '';
     const select = $<HTMLSelectElement>('#external-motion-clip');
@@ -723,10 +833,19 @@ async function importExternalMotion(file?: File) {
     $<HTMLButtonElement>('#external-motion-toggle').disabled = false;
     updateExternalMotionTime();
     updateExternalMotionSamplePreview();
-    $('#external-motion-status').textContent = `${file.name} · ${clips.length} 段动作，正在预览第 1 段。${describeExternalMotionCompatibility(clips[0])}`;
+    $('#external-motion-status').textContent = `${file.name} · ${clips.length} 段动作，当前动作库 ${externalMotionSources.length} 个文件，正在预览第 1 段。${describeExternalMotionCompatibility(clips[0])}`;
   } catch (error) {
     if (importRevision === externalMotionImportRevision) $('#external-motion-status').textContent = error instanceof Error ? error.message : '动作加载失败。';
-  } finally { if (importRevision === externalMotionImportRevision) button.disabled = false; }
+  } finally {
+    if (importRevision === externalMotionImportRevision) {
+      button.disabled = false;
+      sourceSelect.disabled = false;
+      clipSelect.disabled = false;
+      removeButton.disabled = externalMotionSources.length === 0;
+      assignButton.disabled = false;
+      toggleButton.disabled = externalMotionSources.length === 0;
+    }
+  }
 }
 
 async function importFile(file?: File) {
@@ -781,25 +900,29 @@ async function runExport() {
   const selectedClipIndex = Number($<HTMLSelectElement>('#external-motion-clip').value);
   // Keep compatibility with existing automation and older usage: a selected row
   // exports as a one-row replacement until the user starts a multi-row list.
-  const assignments: Array<{ state: AnimationState; clipIndex: number }> = externalMotionAssignments.length
+  const assignments: ExternalMotionAssignment[] = externalMotionAssignments.length
     ? externalMotionAssignments.map(item => ({ ...item }))
-    : selectedState ? [{ state: selectedState, clipIndex: selectedClipIndex }] : [];
+    : selectedState && activeExternalMotionSourceId ? [{ state: selectedState, sourceId: activeExternalMotionSourceId, clipIndex: selectedClipIndex }] : [];
   const assignmentStates = new Set<AnimationState>();
   const resolvedAssignments = assignments.map(assignment => {
     const row = ANIMATION_ROWS.find(item => item.state === assignment.state);
-    const clip = externalMotionClips.find(item => item.index === assignment.clipIndex);
-    if (!row || assignmentStates.has(assignment.state) || !clip || !externalMotionBuffer) return undefined;
+    const motionSource = externalMotionSources.find(item => item.id === assignment.sourceId);
+    const clip = motionSource?.clips.find(item => item.index === assignment.clipIndex);
+    if (!row || assignmentStates.has(assignment.state) || !motionSource || !clip) return undefined;
     assignmentStates.add(assignment.state);
-    return { ...assignment, row, clip };
+    return { ...assignment, row, clip, motionSource };
   });
   if (resolvedAssignments.some(item => !item)) {
     status('外部动作替换信息不完整，请重新导入动作或检查替换清单。', true);
     return;
   }
-  const exportMotionBuffer = assignments.length ? externalMotionBuffer?.slice(0) : undefined;
-  const externalMotion: ExternalMotionExport[] = exportMotionBuffer
-    ? resolvedAssignments.map(item => ({ buffer: exportMotionBuffer, clipIndex: item!.clipIndex, state: item!.state }))
-    : [];
+  const exportMotionBuffers = new Map<string, ArrayBuffer>();
+  for (const item of resolvedAssignments) {
+    if (item && !exportMotionBuffers.has(item.sourceId)) exportMotionBuffers.set(item.sourceId, item.motionSource.buffer.slice(0));
+  }
+  const externalMotion: ExternalMotionExport[] = resolvedAssignments.map(item => ({
+    buffer: exportMotionBuffers.get(item!.sourceId)!, clipIndex: item!.clipIndex, state: item!.state,
+  }));
   clearExport(false);
   const revision = runRevision;
   const currentSource = source;
@@ -819,14 +942,17 @@ async function runExport() {
     if (!importPreview) throw new Error('动画预览暂不可用，请稍后重试。');
     const { createAtlasPreview } = await importPreview();
     if (revision !== runRevision) return;
-    const sourceSha256 = externalMotion.length ? await sha256Hex(exportMotionBuffer!.slice(0)) : undefined;
+    const sourceHashes = new Map<string, string>();
+    for (const item of resolvedAssignments) {
+      if (item && !sourceHashes.has(item.sourceId)) sourceHashes.set(item.sourceId, await sha256Hex(item.motionSource.buffer.slice(0)));
+    }
     const animationOverrides = externalMotion.length
       ? resolvedAssignments.map(item => ({
           state: item!.state,
           label: item!.row.label,
           clipName: item!.clip.name,
           duration: item!.clip.duration,
-          sourceSha256: sourceSha256!,
+          sourceSha256: sourceHashes.get(item!.sourceId)!,
         }))
       : [];
     if (revision !== runRevision) return;
@@ -1047,12 +1173,16 @@ if (petMode) {
     const input = event.target as HTMLInputElement;
     void importExternalMotion(input.files?.[0]); input.value = '';
   };
+  $<HTMLSelectElement>('#external-motion-source').onchange = event => {
+    void activateExternalMotionSource((event.currentTarget as HTMLSelectElement).value);
+  };
+  $('#external-motion-source-remove').onclick = removeActiveExternalMotionSource;
   $<HTMLSelectElement>('#external-motion-clip').onchange = event => {
     const index = Number((event.target as HTMLSelectElement).value);
     try {
       stage.playMotion(index);
       $<HTMLButtonElement>('#external-motion-toggle').textContent = '暂停动作';
-      const clip = externalMotionClips[index];
+      const clip = externalMotionClips.find(item => item.index === index);
       $('#external-motion-status').textContent = clip ? `正在预览：${describeExternalMotionCompatibility(clip)}` : '正在预览动作。';
       updateExternalMotionTime();
       updateExternalMotionSamplePreview();
@@ -1063,16 +1193,17 @@ if (petMode) {
     const targetState = $<HTMLSelectElement>('#external-motion-export-state').value as AnimationState | '';
     const clipIndex = Number($<HTMLSelectElement>('#external-motion-clip').value);
     const row = ANIMATION_ROWS.find(item => item.state === targetState);
-    const clip = externalMotionClips.find(item => item.index === clipIndex);
-    if (!row || !clip || !externalMotionBuffer) {
-      $('#external-motion-status').textContent = '先选择目标动作行和 VRMA 片段，再加入替换清单。';
+    const motionSource = externalMotionSources.find(item => item.id === activeExternalMotionSourceId);
+    const clip = motionSource?.clips.find(item => item.index === clipIndex);
+    if (!row || !clip || !motionSource) {
+      $('#external-motion-status').textContent = '先选择动作文件、片段和目标行，再加入替换清单。';
       return;
     }
     const existing = externalMotionAssignments.find(item => item.state === row.state);
-    if (existing) existing.clipIndex = clip.index;
-    else externalMotionAssignments.push({ state: row.state, clipIndex: clip.index });
+    if (existing) { existing.sourceId = motionSource.id; existing.clipIndex = clip.index; }
+    else externalMotionAssignments.push({ state: row.state, sourceId: motionSource.id, clipIndex: clip.index });
     renderExternalMotionAssignments();
-    $('#external-motion-status').textContent = `已将「${clip.name}」分配给${row.label}行。`;
+    $('#external-motion-status').textContent = `已将「${motionSource.name} / ${clip.name}」分配给${row.label}行。`;
   };
   $('#external-motion-assignments').onclick = event => {
     if (!(event.target instanceof Element)) return;
