@@ -1,5 +1,5 @@
 import { VrmStage } from '../packages/renderer-vrm';
-import type { VrmMotionClipInfo } from '../packages/renderer-vrm';
+import type { VrmMotionClipInfo, VrmMotionLoopMode } from '../packages/renderer-vrm';
 import { SpriteStage } from '../packages/renderer-sprite';
 import type { ModelInfo } from '../packages/character-core/vrm-file';
 import type { AnimationState, AtlasProfile } from '../packages/target-chatgpt/contract';
@@ -25,7 +25,9 @@ export interface CompanionRenderer {
   loadMotion?(buffer: ArrayBuffer): Promise<VrmMotionClipInfo[]>;
   playMotion?(index: number): void;
   toggleMotion?(): boolean;
+  motionIsPlaying?(): boolean;
   setMotionPlaybackRate?(rate: number): void;
+  setMotionLoopMode?(mode: VrmMotionLoopMode): void;
   seekMotion?(index: number, seconds: number): void;
   motionTime?(index: number): number | undefined;
   clearMotion?(): void;
@@ -56,7 +58,9 @@ class VrmRenderer implements CompanionRenderer {
   loadMotion(buffer: ArrayBuffer) { return this.stage.loadMotion(buffer); }
   playMotion(index: number) { this.stage.playMotion(index); }
   toggleMotion() { return this.stage.toggleMotion(); }
+  motionIsPlaying() { return this.stage.motionIsPlaying(); }
   setMotionPlaybackRate(rate: number) { this.stage.setMotionPlaybackRate(rate); }
+  setMotionLoopMode(mode: VrmMotionLoopMode) { this.stage.setMotionLoopMode(mode); }
   seekMotion(index: number, seconds: number) { this.stage.seekMotion(index, seconds); }
   motionTime(index: number) { return this.stage.motionTime(index); }
   clearMotion() { this.stage.clearMotion(); }

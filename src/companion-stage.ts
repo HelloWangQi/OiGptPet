@@ -2,7 +2,7 @@ import { SPRITE_MAX_CANVAS_DIMENSION } from '../packages/renderer-sprite';
 import type { ModelInfo } from '../packages/character-core/vrm-file';
 import type { AnimationState } from '../packages/target-chatgpt/contract';
 import { createCompanionRenderer, type CompanionInput, type CompanionRenderer } from './renderer-adapters';
-import type { VrmMotionClipInfo } from '../packages/renderer-vrm';
+import type { VrmMotionClipInfo, VrmMotionLoopMode } from '../packages/renderer-vrm';
 
 export type { CompanionInput } from './renderer-adapters';
 
@@ -115,9 +115,16 @@ export class CompanionStage {
 
   toggleMotion() { return this.current?.toggleMotion?.() ?? false; }
 
+  motionIsPlaying() { return this.current?.motionIsPlaying?.() ?? false; }
+
   setMotionPlaybackRate(rate: number) {
     if (!this.current?.setMotionPlaybackRate) throw new Error('当前角色不支持 VRM 动作速度控制。');
     this.current.setMotionPlaybackRate(rate);
+  }
+
+  setMotionLoopMode(mode: VrmMotionLoopMode) {
+    if (!this.current?.setMotionLoopMode) throw new Error('当前角色不支持 VRM 动作循环模式。');
+    this.current.setMotionLoopMode(mode);
   }
 
   seekMotion(index: number, seconds: number) {

@@ -25,6 +25,8 @@ export interface VrmMotionClipInfo {
   compatibility: VrmMotionClipCompatibility;
 }
 
+export type VrmMotionLoopMode = 'repeat' | 'once' | 'pingpong';
+
 export class VrmStage {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
@@ -38,6 +40,7 @@ export class VrmStage {
   private motionActions: THREE.AnimationAction[] = [];
   private activeMotion?: number;
   private motionPlaybackRate = 1;
+  private motionLoopMode: VrmMotionLoopMode = 'repeat';
   private disposed = false;
   private lookTarget = new THREE.Object3D();
   private lastState?: AnimationState;
@@ -198,7 +201,8 @@ export class VrmStage {
     this.motionMixer?.stopAllAction();
     action.reset();
     action.timeScale = this.motionPlaybackRate;
-    action.setLoop(THREE.LoopRepeat, Infinity);
+    action.clampWhenFinished = this.motionLoopMode === 'once';
+    action.setLoop(this.motionLoopMode === 'once' ? THREE.LoopOnce : this.motionLoopMode === 'pingpong' ? THREE.LoopPingPong : THREE.LoopRepeat, this.motionLoopMode === 'once' ? 1 : Infinity);
     action.play();
     this.activeMotion = index;
     this.poseTransition = undefined;
@@ -210,14 +214,31 @@ export class VrmStage {
     if (this.activeMotion === undefined) return false;
     const action = this.motionActions[this.activeMotion];
     if (!action) return false;
+    if (this.motionLoopMode === 'once' && action.paused && action.time >= action.getClip().duration) {
+      this.playMotion(this.activeMotion);
+      return true;
+    }
     action.paused = !action.paused;
     return !action.paused;
+  }
+
+  motionIsPlaying(): boolean {
+    return this.activeMotion === undefined ? false : this.motionActions[this.activeMotion]?.isRunning() ?? false;
   }
 
   setMotionPlaybackRate(rate: number): void {
     if (!Number.isFinite(rate) || rate < 0.25 || rate > 2) throw new RangeError('动作速度必须在 0.25 到 2 倍之间。');
     this.motionPlaybackRate = rate;
     for (const action of this.motionActions) action.timeScale = rate;
+  }
+
+  setMotionLoopMode(mode: VrmMotionLoopMode): void {
+    if (mode !== 'repeat' && mode !== 'once' && mode !== 'pingpong') throw new RangeError('请选择有效的动作循环模式。');
+    this.motionLoopMode = mode;
+    const action = this.activeMotion === undefined ? undefined : this.motionActions[this.activeMotion];
+    if (!action) return;
+    action.clampWhenFinished = mode === 'once';
+    action.setLoop(mode === 'once' ? THREE.LoopOnce : mode === 'pingpong' ? THREE.LoopPingPong : THREE.LoopRepeat, mode === 'once' ? 1 : Infinity);
   }
 
   seekMotion(index: number, seconds: number): void {
@@ -237,7 +258,6 @@ export class VrmStage {
   clearMotion(): void {
     ++this.motionGeneration;
     this.releaseMotion();
-    this.motionPlaybackRate = 1;
     this.poseTransition = undefined;
     this.lastState = undefined;
     this.lastStateRevision = undefined;
@@ -415,6 +435,7 @@ export class VrmStage {
     this.motionActions = [];
     this.activeMotion = undefined;
     this.motionPlaybackRate = 1;
+    this.motionLoopMode = 'repeat';
   }
   dispose() {
     this.disposed = true;
