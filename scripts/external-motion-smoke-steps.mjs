@@ -9,6 +9,11 @@ async function canvasHash(page, output, name) {
   return createHash('sha256').update(bytes).digest('hex');
 }
 
+async function enterExactTime(input, seconds) {
+  await input.fill(String(seconds));
+  await input.press('Tab');
+}
+
 async function captureExportedAtlasRows(page) {
   return page.evaluate(async () => {
     const image = document.querySelector('#atlas-image');
@@ -85,18 +90,18 @@ export async function checkExternalMotion(page, output, desktop, root) {
   await page.evaluate(() => { document.querySelector('#external-motion-exact-time').value = '0.42'; });
   await page.waitForTimeout(250);
   assert.equal(await exactTime.inputValue(), '0.42', 'the playback head should not overwrite a focused time edit');
-  await exactTime.fill('0.25');
+  await enterExactTime(exactTime, 0.25);
 
   await page.locator('#external-motion-speed').selectOption('0.5');
   await select.selectOption('1');
   assert.equal(await page.locator('#external-motion-speed').inputValue(), '0.5', 'clip switching should preserve preview speed');
-  await exactTime.fill('0');
+  await enterExactTime(exactTime, 0);
   await page.locator('#external-motion-toggle').click();
   await page.waitForTimeout(350);
   const halfSpeedTime = Number(await page.locator('#external-motion-time').inputValue());
   await page.locator('#external-motion-toggle').click();
   await page.locator('#external-motion-speed').selectOption('2');
-  await exactTime.fill('0');
+  await enterExactTime(exactTime, 0);
   await page.locator('#external-motion-toggle').click();
   await page.waitForTimeout(350);
   const doubleSpeedTime = Number(await page.locator('#external-motion-time').inputValue());
@@ -109,13 +114,14 @@ export async function checkExternalMotion(page, output, desktop, root) {
 
   await page.locator('#external-motion-loop').selectOption('pingpong');
   await select.selectOption('0');
-  await exactTime.fill('0.25');
+  await enterExactTime(exactTime, 0.25);
   await page.locator('#external-motion-toggle').click();
   await page.waitForFunction(() => Number(document.querySelector('#external-motion-time')?.value) > 800);
   await page.waitForFunction(() => Number(document.querySelector('#external-motion-time')?.value) < 250, undefined, { timeout: 5000 });
-  await exactTime.fill('0.25');
+  await enterExactTime(exactTime, 0.25);
   assert.ok(Number(await exactTime.inputValue()) < 0.26, 'seek during the reverse ping-pong leg should display the requested pose time');
-  assert.ok(Number(await page.locator('#external-motion-time').inputValue()) >= 240 && Number(await page.locator('#external-motion-time').inputValue()) <= 260);
+  const sliderAfterReverseSeek = Number(await page.locator('#external-motion-time').inputValue());
+  assert.ok(sliderAfterReverseSeek >= 240 && sliderAfterReverseSeek <= 260, `reverse-leg seek should move the timeline to 250 ms; got ${sliderAfterReverseSeek} ms`);
   const reverseLabel = await page.locator('#external-motion-time-label').innerText();
   assert.ok(Math.abs(Number(reverseLabel.match(/^([0-9.]+)/)?.[1]) - 0.25) <= 0.05, `visible time label should reflect the reverse-leg pose time: ${reverseLabel}`);
   await page.locator('#external-motion-loop').selectOption('repeat');
@@ -156,7 +162,7 @@ export async function checkExternalMotion(page, output, desktop, root) {
 
   await page.locator('#external-motion-loop').selectOption('once');
   await select.selectOption('0');
-  await exactTime.fill('0.95');
+  await enterExactTime(exactTime, 0.95);
   await page.locator('#external-motion-toggle').click();
   await page.waitForFunction(() => document.querySelector('#external-motion-toggle')?.textContent === '继续动作', undefined, { timeout: 5000 });
   await page.locator('#external-motion-toggle').click();
