@@ -3,7 +3,7 @@ import { CompanionStage, type CompanionInput, type PreparedCompanion } from './c
 import { createCharacterLibrary, type CharacterAsset, type CharacterSummary } from '../packages/character-library';
 import { MAX_MODEL_BYTES, type ModelInfo } from '../packages/character-core/vrm-file';
 import { ANIMATION_ROWS, type AnimationState, type AtlasProfile } from '../packages/target-chatgpt/contract';
-import { exportAtlas, type ExternalMotionExport } from '../packages/pet-exporter';
+import { exportAtlas, MAX_EXTERNAL_MOTION_LIBRARY_BYTES, type ExternalMotionExport } from '../packages/pet-exporter';
 import { ExportSession, type PreviewController } from './export-session';
 import { getSavedModel } from './model-store';
 import { DEFAULT_PREFERENCES, IDLE_AFTER_MS, PERFORMANCE_POLICIES, normalizePreferences, readPreferences, savePreferences, type DesktopPreferences } from './desktop-preferences';
@@ -20,7 +20,7 @@ import { RenderMonitor, renderSampleText, type RenderContext } from './render-mo
 import type { VrmMotionClipInfo } from '../packages/renderer-vrm';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
-const MAX_EXTERNAL_MOTION_LIBRARY_BYTES = 256 * 1024 * 1024;
+const MAX_EXTERNAL_MOTION_LIBRARY_MIB = MAX_EXTERNAL_MOTION_LIBRARY_BYTES / 1024 / 1024;
 const desktop = window.petDesktop;
 const petMode = new URLSearchParams(location.search).get('mode') === 'pet' && Boolean(desktop);
 document.body.classList.toggle('pet-mode', petMode);
@@ -81,7 +81,7 @@ app.innerHTML = petMode ? `
           <section id="external-motion-panel" class="external-motion-panel" hidden aria-label="外部动作预览">
             <div class="external-motion-actions"><button id="external-motion-import" class="text-button" type="button">添加 VRMA 文件</button><input id="external-motion-file" type="file" accept=".vrma,model/gltf-binary" hidden /></div>
             <div id="external-motion-controls" class="external-motion-actions" hidden><select id="external-motion-source" aria-label="选择动作文件"></select><button id="external-motion-source-remove" class="text-button" type="button">移除此文件</button><select id="external-motion-clip" aria-label="选择导入动作"></select><select id="external-motion-speed" aria-label="动作播放速度"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select><select id="external-motion-loop" aria-label="动作循环模式"><option value="repeat" selected>循环</option><option value="once">播放一次</option><option value="pingpong">往返</option></select><button id="external-motion-toggle" class="text-button" type="button">暂停动作</button><button id="external-motion-clear" class="text-button" type="button">恢复内置动作</button></div>
-            <p id="external-motion-library-usage" class="helper">临时动作库：0 MiB / 256 MiB · 0 个文件</p>
+            <p id="external-motion-library-usage" class="helper">临时动作库：0 MiB / ${MAX_EXTERNAL_MOTION_LIBRARY_MIB} MiB · 0 个文件</p>
             <div id="external-motion-scrubber" class="external-motion-scrubber" hidden><label for="external-motion-time">预览时间</label><input id="external-motion-time" type="range" min="0" max="1000" value="0" aria-label="拖动查看动作时间点" /><output id="external-motion-time-label">0.0 / 0.0 秒</output><label class="external-motion-exact-label" for="external-motion-exact-time">精确时间</label><input id="external-motion-exact-time" type="number" min="0" step="0.01" value="0" aria-label="输入精确动作时间（秒）" /><span>秒</span></div>
             <div id="external-motion-export" hidden><label class="field-label" for="external-motion-export-state">选择目标动作行</label><div class="external-motion-actions"><select id="external-motion-export-state"><option value="">选择要替换的动作行</option>${ANIMATION_ROWS.map(row => `<option value="${row.state}">${row.label}</option>`).join('')}</select><button id="external-motion-assign" class="text-button" type="button">添加 / 更新此行</button></div><div id="external-motion-assignments" class="external-motion-assignment-list" hidden aria-label="待导出的 VRMA 动作行"></div><p class="helper">可从多个文件中选择动作片段并分配给多行动作；未加入清单的行保留内置动作。保存前请检查动作语义、循环和裁切。</p></div>
             <div id="external-motion-sample-preview" class="external-motion-sample-preview" hidden><label class="field-label" for="external-motion-sample-frame">预览目标行的导出采样帧</label><div class="external-motion-actions"><select id="external-motion-sample-frame" aria-label="选择导出采样帧"></select><button id="external-motion-sample-jump" class="text-button" type="button">定位此帧</button></div><p id="external-motion-sample-description" class="helper"></p></div>
@@ -639,7 +639,7 @@ function renderExternalMotionSources() {
   if (usage) {
     const bytes = externalMotionSources.reduce((total, source) => total + source.buffer.byteLength, 0);
     const used = bytes === 0 ? '0 MiB' : bytes < 1024 * 1024 ? `${Math.ceil(bytes / 1024)} KiB` : `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
-    usage.textContent = `临时动作库：${used} / 256 MiB · ${externalMotionSources.length} 个文件`;
+    usage.textContent = `临时动作库：${used} / ${MAX_EXTERNAL_MOTION_LIBRARY_MIB} MiB · ${externalMotionSources.length} 个文件`;
   }
 }
 
@@ -845,7 +845,7 @@ async function importExternalMotion(file?: File) {
   if (!file.name.toLowerCase().endsWith('.vrma')) { $('#external-motion-status').textContent = '请选择 .vrma 动作文件。'; return; }
   if (file.size === 0 || file.size > MAX_MODEL_BYTES) { $('#external-motion-status').textContent = '动作文件不能为空且不能超过 64 MiB。'; return; }
   const storedBytes = externalMotionSources.reduce((total, item) => total + item.buffer.byteLength, 0);
-  if (storedBytes + file.size > MAX_EXTERNAL_MOTION_LIBRARY_BYTES) { $('#external-motion-status').textContent = '当前动作库最多占用 256 MiB，请先移除不使用的动作文件。'; return; }
+  if (storedBytes + file.size > MAX_EXTERNAL_MOTION_LIBRARY_BYTES) { $('#external-motion-status').textContent = `当前动作库最多占用 ${MAX_EXTERNAL_MOTION_LIBRARY_MIB} MiB，请先移除不使用的动作文件。`; return; }
   externalMotionAssignmentPreviewRevision += 1;
   const importRevision = ++externalMotionImportRevision;
   const targetStage = stage;

@@ -1,5 +1,6 @@
 import { VrmStage } from '../renderer-vrm';
 import { sampleLook } from '../character-core';
+import { MAX_MODEL_BYTES } from '../character-core/vrm-file';
 import {
   ANIMATION_ROWS, ATLAS_COLUMNS, CELL_HEIGHT, CELL_WIDTH, MAX_ENCODED_BYTES,
   atlasDimensions, type AnimationState, type AtlasProfile,
@@ -7,6 +8,7 @@ import {
 
 export interface ExportResult { blob: Blob; width: number; height: number; frames: number; profile: AtlasProfile }
 export interface ExternalMotionExport { buffer: ArrayBuffer; clipIndex: number; state: AnimationState }
+export const MAX_EXTERNAL_MOTION_LIBRARY_BYTES = 256 * 1024 * 1024;
 
 // Each frame restarts from the captured rest state, so a fixed 60 Hz warm-up
 // removes the dependence on the previously sampled row without unbounded waiting.
@@ -21,6 +23,22 @@ export async function exportAtlas(
   externalMotion?: ExternalMotionExport | readonly ExternalMotionExport[],
 ): Promise<ExportResult> {
   signal?.throwIfAborted();
+  const externalMotions: readonly ExternalMotionExport[] = externalMotion === undefined ? []
+    : 'clipIndex' in externalMotion ? [externalMotion] : externalMotion;
+  const motionBuffers = new Set<ArrayBuffer>();
+  let externalMotionBytes = 0;
+  for (const motion of externalMotions) {
+    if (motion.buffer.byteLength === 0 || motion.buffer.byteLength > MAX_MODEL_BYTES) {
+      throw new Error('每个 VRMA 文件必须大于 0 且不能超过 64 MiB。');
+    }
+    if (!motionBuffers.has(motion.buffer)) {
+      motionBuffers.add(motion.buffer);
+      externalMotionBytes += motion.buffer.byteLength;
+    }
+  }
+  if (externalMotionBytes > MAX_EXTERNAL_MOTION_LIBRARY_BYTES) {
+    throw new Error('VRMA 动作库总量不能超过 256 MiB。');
+  }
   const { width, height } = atlasDimensions(profile);
   const atlas = document.createElement('canvas');
   atlas.width = width; atlas.height = height;
@@ -33,8 +51,6 @@ export async function exportAtlas(
   try {
     await stage.load(source);
     stage.resize(CELL_WIDTH, CELL_HEIGHT, 1);
-    const externalMotions: readonly ExternalMotionExport[] = externalMotion === undefined ? []
-      : 'clipIndex' in externalMotion ? [externalMotion] : externalMotion;
     const externalByState = new Map<AnimationState, { buffer: ArrayBuffer; clipIndex: number }>();
     if (externalMotions.length) {
       for (const motion of externalMotions) {
