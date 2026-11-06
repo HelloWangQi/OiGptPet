@@ -81,6 +81,7 @@ app.innerHTML = petMode ? `
           <section id="external-motion-panel" class="external-motion-panel" hidden aria-label="外部动作预览">
             <div class="external-motion-actions"><button id="external-motion-import" class="text-button" type="button">添加 VRMA 文件</button><input id="external-motion-file" type="file" accept=".vrma,model/gltf-binary" hidden /></div>
             <div id="external-motion-controls" class="external-motion-actions" hidden><select id="external-motion-source" aria-label="选择动作文件"></select><button id="external-motion-source-remove" class="text-button" type="button">移除此文件</button><select id="external-motion-clip" aria-label="选择导入动作"></select><select id="external-motion-speed" aria-label="动作播放速度"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select><select id="external-motion-loop" aria-label="动作循环模式"><option value="repeat" selected>循环</option><option value="once">播放一次</option><option value="pingpong">往返</option></select><button id="external-motion-toggle" class="text-button" type="button">暂停动作</button><button id="external-motion-clear" class="text-button" type="button">恢复内置动作</button></div>
+            <p id="external-motion-library-usage" class="helper">临时动作库：0 MiB / 256 MiB · 0 个文件</p>
             <div id="external-motion-scrubber" class="external-motion-scrubber" hidden><label for="external-motion-time">预览时间</label><input id="external-motion-time" type="range" min="0" max="1000" value="0" aria-label="拖动查看动作时间点" /><output id="external-motion-time-label">0.0 / 0.0 秒</output><label class="external-motion-exact-label" for="external-motion-exact-time">精确时间</label><input id="external-motion-exact-time" type="number" min="0" step="0.01" value="0" aria-label="输入精确动作时间（秒）" /><span>秒</span></div>
             <div id="external-motion-export" hidden><label class="field-label" for="external-motion-export-state">选择目标动作行</label><div class="external-motion-actions"><select id="external-motion-export-state"><option value="">选择要替换的动作行</option>${ANIMATION_ROWS.map(row => `<option value="${row.state}">${row.label}</option>`).join('')}</select><button id="external-motion-assign" class="text-button" type="button">添加 / 更新此行</button></div><div id="external-motion-assignments" class="external-motion-assignment-list" hidden aria-label="待导出的 VRMA 动作行"></div><p class="helper">可从多个文件中选择动作片段并分配给多行动作；未加入清单的行保留内置动作。保存前请检查动作语义、循环和裁切。</p></div>
             <div id="external-motion-sample-preview" class="external-motion-sample-preview" hidden><label class="field-label" for="external-motion-sample-frame">预览目标行的导出采样帧</label><div class="external-motion-actions"><select id="external-motion-sample-frame" aria-label="选择导出采样帧"></select><button id="external-motion-sample-jump" class="text-button" type="button">定位此帧</button></div><p id="external-motion-sample-description" class="helper"></p></div>
@@ -571,6 +572,12 @@ function changeState(next: AnimationState) {
   document.querySelectorAll<HTMLButtonElement>('[data-state]').forEach((button) => button.classList.toggle('active', button.dataset.state === next));
 }
 
+function setExternalMotionAssignmentActionsDisabled(disabled: boolean) {
+  document.querySelectorAll<HTMLButtonElement>('#external-motion-assignments button').forEach(button => {
+    button.disabled = disabled;
+  });
+}
+
 function resetExternalMotionPreview(message = '') {
   externalMotionImportRevision += 1;
   externalMotionAssignmentPreviewRevision += 1;
@@ -590,6 +597,7 @@ function resetExternalMotionPreview(message = '') {
   const exportState = document.querySelector<HTMLSelectElement>('#external-motion-export-state');
   if (exportState) exportState.value = '';
   renderExternalMotionAssignments();
+  setExternalMotionAssignmentActionsDisabled(false);
   const scrubber = document.querySelector<HTMLElement>('#external-motion-scrubber');
   if (scrubber) scrubber.hidden = true;
   const timeInput = document.querySelector<HTMLInputElement>('#external-motion-time');
@@ -627,6 +635,12 @@ function renderExternalMotionSources() {
   if (activeExternalMotionSourceId) select.value = activeExternalMotionSourceId;
   const remove = document.querySelector<HTMLButtonElement>('#external-motion-source-remove');
   if (remove) remove.disabled = externalMotionSources.length === 0;
+  const usage = document.querySelector<HTMLElement>('#external-motion-library-usage');
+  if (usage) {
+    const bytes = externalMotionSources.reduce((total, source) => total + source.buffer.byteLength, 0);
+    const used = bytes === 0 ? '0 MiB' : bytes < 1024 * 1024 ? `${Math.ceil(bytes / 1024)} KiB` : `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
+    usage.textContent = `临时动作库：${used} / 256 MiB · ${externalMotionSources.length} 个文件`;
+  }
 }
 
 function removeActiveExternalMotionSource() {
@@ -783,6 +797,7 @@ async function activateExternalMotionSource(sourceId: string) {
   const assignButton = $<HTMLButtonElement>('#external-motion-assign');
   const toggleButton = $<HTMLButtonElement>('#external-motion-toggle');
   const importButton = $<HTMLButtonElement>('#external-motion-import');
+  setExternalMotionAssignmentActionsDisabled(true);
   sourceSelect.disabled = true;
   clipSelect.disabled = true;
   removeButton.disabled = true;
@@ -819,6 +834,7 @@ async function activateExternalMotionSource(sourceId: string) {
       assignButton.disabled = false;
       toggleButton.disabled = false;
       importButton.disabled = false;
+      setExternalMotionAssignmentActionsDisabled(false);
       sourceSelect.value = activeExternalMotionSourceId ?? '';
     }
   }
@@ -839,6 +855,7 @@ async function importExternalMotion(file?: File) {
   const removeButton = $<HTMLButtonElement>('#external-motion-source-remove');
   const assignButton = $<HTMLButtonElement>('#external-motion-assign');
   const toggleButton = $<HTMLButtonElement>('#external-motion-toggle');
+  setExternalMotionAssignmentActionsDisabled(true);
   button.disabled = true;
   sourceSelect.disabled = true;
   clipSelect.disabled = true;
@@ -882,6 +899,7 @@ async function importExternalMotion(file?: File) {
       removeButton.disabled = externalMotionSources.length === 0;
       assignButton.disabled = false;
       toggleButton.disabled = externalMotionSources.length === 0;
+      setExternalMotionAssignmentActionsDisabled(false);
     }
   }
 }
@@ -1212,6 +1230,7 @@ if (petMode) {
     void importExternalMotion(input.files?.[0]); input.value = '';
   };
   $<HTMLSelectElement>('#external-motion-source').onchange = event => {
+    externalMotionAssignmentPreviewRevision += 1;
     void activateExternalMotionSource((event.currentTarget as HTMLSelectElement).value);
   };
   $('#external-motion-source-remove').onclick = removeActiveExternalMotionSource;
