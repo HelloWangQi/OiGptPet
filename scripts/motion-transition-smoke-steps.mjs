@@ -1,10 +1,62 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { inflateSync } from 'node:zlib';
 
 async function captureCanvas(page, output, name) {
-  const bytes = await page.locator('#character-canvas').screenshot({ path: path.join(output, name + '.png') });
-  return createHash('sha256').update(bytes).digest('hex');
+  return page.locator('#character-canvas').screenshot({ path: path.join(output, name + '.png') });
+}
+
+async function captureCanvasHash(page, output, name) {
+  return createHash('sha256').update(await captureCanvas(page, output, name)).digest('hex');
+}
+
+function decodeScreenshot(png) {
+  let offset = 8;
+  let width; let height; let channels;
+  const compressed = [];
+  while (offset < png.length) {
+    const length = png.readUInt32BE(offset); offset += 4;
+    const type = png.toString('ascii', offset, offset + 4); offset += 4;
+    const data = png.subarray(offset, offset + length); offset += length + 4;
+    if (type === 'IHDR') {
+      width = data.readUInt32BE(0); height = data.readUInt32BE(4);
+      if (data[8] !== 8 || data[9] === 3 || data[12] !== 0) throw new Error('Unsupported smoke screenshot PNG format');
+      channels = ({ 0: 1, 2: 3, 4: 2, 6: 4 })[data[9]];
+      if (!channels) throw new Error('Unsupported smoke screenshot PNG color type');
+    } else if (type === 'IDAT') compressed.push(data);
+    else if (type === 'IEND') break;
+  }
+  if (!width || !height || !channels) throw new Error('Smoke screenshot PNG has no valid header');
+  const stride = width * channels;
+  const packed = inflateSync(Buffer.concat(compressed));
+  const pixels = Buffer.alloc(stride * height);
+  const paeth = (a, b, c) => {
+    const p = a + b - c; const pa = Math.abs(p - a); const pb = Math.abs(p - b); const pc = Math.abs(p - c);
+    return pa <= pb && pa <= pc ? a : pb <= pc ? b : c;
+  };
+  for (let y = 0; y < height; y += 1) {
+    const filter = packed[y * (stride + 1)];
+    for (let x = 0; x < stride; x += 1) {
+      const value = packed[y * (stride + 1) + 1 + x];
+      const left = x >= channels ? pixels[y * stride + x - channels] : 0;
+      const above = y > 0 ? pixels[(y - 1) * stride + x] : 0;
+      const upperLeft = y > 0 && x >= channels ? pixels[(y - 1) * stride + x - channels] : 0;
+      const predictor = filter === 0 ? 0 : filter === 1 ? left : filter === 2 ? above
+        : filter === 3 ? Math.floor((left + above) / 2) : filter === 4 ? paeth(left, above, upperLeft) : undefined;
+      if (predictor === undefined) throw new Error(`Unsupported PNG row filter: ${filter}`);
+      pixels[y * stride + x] = (value + predictor) & 0xff;
+    }
+  }
+  return { width, height, channels, pixels };
+}
+
+function assertSameVisiblePose(before, after) {
+  const a = decodeScreenshot(before); const b = decodeScreenshot(after);
+  assert.equal(`${a.width}x${a.height}x${a.channels}`, `${b.width}x${b.height}x${b.channels}`);
+  for (let index = 0; index < a.pixels.length; index += 1) {
+    assert.ok(Math.abs(a.pixels[index] - b.pixels[index]) <= 1, `paused render changed visible pixel ${index} by more than the 1-level rasterization tolerance`);
+  }
 }
 
 async function stabilizeGaze(page) {
@@ -19,16 +71,16 @@ export async function checkVrmTransitions(page, output) {
   await captureCanvas(page, output, 'motion-idle-before');
   await page.evaluate(() => document.querySelector('[data-state="waving"]').click());
   await page.waitForTimeout(90);
-  const waveMid = await captureCanvas(page, output, 'motion-wave-transition');
+  const waveMid = await captureCanvasHash(page, output, 'motion-wave-transition');
   await page.waitForTimeout(220);
-  const waveSettled = await captureCanvas(page, output, 'motion-wave-settled');
+  const waveSettled = await captureCanvasHash(page, output, 'motion-wave-settled');
   assert.notEqual(waveMid, waveSettled, 'VRM action change should render a changing transition');
 
   await page.evaluate(() => document.querySelector('[data-state="waving"]').click());
   await page.waitForTimeout(90);
-  const replayMid = await captureCanvas(page, output, 'motion-wave-replay-transition');
+  const replayMid = await captureCanvasHash(page, output, 'motion-wave-replay-transition');
   await page.waitForTimeout(220);
-  const replaySettled = await captureCanvas(page, output, 'motion-wave-replay-settled');
+  const replaySettled = await captureCanvasHash(page, output, 'motion-wave-replay-settled');
   assert.notEqual(replayMid, replaySettled, 'same-action replay should restart through the transition');
 
   await page.evaluate(() => document.querySelector('#pause-button').click());
@@ -39,7 +91,7 @@ export async function checkVrmTransitions(page, output) {
   await stabilizeGaze(page);
   await page.waitForTimeout(240);
   const pausedAfterSwitch = await captureCanvas(page, output, 'motion-paused-after-switch');
-  assert.equal(pausedAfterSwitch, pausedFrame, 'paused animation should preserve the visible pose');
+  assertSameVisiblePose(pausedFrame, pausedAfterSwitch);
   await page.evaluate(() => document.querySelector('#pause-button').click());
   await page.waitForTimeout(260);
   const resumed = await captureCanvas(page, output, 'motion-resumed-transition');
