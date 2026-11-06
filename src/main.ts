@@ -578,6 +578,12 @@ function setExternalMotionAssignmentActionsDisabled(disabled: boolean) {
   });
 }
 
+function formatExternalMotionSize(bytes: number) {
+  if (bytes === 0) return '0 MiB';
+  if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KiB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
+}
+
 function resetExternalMotionPreview(message = '') {
   externalMotionImportRevision += 1;
   externalMotionAssignmentPreviewRevision += 1;
@@ -629,7 +635,7 @@ function renderExternalMotionSources() {
   select.replaceChildren(...externalMotionSources.map((source, index) => {
     const option = document.createElement('option');
     option.value = source.id;
-    option.textContent = `文件 ${index + 1} · ${source.name} · ${source.clips.length} 段`;
+    option.textContent = `文件 ${index + 1} · ${source.name} · ${source.clips.length} 段 · ${formatExternalMotionSize(source.buffer.byteLength)}`;
     return option;
   }));
   if (activeExternalMotionSourceId) select.value = activeExternalMotionSourceId;
@@ -638,8 +644,7 @@ function renderExternalMotionSources() {
   const usage = document.querySelector<HTMLElement>('#external-motion-library-usage');
   if (usage) {
     const bytes = externalMotionSources.reduce((total, source) => total + source.buffer.byteLength, 0);
-    const used = bytes === 0 ? '0 MiB' : bytes < 1024 * 1024 ? `${Math.ceil(bytes / 1024)} KiB` : `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
-    usage.textContent = `临时动作库：${used} / ${MAX_EXTERNAL_MOTION_LIBRARY_MIB} MiB · ${externalMotionSources.length} 个文件`;
+    usage.textContent = `临时动作库：${formatExternalMotionSize(bytes)} / ${MAX_EXTERNAL_MOTION_LIBRARY_MIB} MiB · ${externalMotionSources.length} 个文件`;
   }
 }
 
@@ -721,7 +726,8 @@ async function previewExternalMotionAssignment(state: AnimationState) {
     $<HTMLButtonElement>('#external-motion-toggle').textContent = '暂停动作';
     updateExternalMotionTime();
     updateExternalMotionSamplePreview();
-    $('#external-motion-status').textContent = `正在预览分配给${ANIMATION_ROWS.find(row => row.state === state)?.label ?? state}行的动作：${motionSource.name} / ${clip.name}。`;
+    const sourceIndex = externalMotionSources.findIndex(item => item.id === motionSource.id);
+    $('#external-motion-status').textContent = `正在预览分配给${ANIMATION_ROWS.find(row => row.state === state)?.label ?? state}行的动作（文件 ${sourceIndex + 1} · ${motionSource.name}）：${describeExternalMotionCompatibility(clip)}`;
   } catch (error) {
     $('#external-motion-status').textContent = error instanceof Error ? error.message : '分配动作预览失败。';
   }
