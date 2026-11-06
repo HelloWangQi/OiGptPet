@@ -25,6 +25,7 @@ export interface CompanionRenderer {
   loadMotion?(buffer: ArrayBuffer): Promise<VrmMotionClipInfo[]>;
   playMotion?(index: number): void;
   toggleMotion?(): boolean;
+  setMotionPlaybackRate?(rate: number): void;
   seekMotion?(index: number, seconds: number): void;
   motionTime?(index: number): number | undefined;
   clearMotion?(): void;
@@ -55,6 +56,7 @@ class VrmRenderer implements CompanionRenderer {
   loadMotion(buffer: ArrayBuffer) { return this.stage.loadMotion(buffer); }
   playMotion(index: number) { this.stage.playMotion(index); }
   toggleMotion() { return this.stage.toggleMotion(); }
+  setMotionPlaybackRate(rate: number) { this.stage.setMotionPlaybackRate(rate); }
   seekMotion(index: number, seconds: number) { this.stage.seekMotion(index, seconds); }
   motionTime(index: number) { return this.stage.motionTime(index); }
   clearMotion() { this.stage.clearMotion(); }

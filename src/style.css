@@ -7,6 +7,7 @@
 .external-motion-panel{margin-top:14px;padding:12px;border:1px solid #e1e3d8;border-radius:8px;background:#fafaf7}
 .external-motion-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .external-motion-actions select{flex:1;min-width:160px;padding:8px}
+.external-motion-actions #external-motion-speed{flex:0 0 86px;min-width:86px}
 .external-motion-panel .helper{margin-top:6px}
 .external-motion-scrubber{display:grid;grid-template-columns:auto minmax(100px,1fr) auto;align-items:center;gap:8px;margin-top:8px;color:#8b9482;font-size:10px}
 .external-motion-scrubber input[type=range]{width:100%;min-width:100px;accent-color:#769364}

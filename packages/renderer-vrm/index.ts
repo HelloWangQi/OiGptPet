@@ -37,6 +37,7 @@ export class VrmStage {
   private motionMixer?: THREE.AnimationMixer;
   private motionActions: THREE.AnimationAction[] = [];
   private activeMotion?: number;
+  private motionPlaybackRate = 1;
   private disposed = false;
   private lookTarget = new THREE.Object3D();
   private lastState?: AnimationState;
@@ -196,6 +197,7 @@ export class VrmStage {
     if (!action) throw new RangeError('请选择有效的 VRM Animation 动作。');
     this.motionMixer?.stopAllAction();
     action.reset();
+    action.timeScale = this.motionPlaybackRate;
     action.setLoop(THREE.LoopRepeat, Infinity);
     action.play();
     this.activeMotion = index;
@@ -210,6 +212,12 @@ export class VrmStage {
     if (!action) return false;
     action.paused = !action.paused;
     return !action.paused;
+  }
+
+  setMotionPlaybackRate(rate: number): void {
+    if (!Number.isFinite(rate) || rate < 0.25 || rate > 2) throw new RangeError('动作速度必须在 0.25 到 2 倍之间。');
+    this.motionPlaybackRate = rate;
+    for (const action of this.motionActions) action.timeScale = rate;
   }
 
   seekMotion(index: number, seconds: number): void {
@@ -229,6 +237,7 @@ export class VrmStage {
   clearMotion(): void {
     ++this.motionGeneration;
     this.releaseMotion();
+    this.motionPlaybackRate = 1;
     this.poseTransition = undefined;
     this.lastState = undefined;
     this.lastStateRevision = undefined;
@@ -405,6 +414,7 @@ export class VrmStage {
     this.motionMixer = undefined;
     this.motionActions = [];
     this.activeMotion = undefined;
+    this.motionPlaybackRate = 1;
   }
   dispose() {
     this.disposed = true;

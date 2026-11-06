@@ -115,6 +115,11 @@ export class CompanionStage {
 
   toggleMotion() { return this.current?.toggleMotion?.() ?? false; }
 
+  setMotionPlaybackRate(rate: number) {
+    if (!this.current?.setMotionPlaybackRate) throw new Error('当前角色不支持 VRM 动作速度控制。');
+    this.current.setMotionPlaybackRate(rate);
+  }
+
   seekMotion(index: number, seconds: number) {
     if (!this.current?.seekMotion) throw new Error('当前角色不支持 VRM 动作预览。');
     this.current.seekMotion(index, seconds);

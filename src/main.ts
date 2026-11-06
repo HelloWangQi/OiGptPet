@@ -79,7 +79,7 @@ app.innerHTML = petMode ? `
         <div class="motion-panel"><div class="motion-heading"><h2>今天是什么心情？</h2><button id="pause-button" class="text-button">暂停动画</button></div><div class="motion-list">${ANIMATION_ROWS.map((row, i) => `<button class="motion-button ${i === 0 ? 'active' : ''}" data-state="${row.state}"><span class="motion-index">${String(i + 1).padStart(2, '0')}</span>${row.label}</button>`).join('')}</div>
           <section id="external-motion-panel" class="external-motion-panel" hidden aria-label="外部动作预览">
             <div class="external-motion-actions"><button id="external-motion-import" class="text-button" type="button">导入 VRM Animation（.vrma）</button><input id="external-motion-file" type="file" accept=".vrma,model/gltf-binary" hidden /></div>
-            <div id="external-motion-controls" class="external-motion-actions" hidden><select id="external-motion-clip" aria-label="选择导入动作"></select><button id="external-motion-toggle" class="text-button" type="button">暂停动作</button><button id="external-motion-clear" class="text-button" type="button">恢复内置动作</button></div>
+            <div id="external-motion-controls" class="external-motion-actions" hidden><select id="external-motion-clip" aria-label="选择导入动作"></select><select id="external-motion-speed" aria-label="动作播放速度"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select><button id="external-motion-toggle" class="text-button" type="button">暂停动作</button><button id="external-motion-clear" class="text-button" type="button">恢复内置动作</button></div>
             <div id="external-motion-scrubber" class="external-motion-scrubber" hidden><label for="external-motion-time">预览时间</label><input id="external-motion-time" type="range" min="0" max="1000" value="0" aria-label="拖动查看动作时间点" /><output id="external-motion-time-label">0.0 / 0.0 秒</output></div>
             <div id="external-motion-export" hidden><label class="field-label" for="external-motion-export-state">导出图集时替换动作行</label><select id="external-motion-export-state"><option value="">不替换（只预览）</option>${ANIMATION_ROWS.map(row => `<option value="${row.state}">${row.label}</option>`).join('')}</select><p class="helper">只替换一行动作；其余行保留内置动作。保存前请检查该行的动作循环和裁切。</p></div>
             <p id="external-motion-status" class="helper" role="status" aria-live="polite"></p>
@@ -579,6 +579,8 @@ function resetExternalMotionPreview(message = '') {
   if (select) select.replaceChildren();
   const toggle = document.querySelector<HTMLButtonElement>('#external-motion-toggle');
   if (toggle) { toggle.textContent = '暂停动作'; toggle.disabled = true; }
+  const speed = document.querySelector<HTMLSelectElement>('#external-motion-speed');
+  if (speed) speed.value = '1';
   const statusLine = document.querySelector<HTMLElement>('#external-motion-status');
   if (statusLine) statusLine.textContent = message;
 }
@@ -629,6 +631,7 @@ async function importExternalMotion(file?: File) {
     $('#external-motion-controls').hidden = false;
     $('#external-motion-scrubber').hidden = false;
     $('#external-motion-export').hidden = false;
+    $<HTMLSelectElement>('#external-motion-speed').value = '1';
     $<HTMLButtonElement>('#external-motion-toggle').disabled = false;
     updateExternalMotionTime();
     $('#external-motion-status').textContent = `${file.name} · ${clips.length} 段动作，正在预览第 1 段。${describeExternalMotionCompatibility(clips[0])}`;
@@ -946,6 +949,13 @@ if (petMode) {
       $('#external-motion-status').textContent = clip ? `正在预览：${describeExternalMotionCompatibility(clip)}` : '正在预览动作。';
       updateExternalMotionTime();
     } catch (error) { $('#external-motion-status').textContent = error instanceof Error ? error.message : '动作切换失败。'; }
+  };
+  $<HTMLSelectElement>('#external-motion-speed').onchange = event => {
+    try {
+      const rate = Number((event.currentTarget as HTMLSelectElement).value);
+      stage.setMotionPlaybackRate(rate);
+      $('#external-motion-status').textContent = `动作预览速度：${rate}×。`;
+    } catch (error) { $('#external-motion-status').textContent = error instanceof Error ? error.message : '动作速度设置失败。'; }
   };
   $<HTMLInputElement>('#external-motion-time').oninput = event => {
     const index = Number($<HTMLSelectElement>('#external-motion-clip').value);
