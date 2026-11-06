@@ -51,7 +51,7 @@ try {
   assert.equal(await page.locator('#export-button').isEnabled(), true);
   const workshopLayout = await checkWorkshopLayout(desktop, page, output);
   const vrmTransitions = await checkVrmTransitions(page, output);
-  const externalMotion = await checkExternalMotion(page, output);
+  const externalMotion = await checkExternalMotion(page, output, desktop, root);
   await page.screenshot({ path: path.join(output, 'imported-model.png') });
   await desktop.close(); desktop = undefined;
   page = await launch();

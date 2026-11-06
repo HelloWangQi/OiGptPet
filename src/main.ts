@@ -192,6 +192,7 @@ let paused = false;
 let animationTime = 0;
 let externalMotionClips: VrmMotionClipInfo[] = [];
 let externalMotionBuffer: ArrayBuffer | undefined;
+let externalMotionImportRevision = 0;
 let lastExternalMotionUiUpdate = 0;
 let lastInteraction = performance.now();
 let preferences: DesktopPreferences = { ...DEFAULT_PREFERENCES };
@@ -503,7 +504,12 @@ async function load(input: CompanionInput, persist: boolean, origin: 'local-impo
   } finally {
     options?.signal?.removeEventListener('abort', relayAbort);
     prepared?.dispose(); loading = false; committing = false; loadController = null;
-    if (!petMode) { $<HTMLButtonElement>('#export-button').disabled = !source; $('#cancel-load').hidden = true; $<HTMLButtonElement>('#import-button').disabled = false; }
+    if (!petMode) {
+      $<HTMLButtonElement>('#export-button').disabled = !source;
+      $('#cancel-load').hidden = true;
+      $<HTMLButtonElement>('#import-button').disabled = false;
+      $<HTMLButtonElement>('#external-motion-import').disabled = false;
+    }
     updatePackageControls();
     try { await refreshLibrary(); } catch { status('角色库读取失败，请重试。', true); }
     if (syncRequested && !packageJob) { syncRequested = false; void syncLibrary(); }
@@ -559,6 +565,7 @@ function changeState(next: AnimationState) {
 }
 
 function resetExternalMotionPreview(message = '') {
+  externalMotionImportRevision += 1;
   externalMotionClips = [];
   externalMotionBuffer = undefined;
   stage?.clearMotion();
@@ -582,6 +589,8 @@ function resetExternalMotionPreview(message = '') {
   if (timeLabel) timeLabel.textContent = '0.0 / 0.0 秒';
   const file = document.querySelector<HTMLInputElement>('#external-motion-file');
   if (file) file.value = '';
+  const importButton = document.querySelector<HTMLButtonElement>('#external-motion-import');
+  if (importButton) importButton.disabled = loading || Boolean(packageJob);
   const select = document.querySelector<HTMLSelectElement>('#external-motion-clip');
   if (select) select.replaceChildren();
   const toggle = document.querySelector<HTMLButtonElement>('#external-motion-toggle');
@@ -610,7 +619,7 @@ function describeExternalMotionCompatibility(clip: VrmMotionClipInfo) {
 }
 
 function updateExternalMotionTime() {
-  const index = Number($('#external-motion-clip').value);
+  const index = Number($<HTMLSelectElement>('#external-motion-clip').value);
   const clip = externalMotionClips.find(item => item.index === index);
   const time = stage?.motionTime(index) ?? 0;
   const slider = $<HTMLInputElement>('#external-motion-time');
@@ -656,15 +665,19 @@ async function importExternalMotion(file?: File) {
   if (!file || !stage || loading || packageJob || petMode) return;
   if (!file.name.toLowerCase().endsWith('.vrma')) { $('#external-motion-status').textContent = '请选择 .vrma 动作文件。'; return; }
   if (file.size === 0 || file.size > MAX_MODEL_BYTES) { $('#external-motion-status').textContent = '动作文件不能为空且不能超过 64 MiB。'; return; }
+  const importRevision = ++externalMotionImportRevision;
+  const targetStage = stage;
   const button = $<HTMLButtonElement>('#external-motion-import');
   button.disabled = true;
   $('#external-motion-status').textContent = '正在本机读取并检查动作…';
   try {
     const buffer = await file.arrayBuffer();
-    const clips = await stage.loadMotion(buffer);
+    if (importRevision !== externalMotionImportRevision || targetStage !== stage || loading || packageJob) return;
+    const clips = await targetStage.loadMotion(buffer);
+    if (importRevision !== externalMotionImportRevision || targetStage !== stage || loading || packageJob) return;
     externalMotionClips = clips;
     externalMotionBuffer = buffer;
-    $('#external-motion-export-state').value = '';
+    $<HTMLSelectElement>('#external-motion-export-state').value = '';
     const select = $<HTMLSelectElement>('#external-motion-clip');
     select.replaceChildren(...clips.map(clip => {
       const option = document.createElement('option'); option.value = String(clip.index);
@@ -680,8 +693,8 @@ async function importExternalMotion(file?: File) {
     updateExternalMotionSamplePreview();
     $('#external-motion-status').textContent = `${file.name} · ${clips.length} 段动作，正在预览第 1 段。${describeExternalMotionCompatibility(clips[0])}`;
   } catch (error) {
-    $('#external-motion-status').textContent = error instanceof Error ? error.message : '动作加载失败。';
-  } finally { button.disabled = false; }
+    if (importRevision === externalMotionImportRevision) $('#external-motion-status').textContent = error instanceof Error ? error.message : '动作加载失败。';
+  } finally { if (importRevision === externalMotionImportRevision) button.disabled = false; }
 }
 
 async function importFile(file?: File) {
@@ -732,8 +745,8 @@ const previewModules = import.meta.glob<{ createAtlasPreview(host: HTMLElement):
 
 async function runExport() {
   if (!source || !info || exportSession.busy || loading || packageJob) return;
-  const replacementState = $('#external-motion-export-state').value as AnimationState | '';
-  const replacementClipIndex = Number($('#external-motion-clip').value);
+  const replacementState = $<HTMLSelectElement>('#external-motion-export-state').value as AnimationState | '';
+  const replacementClipIndex = Number($<HTMLSelectElement>('#external-motion-clip').value);
   const replacementClip = replacementState ? externalMotionClips.find(clip => clip.index === replacementClipIndex) : undefined;
   if (replacementState && (!externalMotionBuffer || !replacementClip || !ANIMATION_ROWS.some(row => row.state === replacementState))) {
     status('外部动作替换信息不完整，请重新导入动作或恢复“不替换”。', true);

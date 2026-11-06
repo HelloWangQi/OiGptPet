@@ -24,11 +24,11 @@ const document = {
     { bufferView: 0, componentType: 5126, count: 2, type: 'SCALAR', min: [0], max: [1] },
     { bufferView: 1, componentType: 5126, count: 2, type: 'VEC3' },
   ],
-  animations: [{
-    name: '升降测试',
+  animations: ['升降测试', '升降测试副本'].map(name => ({
+    name,
     samplers: [{ input: 0, output: 1, interpolation: 'LINEAR' }],
     channels: [{ sampler: 0, target: { node: 0, path: 'translation' } }],
-  }],
+  })),
 };
 
 const json = Buffer.from(JSON.stringify(document));

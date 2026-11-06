@@ -9,6 +9,9 @@ import { adaptFaceArms } from './arm-reach';
 import { sampleMotion, sampleLook } from '../character-core';
 import { inspectVrmFile, type ModelInfo } from '../character-core/vrm-file';
 import type { AnimationState } from '../target-chatgpt/contract';
+import { actionTimeToPoseTime, poseTimeToActionTime, type VrmMotionLoopMode } from './motion-time';
+
+export type { VrmMotionLoopMode } from './motion-time';
 
 export interface VrmMotionClipCompatibility {
   totalBones: number;
@@ -24,8 +27,6 @@ export interface VrmMotionClipInfo {
   duration: number;
   compatibility: VrmMotionClipCompatibility;
 }
-
-export type VrmMotionLoopMode = 'repeat' | 'once' | 'pingpong';
 
 export class VrmStage {
   readonly renderer: THREE.WebGLRenderer;
@@ -234,11 +235,16 @@ export class VrmStage {
 
   setMotionLoopMode(mode: VrmMotionLoopMode): void {
     if (mode !== 'repeat' && mode !== 'once' && mode !== 'pingpong') throw new RangeError('请选择有效的动作循环模式。');
-    this.motionLoopMode = mode;
     const action = this.activeMotion === undefined ? undefined : this.motionActions[this.activeMotion];
+    const loopCount = action ? this.getMotionLoopCount(action) : -1;
+    const duration = action?.getClip().duration ?? 0;
+    const poseTime = action ? actionTimeToPoseTime(action.time, duration, this.motionLoopMode, loopCount) : 0;
+    this.motionLoopMode = mode;
     if (!action) return;
     action.clampWhenFinished = mode === 'once';
     action.setLoop(mode === 'once' ? THREE.LoopOnce : mode === 'pingpong' ? THREE.LoopPingPong : THREE.LoopRepeat, mode === 'once' ? 1 : Infinity);
+    action.time = poseTimeToActionTime(poseTime, duration, mode, loopCount);
+    this.motionMixer?.update(0);
   }
 
   seekMotion(index: number, seconds: number): void {
@@ -248,12 +254,21 @@ export class VrmStage {
     const duration = action.getClip().duration;
     if (!Number.isFinite(seconds) || !Number.isFinite(duration) || duration <= 0) throw new RangeError('动作预览时间无效。');
     action.paused = true;
-    action.time = THREE.MathUtils.clamp(seconds, 0, Math.max(0, duration - 1e-5));
+    const poseTime = THREE.MathUtils.clamp(seconds, 0, Math.max(0, duration - 1e-5));
+    action.time = poseTimeToActionTime(poseTime, duration, this.motionLoopMode, this.getMotionLoopCount(action));
     this.activeMotion = index;
     mixer.update(0);
   }
 
-  motionTime(index: number): number | undefined { return this.motionActions[index]?.time; }
+  motionTime(index: number): number | undefined {
+    const action = this.motionActions[index];
+    return action ? actionTimeToPoseTime(action.time, action.getClip().duration, this.motionLoopMode, this.getMotionLoopCount(action)) : undefined;
+  }
+
+  private getMotionLoopCount(action: THREE.AnimationAction): number {
+    // Three.js keeps ping-pong direction in this internal counter; `action.time` is the raw leg time.
+    return (action as THREE.AnimationAction & { _loopCount: number })._loopCount;
+  }
 
   clearMotion(): void {
     ++this.motionGeneration;
