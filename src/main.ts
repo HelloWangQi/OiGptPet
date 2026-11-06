@@ -82,6 +82,7 @@ app.innerHTML = petMode ? `
             <div id="external-motion-controls" class="external-motion-actions" hidden><select id="external-motion-clip" aria-label="选择导入动作"></select><select id="external-motion-speed" aria-label="动作播放速度"><option value="0.25">0.25×</option><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select><select id="external-motion-loop" aria-label="动作循环模式"><option value="repeat" selected>循环</option><option value="once">播放一次</option><option value="pingpong">往返</option></select><button id="external-motion-toggle" class="text-button" type="button">暂停动作</button><button id="external-motion-clear" class="text-button" type="button">恢复内置动作</button></div>
             <div id="external-motion-scrubber" class="external-motion-scrubber" hidden><label for="external-motion-time">预览时间</label><input id="external-motion-time" type="range" min="0" max="1000" value="0" aria-label="拖动查看动作时间点" /><output id="external-motion-time-label">0.0 / 0.0 秒</output><label class="external-motion-exact-label" for="external-motion-exact-time">精确时间</label><input id="external-motion-exact-time" type="number" min="0" step="0.01" value="0" aria-label="输入精确动作时间（秒）" /><span>秒</span></div>
             <div id="external-motion-export" hidden><label class="field-label" for="external-motion-export-state">导出图集时替换动作行</label><select id="external-motion-export-state"><option value="">不替换（只预览）</option>${ANIMATION_ROWS.map(row => `<option value="${row.state}">${row.label}</option>`).join('')}</select><p class="helper">只替换一行动作；其余行保留内置动作。保存前请检查该行的动作循环和裁切。</p></div>
+            <div id="external-motion-sample-preview" class="external-motion-sample-preview" hidden><label class="field-label" for="external-motion-sample-frame">预览目标行的导出采样帧</label><div class="external-motion-actions"><select id="external-motion-sample-frame" aria-label="选择导出采样帧"></select><button id="external-motion-sample-jump" class="text-button" type="button">定位此帧</button></div><p id="external-motion-sample-description" class="helper"></p></div>
             <p id="external-motion-status" class="helper" role="status" aria-live="polite"></p>
             <p class="helper">动作仅暂存在工坊。可选替换导出图集中的一行动作；不会修改角色库或备份包。</p>
             <p class="helper">导入结果会对照当前角色检查动作轨道名称；匹配不代表动作绑定或视觉效果合格。</p>
@@ -565,6 +566,10 @@ function resetExternalMotionPreview(message = '') {
   if (controls) controls.hidden = true;
   const exportControls = document.querySelector<HTMLElement>('#external-motion-export');
   if (exportControls) exportControls.hidden = true;
+  const samplePreview = document.querySelector<HTMLElement>('#external-motion-sample-preview');
+  if (samplePreview) samplePreview.hidden = true;
+  const sampleFrame = document.querySelector<HTMLSelectElement>('#external-motion-sample-frame');
+  if (sampleFrame) { sampleFrame.replaceChildren(); delete sampleFrame.dataset.sampleKey; }
   const exportState = document.querySelector<HTMLSelectElement>('#external-motion-export-state');
   if (exportState) exportState.value = '';
   const scrubber = document.querySelector<HTMLElement>('#external-motion-scrubber');
@@ -618,6 +623,35 @@ function updateExternalMotionTime() {
   $<HTMLButtonElement>('#external-motion-toggle').textContent = stage?.motionIsPlaying() ? '暂停动作' : '继续动作';
 }
 
+function updateExternalMotionSamplePreview() {
+  const panel = $<HTMLElement>('#external-motion-sample-preview');
+  const state = $<HTMLSelectElement>('#external-motion-export-state').value as AnimationState | '';
+  const row = ANIMATION_ROWS.find(item => item.state === state);
+  const clipIndex = Number($<HTMLSelectElement>('#external-motion-clip').value);
+  const clip = externalMotionClips.find(item => item.index === clipIndex);
+  if (!row || !clip || clip.duration <= 0) { panel.hidden = true; return; }
+  panel.hidden = false;
+  const select = $<HTMLSelectElement>('#external-motion-sample-frame');
+  const previous = Number(select.value);
+  const sampleKey = `${clip.index}:${row.state}:${clip.duration}`;
+  if (select.dataset.sampleKey !== sampleKey || select.options.length !== row.frames) {
+    const selectedBefore = Number.isInteger(previous) ? Math.max(0, Math.min(row.frames - 1, previous)) : 0;
+    select.replaceChildren(...Array.from({ length: row.frames }, (_, frameIndex) => {
+      const option = document.createElement('option');
+      option.value = String(frameIndex);
+      option.textContent = `第 ${frameIndex + 1} / ${row.frames} 帧 · ${(clip.duration * frameIndex / row.frames).toFixed(2)} 秒`;
+      return option;
+    }));
+    select.dataset.sampleKey = sampleKey;
+    select.value = String(selectedBefore);
+  }
+  const selectedValue = Number(select.value);
+  const selected = Number.isInteger(selectedValue) ? Math.max(0, Math.min(row.frames - 1, selectedValue)) : 0;
+  select.value = String(selected);
+  const seconds = clip.duration * selected / row.frames;
+  $('#external-motion-sample-description').textContent = `导出器以 ${row.frames} 帧均匀采样，所选帧对应 ${seconds.toFixed(3)} 秒。此处只对齐采样时间；正式导出会重新渲染并稳定化物理效果。`;
+}
+
 async function importExternalMotion(file?: File) {
   if (!file || !stage || loading || packageJob || petMode) return;
   if (!file.name.toLowerCase().endsWith('.vrma')) { $('#external-motion-status').textContent = '请选择 .vrma 动作文件。'; return; }
@@ -643,6 +677,7 @@ async function importExternalMotion(file?: File) {
     $<HTMLSelectElement>('#external-motion-loop').value = 'repeat';
     $<HTMLButtonElement>('#external-motion-toggle').disabled = false;
     updateExternalMotionTime();
+    updateExternalMotionSamplePreview();
     $('#external-motion-status').textContent = `${file.name} · ${clips.length} 段动作，正在预览第 1 段。${describeExternalMotionCompatibility(clips[0])}`;
   } catch (error) {
     $('#external-motion-status').textContent = error instanceof Error ? error.message : '动作加载失败。';
@@ -957,7 +992,24 @@ if (petMode) {
       const clip = externalMotionClips[index];
       $('#external-motion-status').textContent = clip ? `正在预览：${describeExternalMotionCompatibility(clip)}` : '正在预览动作。';
       updateExternalMotionTime();
+      updateExternalMotionSamplePreview();
     } catch (error) { $('#external-motion-status').textContent = error instanceof Error ? error.message : '动作切换失败。'; }
+  };
+  $<HTMLSelectElement>('#external-motion-export-state').onchange = updateExternalMotionSamplePreview;
+  $<HTMLSelectElement>('#external-motion-sample-frame').onchange = updateExternalMotionSamplePreview;
+  $('#external-motion-sample-jump').onclick = () => {
+    const clipIndex = Number($<HTMLSelectElement>('#external-motion-clip').value);
+    const clip = externalMotionClips.find(item => item.index === clipIndex);
+    const state = $<HTMLSelectElement>('#external-motion-export-state').value as AnimationState | '';
+    const row = ANIMATION_ROWS.find(item => item.state === state);
+    const frameIndex = Number($<HTMLSelectElement>('#external-motion-sample-frame').value);
+    if (!clip || !row || !Number.isInteger(frameIndex) || frameIndex < 0 || frameIndex >= row.frames) return;
+    try {
+      const seconds = clip.duration * frameIndex / row.frames;
+      stage.seekMotion(clipIndex, seconds);
+      updateExternalMotionTime();
+      $('#external-motion-status').textContent = `已定位到导出采样第 ${frameIndex + 1} / ${row.frames} 帧（${seconds.toFixed(3)} 秒）。`;
+    } catch (error) { $('#external-motion-status').textContent = error instanceof Error ? error.message : '采样帧定位失败。'; }
   };
   $<HTMLSelectElement>('#external-motion-speed').onchange = event => {
     try {
