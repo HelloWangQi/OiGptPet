@@ -201,6 +201,7 @@ let externalMotionAssignments: ExternalMotionAssignment[] = [];
 let nextExternalMotionSourceId = 1;
 let externalMotionImportRevision = 0;
 let externalMotionAssignmentPreviewRevision = 0;
+let externalMotionBusy = false;
 let lastExternalMotionUiUpdate = 0;
 let lastInteraction = performance.now();
 let preferences: DesktopPreferences = { ...DEFAULT_PREFERENCES };
@@ -320,7 +321,7 @@ function updatePackageControls() {
   $<HTMLButtonElement>('#import-button').disabled = busy || !stage;
   $<HTMLButtonElement>('#load-demo').disabled = busy;
   $<HTMLButtonElement>('#rename-character').disabled = busy;
-  $<HTMLButtonElement>('#export-button').disabled = busy || !source;
+  $<HTMLButtonElement>('#export-button').disabled = busy || externalMotionBusy || exportSession.busy || !source;
   $('#cancel-package').hidden = !packageJob;
   $<HTMLButtonElement>('#cancel-package').disabled = committing;
   if (busy) document.querySelectorAll<HTMLButtonElement>('#character-list button').forEach((button) => { button.disabled = true; });
@@ -513,7 +514,7 @@ async function load(input: CompanionInput, persist: boolean, origin: 'local-impo
     options?.signal?.removeEventListener('abort', relayAbort);
     prepared?.dispose(); loading = false; committing = false; loadController = null;
     if (!petMode) {
-      $<HTMLButtonElement>('#export-button').disabled = !source;
+      $<HTMLButtonElement>('#export-button').disabled = !source || externalMotionBusy || exportSession.busy;
       $('#cancel-load').hidden = true;
       $<HTMLButtonElement>('#import-button').disabled = false;
       $<HTMLButtonElement>('#external-motion-import').disabled = false;
@@ -578,6 +579,17 @@ function setExternalMotionAssignmentActionsDisabled(disabled: boolean) {
   });
 }
 
+function setExternalMotionBusy(busy: boolean) {
+  externalMotionBusy = busy;
+  const sampleFrame = document.querySelector<HTMLSelectElement>('#external-motion-sample-frame');
+  if (sampleFrame) sampleFrame.disabled = busy;
+  const sampleJump = document.querySelector<HTMLButtonElement>('#external-motion-sample-jump');
+  if (sampleJump) sampleJump.disabled = busy;
+  if (!petMode && !closed) {
+    $<HTMLButtonElement>('#export-button').disabled = busy || exportSession.busy || loading || Boolean(packageJob) || !source;
+  }
+}
+
 function formatExternalMotionSize(bytes: number) {
   if (bytes === 0) return '0 MiB';
   if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KiB`;
@@ -587,6 +599,7 @@ function formatExternalMotionSize(bytes: number) {
 function resetExternalMotionPreview(message = '') {
   externalMotionImportRevision += 1;
   externalMotionAssignmentPreviewRevision += 1;
+  setExternalMotionBusy(false);
   externalMotionSources = [];
   activeExternalMotionSourceId = undefined;
   externalMotionClips = [];
@@ -803,6 +816,7 @@ async function activateExternalMotionSource(sourceId: string) {
   const assignButton = $<HTMLButtonElement>('#external-motion-assign');
   const toggleButton = $<HTMLButtonElement>('#external-motion-toggle');
   const importButton = $<HTMLButtonElement>('#external-motion-import');
+  setExternalMotionBusy(true);
   setExternalMotionAssignmentActionsDisabled(true);
   sourceSelect.disabled = true;
   clipSelect.disabled = true;
@@ -840,6 +854,7 @@ async function activateExternalMotionSource(sourceId: string) {
       assignButton.disabled = false;
       toggleButton.disabled = false;
       importButton.disabled = false;
+      setExternalMotionBusy(false);
       setExternalMotionAssignmentActionsDisabled(false);
       sourceSelect.value = activeExternalMotionSourceId ?? '';
     }
@@ -861,6 +876,7 @@ async function importExternalMotion(file?: File) {
   const removeButton = $<HTMLButtonElement>('#external-motion-source-remove');
   const assignButton = $<HTMLButtonElement>('#external-motion-assign');
   const toggleButton = $<HTMLButtonElement>('#external-motion-toggle');
+  setExternalMotionBusy(true);
   setExternalMotionAssignmentActionsDisabled(true);
   button.disabled = true;
   sourceSelect.disabled = true;
@@ -905,6 +921,7 @@ async function importExternalMotion(file?: File) {
       removeButton.disabled = externalMotionSources.length === 0;
       assignButton.disabled = false;
       toggleButton.disabled = externalMotionSources.length === 0;
+      setExternalMotionBusy(false);
       setExternalMotionAssignmentActionsDisabled(false);
     }
   }
@@ -947,7 +964,7 @@ function clearExport(closeDialog = true) {
   $('#local-check-status').textContent = '尚未检查';
   $<HTMLButtonElement>('#save-atlas').disabled = true;
   $<HTMLButtonElement>('#save-report').disabled = true;
-  $<HTMLButtonElement>('#export-button').disabled = !source || loading || Boolean(packageJob);
+  $<HTMLButtonElement>('#export-button').disabled = !source || loading || Boolean(packageJob) || externalMotionBusy || exportSession.busy;
   $('#export-progress').hidden = true;
   $('#cancel-export').hidden = true;
   const dialog = $<HTMLDialogElement>('#export-dialog');
@@ -958,6 +975,7 @@ const previewModules = import.meta.glob<{ createAtlasPreview(host: HTMLElement):
 
 async function runExport() {
   if (!source || !info || exportSession.busy || loading || packageJob) return;
+  if (externalMotionBusy) { status('VRMA 动作来源正在加载或切换，请完成后再导出。', true); return; }
   const selectedState = $<HTMLSelectElement>('#external-motion-export-state').value as AnimationState | '';
   const selectedClipIndex = Number($<HTMLSelectElement>('#external-motion-clip').value);
   // Keep compatibility with existing automation and older usage: a selected row
@@ -1063,7 +1081,7 @@ async function runExport() {
     $('#check-messages').textContent = message;
     status(message, true);
   } finally {
-    if (revision === runRevision) { button.disabled = !source; progress.hidden = true; $('#cancel-export').hidden = true; }
+    if (revision === runRevision) { button.disabled = !source || externalMotionBusy || loading || Boolean(packageJob); progress.hidden = true; $('#cancel-export').hidden = true; }
   }
 }
 
