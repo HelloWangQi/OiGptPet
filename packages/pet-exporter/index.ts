@@ -1,5 +1,6 @@
 import { VrmStage } from '../renderer-vrm';
 import { sampleLook } from '../character-core';
+import { MAX_MODEL_BYTES } from '../character-core/vrm-file';
 import {
   ANIMATION_ROWS, ATLAS_COLUMNS, CELL_HEIGHT, CELL_WIDTH, MAX_ENCODED_BYTES,
   atlasDimensions, type AnimationState, type AtlasProfile,
@@ -7,6 +8,7 @@ import {
 
 export interface ExportResult { blob: Blob; width: number; height: number; frames: number; profile: AtlasProfile }
 export interface ExternalMotionExport { buffer: ArrayBuffer; clipIndex: number; state: AnimationState }
+export const MAX_EXTERNAL_MOTION_LIBRARY_BYTES = 256 * 1024 * 1024;
 
 // Each frame restarts from the captured rest state, so a fixed 60 Hz warm-up
 // removes the dependence on the previously sampled row without unbounded waiting.
@@ -21,6 +23,22 @@ export async function exportAtlas(
   externalMotion?: ExternalMotionExport | readonly ExternalMotionExport[],
 ): Promise<ExportResult> {
   signal?.throwIfAborted();
+  const externalMotions: readonly ExternalMotionExport[] = externalMotion === undefined ? []
+    : 'clipIndex' in externalMotion ? [externalMotion] : externalMotion;
+  const motionBuffers = new Set<ArrayBuffer>();
+  let externalMotionBytes = 0;
+  for (const motion of externalMotions) {
+    if (motion.buffer.byteLength === 0 || motion.buffer.byteLength > MAX_MODEL_BYTES) {
+      throw new Error('每个 VRMA 文件必须大于 0 且不能超过 64 MiB。');
+    }
+    if (!motionBuffers.has(motion.buffer)) {
+      motionBuffers.add(motion.buffer);
+      externalMotionBytes += motion.buffer.byteLength;
+    }
+  }
+  if (externalMotionBytes > MAX_EXTERNAL_MOTION_LIBRARY_BYTES) {
+    throw new Error('VRMA 动作库总量不能超过 256 MiB。');
+  }
   const { width, height } = atlasDimensions(profile);
   const atlas = document.createElement('canvas');
   atlas.width = width; atlas.height = height;
@@ -33,32 +51,39 @@ export async function exportAtlas(
   try {
     await stage.load(source);
     stage.resize(CELL_WIDTH, CELL_HEIGHT, 1);
-    const externalMotions: readonly ExternalMotionExport[] = externalMotion === undefined ? []
-      : 'clipIndex' in externalMotion ? [externalMotion] : externalMotion;
-    const externalByState = new Map<AnimationState, { clipIndex: number; duration: number }>();
+    const externalByState = new Map<AnimationState, { buffer: ArrayBuffer; clipIndex: number }>();
     if (externalMotions.length) {
-      const motionBuffer = externalMotions[0].buffer;
-      if (externalMotions.some(motion => motion.buffer !== motionBuffer)) throw new Error('同一图集导出的多个动作行必须来自同一份 VRMA。');
       for (const motion of externalMotions) {
         if (!ANIMATION_ROWS.some(row => row.state === motion.state) || externalByState.has(motion.state)) {
           throw new Error('VRMA 替换行无效或重复，请检查动作行清单。');
         }
-      }
-      const clips = await stage.loadMotion(motionBuffer);
-      for (const motion of externalMotions) {
-        const clip = clips.find(item => item.index === motion.clipIndex);
-        if (!clip) throw new Error('所选 VRMA 动作片段不存在，已取消图集导出。');
-        externalByState.set(motion.state, { clipIndex: motion.clipIndex, duration: clip.duration });
+        externalByState.set(motion.state, { buffer: motion.buffer, clipIndex: motion.clipIndex });
       }
     }
+    let loadedMotionBuffer: ArrayBuffer | undefined;
+    let loadedMotionClips: Awaited<ReturnType<typeof stage.loadMotion>> = [];
     // Physics is settled consistently for each pose rather than inheriting the previous row.
     for (const [row, definition] of ANIMATION_ROWS.entries()) {
+      const replacement = externalByState.get(definition.state);
+      if (replacement && loadedMotionBuffer !== replacement.buffer) {
+        stage.clearMotion();
+        loadedMotionClips = await stage.loadMotion(replacement.buffer);
+        signal?.throwIfAborted();
+        loadedMotionBuffer = replacement.buffer;
+      } else if (!replacement && loadedMotionBuffer) {
+        stage.clearMotion();
+        loadedMotionBuffer = undefined;
+        loadedMotionClips = [];
+      }
+      const replacementClip = replacement
+        ? loadedMotionClips.find(clip => clip.index === replacement.clipIndex)
+        : undefined;
+      if (replacement && !replacementClip) throw new Error('所选 VRMA 动作片段不存在，已取消图集导出。');
       for (let col = 0; col < definition.frames; col++) {
         signal?.throwIfAborted();
         const phase = definition.state === 'jumping' ? col / (definition.frames - 1) : col / definition.frames;
-        const replacement = externalByState.get(definition.state);
-        if (replacement) {
-          stage.renderMotionSettled(replacement.clipIndex, replacement.duration * col / definition.frames, PHYSICS_STEPS);
+        if (replacement && replacementClip) {
+          stage.renderMotionSettled(replacement.clipIndex, replacementClip.duration * col / definition.frames, PHYSICS_STEPS);
         } else stage.renderSettled(definition.state, phase, undefined, PHYSICS_STEPS);
         context.drawImage(frame, col * CELL_WIDTH, row * CELL_HEIGHT);
         progress(++done, total);
@@ -66,6 +91,7 @@ export async function exportAtlas(
       }
     }
     if (profile === 'v2') {
+      if (loadedMotionBuffer) stage.clearMotion();
       for (let i = 0; i < 16; i++) {
         signal?.throwIfAborted();
         stage.renderSettled('idle', 0, sampleLook(i * 22.5), PHYSICS_STEPS);
