@@ -9,6 +9,7 @@ import { adaptFaceArms } from './arm-reach';
 import { sampleMotion, sampleLook } from '../character-core';
 import { inspectVrmFile, type ModelInfo } from '../character-core/vrm-file';
 import type { AnimationState } from '../target-chatgpt/contract';
+import type { MusicDanceSignal } from '../character-core/music-dance';
 import { actionTimeToPoseTime, poseTimeToActionTime, type VrmMotionLoopMode } from './motion-time';
 
 export type { VrmMotionLoopMode } from './motion-time';
@@ -48,6 +49,9 @@ export class VrmStage {
   private lastStateRevision?: number;
   private speechMouthTarget = 0;
   private speechMouthCurrent = 0;
+  private musicDanceSignal?: MusicDanceSignal;
+  private musicDanceMotionMode = false;
+  private musicDanceMotionPlaying = false;
   private poseTransition?: {
     elapsed: number;
     bones: Array<{ node: THREE.Object3D; from: THREE.Quaternion; to: THREE.Quaternion }>;
@@ -142,6 +146,18 @@ export class VrmStage {
 
   setSpeechMouthOpen(amount: number) {
     this.speechMouthTarget = THREE.MathUtils.clamp(Number.isFinite(amount) ? amount : 0, 0, 1);
+  }
+
+  setMusicDanceSignal(signal: MusicDanceSignal | undefined) {
+    this.musicDanceSignal = signal;
+  }
+
+  setMusicDanceMotionMode(enabled: boolean) {
+    this.musicDanceMotionMode = enabled;
+  }
+
+  setMusicDanceMotionPlaying(playing: boolean) {
+    this.musicDanceMotionPlaying = playing;
   }
 
   async loadMotion(buffer: ArrayBuffer): Promise<VrmMotionClipInfo[]> {
@@ -273,6 +289,8 @@ export class VrmStage {
   clearMotion(): void {
     ++this.motionGeneration;
     this.releaseMotion();
+    this.musicDanceMotionMode = false;
+    this.musicDanceMotionPlaying = false;
     this.poseTransition = undefined;
     this.lastState = undefined;
     this.lastStateRevision = undefined;
@@ -342,6 +360,36 @@ export class VrmStage {
     else this.lookTarget.position.set(0, 1.65, 5);
   }
 
+  private applyMusicDancePose(signal: MusicDanceSignal, phase: number) {
+    if (!this.vrm) return;
+    const vrm = this.vrm;
+    const strength = signal.level;
+    const beatPosition = Number.isFinite(signal.phase)
+      ? THREE.MathUtils.clamp(signal.phase!, 0, 1)
+      : (phase * signal.bpm / 60) % 1;
+    const beatPhase = beatPosition * Math.PI * 2;
+    const sway = Math.sin(beatPhase);
+    const opposite = Math.sin(beatPhase + Math.PI);
+    const add = (name: VRMHumanBoneName, x = 0, y = 0, z = 0) => {
+      const bone = vrm.humanoid.getNormalizedBoneNode(name);
+      if (!bone) return;
+      bone.rotation.x += x * strength;
+      bone.rotation.y += y * strength;
+      bone.rotation.z += z * strength;
+    };
+    add('spine', 0, sway * 0.12, sway * 0.08);
+    add('chest', 0, sway * 0.16, -sway * 0.06);
+    add('leftUpperArm', -0.16, 0, 0.4 + sway * 0.28);
+    add('rightUpperArm', -0.16, 0, -0.4 + opposite * 0.28);
+    add('leftLowerArm', -0.2 + opposite * 0.12, 0, 0.1);
+    add('rightLowerArm', -0.2 + sway * 0.12, 0, -0.1);
+    add('leftUpperLeg', sway * 0.2, 0, 0);
+    add('rightUpperLeg', opposite * 0.2, 0, 0);
+    add('head', -Math.abs(sway) * 0.05, -sway * 0.05, -sway * 0.04);
+    this.root.position.y += signal.beat * 0.075 * strength;
+    this.root.rotation.y += sway * 0.08 * strength;
+  }
+
   render(state: AnimationState, phase: number, delta: number, look?: { yaw: number; pitch: number }, stateRevision?: number) {
     const restarted = stateRevision !== undefined && this.lastStateRevision !== undefined && stateRevision !== this.lastStateRevision;
     if (this.lastState !== undefined && (this.lastState !== state || restarted) && this.vrm) {
@@ -363,14 +411,19 @@ export class VrmStage {
     this.lastStateRevision = stateRevision;
     const boundedDelta = Math.min(Math.max(delta, 0), 1 / 15);
     this.speechMouthCurrent = THREE.MathUtils.lerp(this.speechMouthCurrent, this.speechMouthTarget, 1 - Math.exp(-boundedDelta * 14));
-    const externalMotion = this.motionMixer !== undefined && this.activeMotion !== undefined;
+    const externalMotion = this.motionMixer !== undefined && this.activeMotion !== undefined
+      && (!this.musicDanceMotionMode || this.musicDanceMotionPlaying);
     if (externalMotion) {
       this.vrm?.humanoid.resetNormalizedPose();
       this.root.position.set(0, 0, 0);
       this.root.quaternion.identity();
       this.resetExpressions();
       this.motionMixer?.update(boundedDelta);
-    } else this.applyPose(state, phase, look, this.speechMouthCurrent);
+    } else {
+      const dancing = state === 'idle' ? this.musicDanceSignal : undefined;
+      this.applyPose(dancing ? 'idle' : state, phase, look, this.speechMouthCurrent);
+      if (dancing) this.applyMusicDancePose(dancing, phase);
+    }
     if (this.poseTransition && !externalMotion) {
       const transition = this.poseTransition;
       transition.elapsed += Math.min(Math.max(delta, 0), 1 / 15);

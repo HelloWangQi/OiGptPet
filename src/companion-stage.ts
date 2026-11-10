@@ -3,6 +3,7 @@ import type { ModelInfo } from '../packages/character-core/vrm-file';
 import type { AnimationState } from '../packages/target-chatgpt/contract';
 import { createCompanionRenderer, type CompanionInput, type CompanionRenderer } from './renderer-adapters';
 import type { VrmMotionClipInfo, VrmMotionLoopMode } from '../packages/renderer-vrm';
+import type { MusicDanceSignal } from '../packages/character-core/music-dance';
 
 export type { CompanionInput } from './renderer-adapters';
 
@@ -22,6 +23,9 @@ export class CompanionStage {
   private disposed = false;
   private size = { width: 320, height: 420, ratio: 1 };
   private speechMouthOpen = 0;
+  private musicDanceSignal?: MusicDanceSignal;
+  private musicDanceMotionMode = false;
+  private musicDanceMotionPlaying = false;
 
   constructor(private canvas: HTMLCanvasElement) {}
 
@@ -71,6 +75,9 @@ export class CompanionStage {
           this.current = candidate;
           this.kind = input.kind;
           candidate.setSpeechMouthOpen(this.speechMouthOpen);
+          candidate.setMusicDanceSignal?.(this.musicDanceSignal);
+          candidate.setMusicDanceMotionMode?.(this.musicDanceMotionMode);
+          candidate.setMusicDanceMotionPlaying?.(this.musicDanceMotionPlaying);
           committed = true;
           signal?.removeEventListener('abort', release);
           if (this.pending === release) this.pending = undefined;
@@ -98,6 +105,21 @@ export class CompanionStage {
   setSpeechMouthOpen(amount: number) {
     this.speechMouthOpen = Math.min(1, Math.max(0, Number.isFinite(amount) ? amount : 0));
     this.current?.setSpeechMouthOpen(this.speechMouthOpen);
+  }
+
+  setMusicDanceSignal(signal: MusicDanceSignal | undefined) {
+    this.musicDanceSignal = signal;
+    this.current?.setMusicDanceSignal?.(signal);
+  }
+
+  setMusicDanceMotionMode(enabled: boolean) {
+    this.musicDanceMotionMode = enabled;
+    this.current?.setMusicDanceMotionMode?.(enabled);
+  }
+
+  setMusicDanceMotionPlaying(playing: boolean) {
+    this.musicDanceMotionPlaying = playing;
+    this.current?.setMusicDanceMotionPlaying?.(playing);
   }
 
   async loadMotion(buffer: ArrayBuffer): Promise<VrmMotionClipInfo[]> {

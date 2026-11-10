@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, screen, powerMonitor, Tray, Menu, nativeImage, globalShortcut, dialog, session, protocol, net, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, powerMonitor, Tray, Menu, nativeImage, globalShortcut, dialog, session, protocol, net, safeStorage, desktopCapturer } = require('electron');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
@@ -86,6 +86,17 @@ function isTrustedUiUrl(value) {
 function isActiveVoiceWindow(wc, requestingUrl) {
   return [workshop, pet].some(win => win && !win.isDestroyed() && win.isVisible() && win.webContents === wc
     && isTrustedUiUrl(wc.getURL()) && isTrustedUiUrl(requestingUrl ?? wc.getURL()));
+}
+
+function isActivePetWindow(wc, requestingUrl) {
+  return Boolean(pet && !pet.isDestroyed() && pet.isVisible() && !pet.isMinimized() && pet.webContents === wc
+    && isTrustedUiUrl(wc.getURL()) && isTrustedUiUrl(requestingUrl ?? wc.getURL()));
+}
+
+function isVisibleTrustedPetFrame(frame) {
+  if (!frame || !pet || pet.isDestroyed() || !pet.isVisible() || pet.isMinimized()) return false;
+  try { return pet.webContents.mainFrame === frame && isTrustedUiUrl(frame.url); }
+  catch { return false; }
 }
 
 async function loadView(win, mode) {
@@ -261,10 +272,24 @@ else {
     session.defaultSession.setPermissionRequestHandler((wc, permission, callback, details) => {
       const mediaTypes = details?.mediaTypes ?? [];
       const microphoneOnly = mediaTypes.includes('audio') && !mediaTypes.includes('video');
-      callback(permission === 'media' && microphoneOnly && isActiveVoiceWindow(wc, details?.requestingUrl));
+      const systemMusicCapture = permission === 'display-capture' && mediaTypes.includes('audio') && mediaTypes.includes('video');
+      callback(Boolean(permission === 'media' && microphoneOnly && isActiveVoiceWindow(wc, details?.requestingUrl)
+        || systemMusicCapture && isActivePetWindow(wc, details?.requestingUrl)));
     });
     session.defaultSession.setPermissionCheckHandler((wc, permission, origin) => {
+      if (permission === 'display-capture') return isActivePetWindow(wc, origin);
       return permission === 'media' && isActiveVoiceWindow(wc, origin);
+    });
+    session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
+      const frame = request.frame?.top;
+      if (!isVisibleTrustedPetFrame(frame) || !request.userGesture || !request.audioRequested || !request.videoRequested) {
+        callback(null);
+        return;
+      }
+      void desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } }).then(sources => {
+        if (!isVisibleTrustedPetFrame(frame) || !sources.length) { callback(null); return; }
+        callback({ video: sources[0], audio: 'loopback' });
+      }).catch(() => callback(null));
     });
     handlers();
     tray = new Tray(makeTrayIcon());

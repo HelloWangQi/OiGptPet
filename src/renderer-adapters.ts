@@ -3,6 +3,7 @@ import type { VrmMotionClipInfo, VrmMotionLoopMode } from '../packages/renderer-
 import { SpriteStage } from '../packages/renderer-sprite';
 import type { ModelInfo } from '../packages/character-core/vrm-file';
 import type { AnimationState, AtlasProfile } from '../packages/target-chatgpt/contract';
+import type { MusicDanceSignal } from '../packages/character-core/music-dance';
 
 export type CompanionInput =
   | { kind: 'vrm'; blob: Blob }
@@ -22,6 +23,9 @@ export interface CompanionRenderer {
   ): void;
   hitTest(x: number, y: number): boolean;
   setSpeechMouthOpen(amount: number): void;
+  setMusicDanceSignal?(signal: MusicDanceSignal | undefined): void;
+  setMusicDanceMotionMode?(enabled: boolean): void;
+  setMusicDanceMotionPlaying?(playing: boolean): void;
   loadMotion?(buffer: ArrayBuffer): Promise<VrmMotionClipInfo[]>;
   playMotion?(index: number): void;
   toggleMotion?(): boolean;
@@ -55,6 +59,9 @@ class VrmRenderer implements CompanionRenderer {
   }
   hitTest(x: number, y: number) { return this.stage.hitTest(x, y); }
   setSpeechMouthOpen(amount: number) { this.stage.setSpeechMouthOpen(amount); }
+  setMusicDanceSignal(signal: MusicDanceSignal | undefined) { this.stage.setMusicDanceSignal(signal); }
+  setMusicDanceMotionMode(enabled: boolean) { this.stage.setMusicDanceMotionMode(enabled); }
+  setMusicDanceMotionPlaying(playing: boolean) { this.stage.setMusicDanceMotionPlaying(playing); }
   loadMotion(buffer: ArrayBuffer) { return this.stage.loadMotion(buffer); }
   playMotion(index: number) { this.stage.playMotion(index); }
   toggleMotion() { return this.stage.toggleMotion(); }
