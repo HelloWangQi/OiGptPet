@@ -5,7 +5,9 @@ export async function checkWorkshopLayout(desktop, page, output) {
   const original = await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(win => win.isResizable()).getContentSize());
   const results = [];
   try {
-    for (const [width, height] of [[1220, 850], [980, 700], [1440, 900]]) {
+    // Keep the largest request within common desktop work areas. Electron clamps
+    // oversized content sizes to the display, so an exact 1440×900 wait can time out.
+    for (const [width, height] of [[1220, 850], [980, 700], [1120, 800]]) {
       await desktop.evaluate(({ BrowserWindow }, [width, height]) => BrowserWindow.getAllWindows().find(win => win.isResizable()).setContentSize(width, height), [width, height]);
       await page.waitForFunction(([width, height]) => innerWidth === width && innerHeight === height, [width, height]);
       const sidebar = page.locator('.detail-column');
