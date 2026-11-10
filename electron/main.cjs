@@ -89,8 +89,14 @@ function isActiveVoiceWindow(wc, requestingUrl) {
 }
 
 function isActivePetWindow(wc, requestingUrl) {
-  return Boolean(pet && !pet.isDestroyed() && pet.isVisible() && pet.webContents === wc
+  return Boolean(pet && !pet.isDestroyed() && pet.isVisible() && !pet.isMinimized() && pet.webContents === wc
     && isTrustedUiUrl(wc.getURL()) && isTrustedUiUrl(requestingUrl ?? wc.getURL()));
+}
+
+function isVisibleTrustedPetFrame(frame) {
+  if (!frame || !pet || pet.isDestroyed() || !pet.isVisible() || pet.isMinimized()) return false;
+  try { return pet.webContents.mainFrame === frame && isTrustedUiUrl(frame.url); }
+  catch { return false; }
 }
 
 async function loadView(win, mode) {
@@ -276,14 +282,12 @@ else {
     });
     session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
       const frame = request.frame?.top;
-      const trustedPetFrame = Boolean(pet && !pet.isDestroyed() && pet.isVisible() && pet.webContents.mainFrame === frame
-        && frame && isTrustedUiUrl(frame.url));
-      if (!trustedPetFrame || !request.userGesture || !request.audioRequested || !request.videoRequested) {
+      if (!isVisibleTrustedPetFrame(frame) || !request.userGesture || !request.audioRequested || !request.videoRequested) {
         callback(null);
         return;
       }
       void desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } }).then(sources => {
-        if (!sources.length) { callback(null); return; }
+        if (!isVisibleTrustedPetFrame(frame) || !sources.length) { callback(null); return; }
         callback({ video: sources[0], audio: 'loopback' });
       }).catch(() => callback(null));
     });

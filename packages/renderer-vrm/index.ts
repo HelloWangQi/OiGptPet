@@ -364,7 +364,10 @@ export class VrmStage {
     if (!this.vrm) return;
     const vrm = this.vrm;
     const strength = signal.level;
-    const beatPhase = phase * signal.bpm / 60 * Math.PI * 2;
+    const beatPosition = Number.isFinite(signal.phase)
+      ? THREE.MathUtils.clamp(signal.phase!, 0, 1)
+      : (phase * signal.bpm / 60) % 1;
+    const beatPhase = beatPosition * Math.PI * 2;
     const sway = Math.sin(beatPhase);
     const opposite = Math.sin(beatPhase + Math.PI);
     const add = (name: VRMHumanBoneName, x = 0, y = 0, z = 0) => {

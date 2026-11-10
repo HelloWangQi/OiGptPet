@@ -3,8 +3,22 @@ export interface MusicDanceSignal {
   level: number;
   /** A short beat pulse, from 0 to 1. */
   beat: number;
+  /** Estimated progress through the current beat, from 0 to 1; omitted by older producers. */
+  phase?: number;
+  /** False while there are too few intervals for a stable tempo estimate. */
+  tempoReady?: boolean;
+  /** False for the short fading tail retained after the last fresh audio energy. */
+  fresh?: boolean;
   /** Rolling tempo estimate, bounded to a useful dance range. */
   bpm: number;
+}
+
+export const MUSIC_SILENCE_RESET_MS = 2500;
+
+/** Hold motion through sparse beats while still pausing within two seconds of silence. */
+export function musicSignalGraceMs(bpm: number): number {
+  const tempo = Number.isFinite(bpm) && bpm > 0 ? bpm : 100;
+  return Math.min(2000, Math.max(700, 60_000 / tempo * 1.6));
 }
 
 /** Pick a playback rate that makes a looping motion last an integer musical phrase. */

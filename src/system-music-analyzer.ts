@@ -1,10 +1,15 @@
-import type { MusicDanceSignal } from '../packages/character-core/music-dance';
+import { MUSIC_SILENCE_RESET_MS, musicSignalGraceMs, type MusicDanceSignal } from '../packages/character-core/music-dance';
 
 function clamp(value: number, min: number, max: number) { return Math.min(max, Math.max(min, value)); }
 
 function median(values: number[]) {
   const sorted = [...values].sort((left, right) => left - right);
-  return sorted[Math.floor(sorted.length / 2)] ?? 100;
+  if (!sorted.length) return 100;
+  const middle = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 !== 0) return sorted[middle] ?? 100;
+  const lower = sorted[middle - 1] ?? 100;
+  const upper = sorted[middle] ?? lower;
+  return (lower + upper) / 2;
 }
 
 /** Captures the Windows output mix in memory for local beat analysis only. */
@@ -20,12 +25,13 @@ export class SystemMusicAnalyzer {
   private baseline = 0;
   private quietSince = 0;
   private lastBeatAt = 0;
+  private lastBeatLevel = 0;
   private beatTimes: number[] = [];
   private bpm = 100;
   private sensitivity = 1;
   private captureRevision = 0;
 
-  get active() { return Boolean(this.stream && this.analyser); }
+  get active() { return Boolean(this.stream && this.analyser && this.context?.state === 'running'); }
 
   setSensitivity(value: number) {
     if (!Number.isFinite(value)) return;
@@ -81,6 +87,7 @@ export class SystemMusicAnalyzer {
       this.baseline = 0;
       this.quietSince = 0;
       this.lastBeatAt = 0;
+      this.lastBeatLevel = 0;
       this.beatTimes = [];
       this.bpm = 100;
       this.pendingCaptures.delete(pending);
@@ -107,9 +114,10 @@ export class SystemMusicAnalyzer {
     this.baseline += (energy - this.baseline) * 0.02;
     this.previousEnergy = energy;
 
-    if (this.quietSince && now - this.quietSince >= 1500) {
+    if (this.quietSince && now - this.quietSince >= MUSIC_SILENCE_RESET_MS) {
       this.beatTimes = [];
       this.lastBeatAt = 0;
+      this.lastBeatLevel = 0;
       this.bpm = 100;
     }
 
@@ -123,12 +131,27 @@ export class SystemMusicAnalyzer {
         }
       }
       this.lastBeatAt = now;
+      this.lastBeatLevel = clamp((this.smoothedEnergy - 0.018 / this.sensitivity) * 8 * this.sensitivity, 0, 1);
     }
 
-    if (this.smoothedEnergy < 0.02 / this.sensitivity || (this.quietSince && now - this.quietSince >= 300 && this.smoothedEnergy < 0.055 / this.sensitivity)) return undefined;
+    const lowEnergy = this.smoothedEnergy < 0.02 / this.sensitivity
+      || (this.quietSince && now - this.quietSince >= 300 && this.smoothedEnergy < 0.055 / this.sensitivity);
+    if (lowEnergy) {
+      const quietFor = this.quietSince ? now - this.quietSince : 0;
+      const grace = musicSignalGraceMs(this.bpm);
+      if (!this.lastBeatAt || now - this.lastBeatAt >= grace || quietFor >= grace) return undefined;
+    }
+    const beatDuration = 60_000 / this.bpm;
+    const energyLevel = clamp((this.smoothedEnergy - 0.018 / this.sensitivity) * 8 * this.sensitivity, 0, 1);
+    const quietFade = lowEnergy && this.quietSince
+      ? clamp(1 - (now - this.quietSince) / musicSignalGraceMs(this.bpm), 0, 1)
+      : 1;
     return {
-      level: clamp((this.smoothedEnergy - 0.018 / this.sensitivity) * 8 * this.sensitivity, 0, 1),
+      level: lowEnergy ? Math.max(energyLevel, this.lastBeatLevel * quietFade) : energyLevel,
       beat: this.lastBeatAt ? clamp(1 - (now - this.lastBeatAt) / 180, 0, 1) : 0,
+      phase: this.lastBeatAt ? (Math.max(0, now - this.lastBeatAt) % beatDuration) / beatDuration : 0,
+      tempoReady: this.beatTimes.length >= 2,
+      fresh: !lowEnergy,
       bpm: this.bpm,
     };
   }
