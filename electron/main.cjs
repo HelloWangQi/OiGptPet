@@ -88,6 +88,11 @@ function isActiveVoiceWindow(wc, requestingUrl) {
     && isTrustedUiUrl(wc.getURL()) && isTrustedUiUrl(requestingUrl ?? wc.getURL()));
 }
 
+function isActivePetWindow(wc, requestingUrl) {
+  return Boolean(pet && !pet.isDestroyed() && pet.isVisible() && pet.webContents === wc
+    && isTrustedUiUrl(wc.getURL()) && isTrustedUiUrl(requestingUrl ?? wc.getURL()));
+}
+
 async function loadView(win, mode) {
   if (process.env.OIGPTPET_DEV_URL === 'http://127.0.0.1:5173') await win.loadURL(`${process.env.OIGPTPET_DEV_URL}/?mode=${mode}`);
   else await win.loadURL(`oipet://app/index.html?mode=${mode}`);
@@ -262,16 +267,18 @@ else {
       const mediaTypes = details?.mediaTypes ?? [];
       const microphoneOnly = mediaTypes.includes('audio') && !mediaTypes.includes('video');
       const systemMusicCapture = permission === 'display-capture' && mediaTypes.includes('audio') && mediaTypes.includes('video');
-      callback((permission === 'media' && microphoneOnly || systemMusicCapture) && isActiveVoiceWindow(wc, details?.requestingUrl));
+      callback(Boolean(permission === 'media' && microphoneOnly && isActiveVoiceWindow(wc, details?.requestingUrl)
+        || systemMusicCapture && isActivePetWindow(wc, details?.requestingUrl)));
     });
     session.defaultSession.setPermissionCheckHandler((wc, permission, origin) => {
-      return (permission === 'media' || permission === 'display-capture') && isActiveVoiceWindow(wc, origin);
+      if (permission === 'display-capture') return isActivePetWindow(wc, origin);
+      return permission === 'media' && isActiveVoiceWindow(wc, origin);
     });
     session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
       const frame = request.frame?.top;
-      const trustedTopLevelWindow = frame && [workshop, pet].some(win => win && !win.isDestroyed() && win.isVisible()
-        && win.webContents.mainFrame === frame && isTrustedUiUrl(frame.url));
-      if (!trustedTopLevelWindow || !request.userGesture || !request.audioRequested || !request.videoRequested) {
+      const trustedPetFrame = Boolean(pet && !pet.isDestroyed() && pet.isVisible() && pet.webContents.mainFrame === frame
+        && frame && isTrustedUiUrl(frame.url));
+      if (!trustedPetFrame || !request.userGesture || !request.audioRequested || !request.videoRequested) {
         callback(null);
         return;
       }

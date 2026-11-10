@@ -11,7 +11,11 @@
 .external-motion-actions #external-motion-loop{flex:0 0 100px;min-width:100px}
 .external-motion-panel .helper{margin-top:6px}
 .pet-mode #pet-controls{max-width:calc(100% - 12px);overflow-x:auto;scrollbar-width:thin}
+.pet-mode #pet-controls>*{flex:0 0 auto}
 .pet-mode #pet-dance-clip{width:140px;max-width:140px;padding:4px 5px;font-size:9px}
+.pet-mode #pet-music-sensitivity{width:84px;max-width:84px;padding:4px 3px;font-size:9px}
+.pet-mode #pet-dance-tempo{padding:4px 5px;color:#668056;font:9px monospace}
+.pet-mode #pet-dance-energy{width:48px;height:5px;margin:0;accent-color:#789568}
 .external-motion-assignment-list{display:grid;gap:6px;margin-top:8px}
 .external-motion-assignment{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:7px 9px;border:1px solid #e5e8df;border-radius:6px;background:#fff;color:#69745f;font-size:11px}
 .external-motion-assignment span{min-width:0;overflow-wrap:anywhere}

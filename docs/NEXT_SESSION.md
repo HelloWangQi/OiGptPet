@@ -1,6 +1,6 @@
 # 接续下一阶段：Windows 桌面音乐舞动
 
-开发计划见 [MUSIC_DANCE.md](MUSIC_DANCE.md)。当前代码包括用户手势触发的 Windows system loopback 门控、低频能量/节拍/BPM 分析、VRM 空闲程序化舞姿，以及桌宠内 VRMA 文件/片段选择和 BPM 循环速度同步。首版限定独立桌宠 + VRM；不录制或上传音频，隐藏窗口时关闭采集；挥手和聊天动作优先；VRMA 不持久化。最新 `npm run build`（含本轮 VRMA 控制）通过；测试、Windows EXE 打包和系统音乐体验未运行。接续先用不同风格音乐检查 loopback、片段切换、静音暂停/恢复和速度同步；用户验证前按项目要求生成当前源码对应的 Windows EXE。后续再考虑精灵图舞蹈帧和音乐动作模板。
+开发计划见 [MUSIC_DANCE.md](MUSIC_DANCE.md)。当前代码包括仅可见可信桌宠顶层窗口在用户点击后可申请的 Windows system loopback、低频能量/节拍/BPM 分析、VRM 空闲程序化舞姿、低/中/高灵敏度与 BPM/播放速度/能量显示，以及桌宠内 VRMA 文件/片段选择和乐句速度同步。停止或隐藏时会作废尚未完成的系统音频授权请求，并关闭已取得的轨与待恢复的音频上下文；迟到的授权不会重新启动采集或覆盖新状态。节拍显示每 100 ms 至多刷新一次；工坊没有系统音频采集权限。首版限定独立桌宠 + VRM；不录制或上传音频；挥手和聊天动作优先；VRMA 不持久化。`npm run build` 与 `node --check electron/main.cjs` 通过；测试、Windows EXE 打包和实际音乐体验未运行。后续用 [音乐舞动人工验收清单](MUSIC_DANCE.md#windows-人工验收清单)检查 loopback、不同节奏、静音暂停/恢复、灵敏度、速度同步和退出边界；用户验证前按项目要求生成当前源码对应的 Windows EXE。之后再考虑精灵图舞蹈帧和音乐动作模板。
 
 ## v0.11.0 交接记录
 
