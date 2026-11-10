@@ -116,13 +116,15 @@ export async function checkExternalMotion(page, output, desktop, root) {
   assert.equal(await page.locator('#external-motion-speed').inputValue(), '0.5', 'clip switching should preserve preview speed');
   await enterExactTime(exactTime, 0);
   await page.locator('#external-motion-toggle').click();
-  await page.waitForTimeout(350);
+  await page.waitForFunction(() => Number(document.querySelector('#external-motion-time')?.value) >= 100, undefined, { timeout: 5000, polling: 50 });
+  await page.waitForTimeout(250);
   const halfSpeedTime = Number(await page.locator('#external-motion-time').inputValue());
   await page.locator('#external-motion-toggle').click();
   await page.locator('#external-motion-speed').selectOption('2');
   await enterExactTime(exactTime, 0);
   await page.locator('#external-motion-toggle').click();
-  await page.waitForTimeout(350);
+  await page.waitForFunction(() => Number(document.querySelector('#external-motion-time')?.value) >= 100, undefined, { timeout: 5000, polling: 50 });
+  await page.waitForTimeout(250);
   const doubleSpeedTime = Number(await page.locator('#external-motion-time').inputValue());
   await page.locator('#external-motion-toggle').click();
   assert.ok(halfSpeedTime >= 50, `0.5× playback should advance; got ${halfSpeedTime} ms`);
