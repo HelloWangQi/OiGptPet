@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, screen, powerMonitor, Tray, Menu, nativeImage, globalShortcut, dialog, session, protocol, net, safeStorage } = require('electron');
+const { app, BrowserWindow, ipcMain, screen, powerMonitor, Tray, Menu, nativeImage, globalShortcut, dialog, session, protocol, net, safeStorage, desktopCapturer } = require('electron');
 const path = require('node:path');
 const { createHash } = require('node:crypto');
 const { pathToFileURL } = require('node:url');
@@ -261,10 +261,24 @@ else {
     session.defaultSession.setPermissionRequestHandler((wc, permission, callback, details) => {
       const mediaTypes = details?.mediaTypes ?? [];
       const microphoneOnly = mediaTypes.includes('audio') && !mediaTypes.includes('video');
-      callback(permission === 'media' && microphoneOnly && isActiveVoiceWindow(wc, details?.requestingUrl));
+      const systemMusicCapture = permission === 'display-capture' && mediaTypes.includes('audio') && mediaTypes.includes('video');
+      callback((permission === 'media' && microphoneOnly || systemMusicCapture) && isActiveVoiceWindow(wc, details?.requestingUrl));
     });
     session.defaultSession.setPermissionCheckHandler((wc, permission, origin) => {
-      return permission === 'media' && isActiveVoiceWindow(wc, origin);
+      return (permission === 'media' || permission === 'display-capture') && isActiveVoiceWindow(wc, origin);
+    });
+    session.defaultSession.setDisplayMediaRequestHandler((request, callback) => {
+      const frame = request.frame?.top;
+      const trustedTopLevelWindow = frame && [workshop, pet].some(win => win && !win.isDestroyed() && win.isVisible()
+        && win.webContents.mainFrame === frame && isTrustedUiUrl(frame.url));
+      if (!trustedTopLevelWindow || !request.userGesture || !request.audioRequested || !request.videoRequested) {
+        callback(null);
+        return;
+      }
+      void desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 0, height: 0 } }).then(sources => {
+        if (!sources.length) { callback(null); return; }
+        callback({ video: sources[0], audio: 'loopback' });
+      }).catch(() => callback(null));
     });
     handlers();
     tray = new Tray(makeTrayIcon());

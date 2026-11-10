@@ -18,6 +18,7 @@ import { characterPackageModule, MAX_CHARACTER_BACKUP_BYTES } from './character-
 import { motionCapabilityRows } from './motion-capabilities-view';
 import { RenderMonitor, renderSampleText, type RenderContext } from './render-monitor';
 import type { VrmMotionClipInfo } from '../packages/renderer-vrm';
+import { SystemMusicAnalyzer } from './system-music-analyzer';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 const MAX_EXTERNAL_MOTION_LIBRARY_MIB = MAX_EXTERNAL_MOTION_LIBRARY_BYTES / 1024 / 1024;
@@ -50,6 +51,7 @@ app.innerHTML = petMode ? `
       <button id="pet-voice-input" title="语音识别由系统服务提供，联网与处理方式由服务决定；检查转写后手动发送" aria-pressed="false">听写</button>
       <button id="pet-voice-send" title="把转写文字发送给伙伴" hidden>发送</button>
       <button id="pet-wave" title="挥手">挥手</button>
+      <button id="pet-music-dance" title="本机分析电脑正在播放的音乐；不录音、不上传" hidden aria-pressed="false">音乐舞动</button>
       <button id="pet-read-aloud" title="朗读最新完整回复" hidden>朗读</button>
       <button id="click-through" title="Ctrl+Alt+P 或托盘恢复互动">穿透</button>
       <button id="hide-pet" title="从托盘重新显示">隐藏</button>
@@ -176,6 +178,7 @@ app.innerHTML = petMode ? `
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) => document.querySelector<T>(selector)!;
 const canvasHost = $<HTMLCanvasElement>('#character-canvas').parentElement!;
 let stage: CompanionStage;
+let musicDance: SystemMusicAnalyzer | undefined;
 const library = createCharacterLibrary();
 const libraryChannel = new BroadcastChannel('oigptpet-library-changed');
 let currentCharacter: CharacterSummary | null = null;
@@ -289,6 +292,16 @@ function status(message: string, error = false) {
   const target = petMode ? $('#pet-message') : $('#status');
   target.textContent = message;
   target.classList.toggle('error', error);
+}
+function stopMusicDance(message?: string) {
+  musicDance?.stop();
+  stage?.setMusicDanceSignal(undefined);
+  if (petMode) {
+    const button = $<HTMLButtonElement>('#pet-music-dance');
+    button.dataset.active = 'false'; button.setAttribute('aria-pressed', 'false');
+    button.textContent = '音乐舞动'; button.disabled = false;
+  }
+  if (message) status(message);
 }
 function restorePetChat() {
   const view = petChat.current(performance.now());
@@ -498,6 +511,11 @@ async function load(input: CompanionInput, persist: boolean, origin: 'local-impo
       if (persist && summary) await library.activate(summary.id);
     }
     prepared.commit();
+    if (petMode) {
+      const musicButton = $<HTMLButtonElement>('#pet-music-dance');
+      musicButton.hidden = input.kind !== 'vrm';
+      if (input.kind !== 'vrm') stopMusicDance('当前精灵图没有舞蹈帧，已停止音乐舞动。');
+    }
     resetExternalMotionPreview();
     currentCharacter = summary;
     info = prepared.info; source = nextSource; modelSource = origin;
@@ -1095,6 +1113,7 @@ async function bootstrap() {
     if (!desktop) $<HTMLSelectElement>('#pet-scale').title = '桌宠大小需要桌面应用。';
   }
   stage = new CompanionStage($<HTMLCanvasElement>('#character-canvas'));
+  if (petMode) musicDance = new SystemMusicAnalyzer();
   const resize = () => {
     const bounds = canvasHost.getBoundingClientRect();
     if (bounds.width && bounds.height) stage.resize(Math.round(bounds.width), Math.round(bounds.height), Math.min(window.devicePixelRatio || 1, PERFORMANCE_POLICIES[preferences.performance].maxPixelRatio));
@@ -1105,6 +1124,10 @@ async function bootstrap() {
   const frame = (now: number) => {
     if (closed) return;
     const context = renderContext(now); renderMonitor.setContext(context, now);
+    if (petMode && musicDance?.active) stage.setMusicDanceSignal(musicDance.sample(now));
+    else if (petMode && $<HTMLButtonElement>('#pet-music-dance').dataset.active === 'true') {
+      stopMusicDance('系统音频采集已结束，音乐舞动已停止。');
+    }
     const delta = framePacer.tick(now, context.targetFps, context.activity === 'hidden');
     if (delta !== null) {
       if (!paused) animationTime += delta;
@@ -1216,6 +1239,22 @@ if (petMode) {
     }
   };
   $('#pet-wave').onclick = () => { changeState('waving'); transientUntil = performance.now() + 2000; };
+  $('#pet-music-dance').onclick = async () => {
+    const button = $<HTMLButtonElement>('#pet-music-dance');
+    if (musicDance?.active) { stopMusicDance('音乐舞动已停止。'); return; }
+    if (!stage.loaded || stage.sourceKind !== 'vrm') { status('音乐舞动目前仅支持已加载的 VRM 桌宠。', true); return; }
+    button.disabled = true;
+    try {
+      await musicDance?.start();
+      if (!musicDance?.active) throw new Error('系统音频采集没有启动。');
+      button.dataset.active = 'true'; button.setAttribute('aria-pressed', 'true'); button.textContent = '停止舞动';
+      status('正在本机分析系统音乐并跟随节拍舞动；音频不会保存或上传。');
+      lastInteraction = performance.now();
+    } catch (error) {
+      stopMusicDance();
+      status(`无法开始音乐舞动：${error instanceof Error ? error.message : '系统音频采集失败。'}`, true);
+    } finally { button.disabled = false; }
+  };
   $('#click-through').onclick = () => {
     forcedInteractive = false; ignoringMouse = true;
     void desktop!.setClickThrough(true);
@@ -1419,7 +1458,7 @@ const chatUI = setupChat(desktop, petMode, value => {
 let visibilityRevision = 0;
 const applyNativeVisibility = (visible: boolean) => {
   if (closed) return;
-  if (!visible) petSpeech?.stop();
+  if (!visible) { petSpeech?.stop(); stopMusicDance('桌宠隐藏时已停止音乐采集。'); }
   nativeVisible = visible; framePacer.reset(); lastInteraction = performance.now();
   publishRenderMetrics(); scheduleRenderReports();
 };
@@ -1431,6 +1470,7 @@ if (desktop) {
 window.addEventListener('beforeunload', () => {
   clearInterval(renderReportTimer);
   stopVisibility?.();
+  stopMusicDance();
   petSpeech?.dispose();
   chatUI.dispose();
   closed = true; packageJob?.controller.abort();

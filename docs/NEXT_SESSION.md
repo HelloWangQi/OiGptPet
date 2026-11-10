@@ -1,4 +1,8 @@
-# 接续 0.11.0：跨多个 VRMA 文件组合动作
+# 接续下一阶段：Windows 桌面音乐舞动
+
+开发计划见 [MUSIC_DANCE.md](MUSIC_DANCE.md)。当前已接入用户手势触发的 Windows system loopback 门控、低频能量/节拍/BPM 分析、VRM 空闲程序化舞姿和桌宠“音乐舞动”按钮。首版限定独立桌宠 + VRM；不录制或上传音频，隐藏窗口时关闭采集；挥手和聊天动作优先。`npm run build` 通过；测试、Windows EXE 打包和系统音乐体验未运行。下一步从当前源码运行项目要求的 Windows 桌面验收，再用不同风格音乐调节节拍阈值和舞蹈强度。首版之后再考虑 VRMA 舞蹈动作、精灵图舞蹈帧和音乐动作模板。
+
+## v0.11.0 交接记录
 
 0.11.0 GitHub 正式 Release 已发布：[下载页](https://github.com/HelloWangQi/OiGptPet/releases/tag/v0.11.0)，源码提交 `c21fc4f56ef007224678b64183678b7947edb3cb`；此前 v0.10.0 记录见下文。Release 包含 Windows x64 ZIP 和 SHA-256 文件。
 
