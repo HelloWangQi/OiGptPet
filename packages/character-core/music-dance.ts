@@ -5,6 +5,8 @@ export interface MusicDanceSignal {
   beat: number;
   /** Estimated progress through the current beat, from 0 to 1; omitted by older producers. */
   phase?: number;
+  /** Count of detected beats since capture began, for multi-beat animation phrases. */
+  beatIndex?: number;
   /** False while there are too few intervals for a stable tempo estimate. */
   tempoReady?: boolean;
   /** False for the short fading tail retained after the last fresh audio energy. */

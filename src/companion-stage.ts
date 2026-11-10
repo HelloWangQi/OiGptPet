@@ -4,6 +4,7 @@ import type { AnimationState } from '../packages/target-chatgpt/contract';
 import { createCompanionRenderer, type CompanionInput, type CompanionRenderer } from './renderer-adapters';
 import type { VrmMotionClipInfo, VrmMotionLoopMode } from '../packages/renderer-vrm';
 import type { MusicDanceSignal } from '../packages/character-core/music-dance';
+import type { SpriteDanceStripInfo } from '../packages/renderer-sprite/dance-strip';
 
 export type { CompanionInput } from './renderer-adapters';
 
@@ -111,6 +112,18 @@ export class CompanionStage {
     this.musicDanceSignal = signal;
     this.current?.setMusicDanceSignal?.(signal);
   }
+
+  async loadSpriteDanceStrip(blob: Blob, signal?: AbortSignal): Promise<SpriteDanceStripInfo> {
+    const renderer = this.current;
+    if (renderer?.kind !== 'sprite' || !renderer.loadDanceStrip) {
+      throw new Error('舞蹈帧条带仅适用于当前加载的精灵图角色。');
+    }
+    const info = await renderer.loadDanceStrip(blob, signal);
+    if (renderer !== this.current) throw new DOMException('角色已切换，舞蹈帧没有加载。', 'AbortError');
+    return info;
+  }
+
+  clearSpriteDanceStrip() { this.current?.clearDanceStrip?.(); }
 
   setMusicDanceMotionMode(enabled: boolean) {
     this.musicDanceMotionMode = enabled;

@@ -25,6 +25,7 @@ export class SystemMusicAnalyzer {
   private baseline = 0;
   private quietSince = 0;
   private lastBeatAt = 0;
+  private beatIndex = -1;
   private lastBeatLevel = 0;
   private beatTimes: number[] = [];
   private bpm = 100;
@@ -87,6 +88,7 @@ export class SystemMusicAnalyzer {
       this.baseline = 0;
       this.quietSince = 0;
       this.lastBeatAt = 0;
+      this.beatIndex = -1;
       this.lastBeatLevel = 0;
       this.beatTimes = [];
       this.bpm = 100;
@@ -117,6 +119,7 @@ export class SystemMusicAnalyzer {
     if (this.quietSince && now - this.quietSince >= MUSIC_SILENCE_RESET_MS) {
       this.beatTimes = [];
       this.lastBeatAt = 0;
+      this.beatIndex = -1;
       this.lastBeatLevel = 0;
       this.bpm = 100;
     }
@@ -131,6 +134,7 @@ export class SystemMusicAnalyzer {
         }
       }
       this.lastBeatAt = now;
+      this.beatIndex += 1;
       this.lastBeatLevel = clamp((this.smoothedEnergy - 0.018 / this.sensitivity) * 8 * this.sensitivity, 0, 1);
     }
 
@@ -150,6 +154,7 @@ export class SystemMusicAnalyzer {
       level: lowEnergy ? Math.max(energyLevel, this.lastBeatLevel * quietFade) : energyLevel,
       beat: this.lastBeatAt ? clamp(1 - (now - this.lastBeatAt) / 180, 0, 1) : 0,
       phase: this.lastBeatAt ? (Math.max(0, now - this.lastBeatAt) % beatDuration) / beatDuration : 0,
+      beatIndex: Math.max(0, this.beatIndex),
       tempoReady: this.beatTimes.length >= 2,
       fresh: !lowEnergy,
       bpm: this.bpm,
