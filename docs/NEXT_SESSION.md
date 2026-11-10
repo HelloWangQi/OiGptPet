@@ -1,6 +1,6 @@
 # 接续下一阶段：精灵图桌宠音乐舞步
 
-开发计划见 [MUSIC_DANCE.md](MUSIC_DANCE.md) 和 [SPRITE_DANCE.md](SPRITE_DANCE.md)。VRM 音乐舞动已有 Windows loopback、稳定 BPM 与 VRMA 节拍循环。本阶段加入精灵图桌宠单独 PNG 舞蹈条带：每帧 192×208、2–21 帧、最多 20 MiB，按四拍播放；只在本次桌宠会话使用，ChatGPT 图集与角色备份不变，当前帧 alpha 用于点击命中。`npm run build` 通过；自动测试套件未运行，精灵图舞蹈实际视觉、透明点击/拖动和音乐同步仍需验收。此前 `ef8365d` 的 Windows x64 包经过发布包冒烟；当前精灵图舞蹈源码尚未打包，用户验证时须对最终提交运行 `npm run verify:desktop` 并给出新 EXE 路径和提交号。之后可再开发帧条带制作模板，仍不把未经目标格式确认的舞蹈行写入 ChatGPT 图集。
+开发计划见 [MUSIC_DANCE.md](MUSIC_DANCE.md) 和 [SPRITE_DANCE.md](SPRITE_DANCE.md)。提交 `415b1e1` 实现精灵图桌宠单独 PNG 舞蹈条带：每帧 192×208、2–21 帧、最多 20 MiB，按四拍播放；只在本次桌宠会话使用，ChatGPT 图集与角色备份不变，当前帧 alpha 用于点击命中。`npm run build` 与 `npm run verify:desktop` 均通过；EXE 为 `release/v0.11.0-1794298025444/OiGptPet-win32-x64/OiGptPet.exe`，冒烟报告为 `artifacts/release-smoke/run-1794298042725/result.json`。自动测试套件未运行，精灵图舞蹈实际视觉、透明点击/拖动和音乐同步仍需人工验收。之后可再开发帧条带制作模板，仍不把未经目标格式确认的舞蹈行写入 ChatGPT 图集。
 
 ## v0.11.0 交接记录
 
