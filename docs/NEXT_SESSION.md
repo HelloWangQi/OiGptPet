@@ -1,6 +1,6 @@
 # 接续下一阶段：Windows 桌面音乐舞动
 
-开发计划见 [MUSIC_DANCE.md](MUSIC_DANCE.md)。当前已接入用户手势触发的 Windows system loopback 门控、低频能量/节拍/BPM 分析、VRM 空闲程序化舞姿和桌宠“音乐舞动”按钮。首版限定独立桌宠 + VRM；不录制或上传音频，隐藏窗口时关闭采集；挥手和聊天动作优先。`npm run build` 通过；测试、Windows EXE 打包和系统音乐体验未运行。下一步从当前源码运行项目要求的 Windows 桌面验收，再用不同风格音乐调节节拍阈值和舞蹈强度。首版之后再考虑 VRMA 舞蹈动作、精灵图舞蹈帧和音乐动作模板。
+开发计划见 [MUSIC_DANCE.md](MUSIC_DANCE.md)。当前代码包括用户手势触发的 Windows system loopback 门控、低频能量/节拍/BPM 分析、VRM 空闲程序化舞姿，以及桌宠内 VRMA 文件/片段选择和 BPM 循环速度同步。首版限定独立桌宠 + VRM；不录制或上传音频，隐藏窗口时关闭采集；挥手和聊天动作优先；VRMA 不持久化。最新 `npm run build`（含本轮 VRMA 控制）通过；测试、Windows EXE 打包和系统音乐体验未运行。接续先用不同风格音乐检查 loopback、片段切换、静音暂停/恢复和速度同步；用户验证前按项目要求生成当前源码对应的 Windows EXE。后续再考虑精灵图舞蹈帧和音乐动作模板。
 
 ## v0.11.0 交接记录
 

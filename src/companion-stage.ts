@@ -24,6 +24,8 @@ export class CompanionStage {
   private size = { width: 320, height: 420, ratio: 1 };
   private speechMouthOpen = 0;
   private musicDanceSignal?: MusicDanceSignal;
+  private musicDanceMotionMode = false;
+  private musicDanceMotionPlaying = false;
 
   constructor(private canvas: HTMLCanvasElement) {}
 
@@ -74,6 +76,8 @@ export class CompanionStage {
           this.kind = input.kind;
           candidate.setSpeechMouthOpen(this.speechMouthOpen);
           candidate.setMusicDanceSignal?.(this.musicDanceSignal);
+          candidate.setMusicDanceMotionMode?.(this.musicDanceMotionMode);
+          candidate.setMusicDanceMotionPlaying?.(this.musicDanceMotionPlaying);
           committed = true;
           signal?.removeEventListener('abort', release);
           if (this.pending === release) this.pending = undefined;
@@ -106,6 +110,16 @@ export class CompanionStage {
   setMusicDanceSignal(signal: MusicDanceSignal | undefined) {
     this.musicDanceSignal = signal;
     this.current?.setMusicDanceSignal?.(signal);
+  }
+
+  setMusicDanceMotionMode(enabled: boolean) {
+    this.musicDanceMotionMode = enabled;
+    this.current?.setMusicDanceMotionMode?.(enabled);
+  }
+
+  setMusicDanceMotionPlaying(playing: boolean) {
+    this.musicDanceMotionPlaying = playing;
+    this.current?.setMusicDanceMotionPlaying?.(playing);
   }
 
   async loadMotion(buffer: ArrayBuffer): Promise<VrmMotionClipInfo[]> {

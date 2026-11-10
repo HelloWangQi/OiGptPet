@@ -19,6 +19,7 @@ import { motionCapabilityRows } from './motion-capabilities-view';
 import { RenderMonitor, renderSampleText, type RenderContext } from './render-monitor';
 import type { VrmMotionClipInfo } from '../packages/renderer-vrm';
 import { SystemMusicAnalyzer } from './system-music-analyzer';
+import { musicSynchronizedPlaybackRate } from '../packages/character-core/music-dance';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 const MAX_EXTERNAL_MOTION_LIBRARY_MIB = MAX_EXTERNAL_MOTION_LIBRARY_BYTES / 1024 / 1024;
@@ -52,6 +53,10 @@ app.innerHTML = petMode ? `
       <button id="pet-voice-send" title="把转写文字发送给伙伴" hidden>发送</button>
       <button id="pet-wave" title="挥手">挥手</button>
       <button id="pet-music-dance" title="本机分析电脑正在播放的音乐；不录音、不上传" hidden aria-pressed="false">音乐舞动</button>
+      <button id="pet-dance-import" title="选择本机 VRMA 舞蹈动作" hidden>舞步文件</button>
+      <select id="pet-dance-clip" aria-label="选择舞步动作片段" hidden></select>
+      <button id="pet-dance-clear" title="移除已加载的舞步动作" hidden>清除舞步</button>
+      <input id="pet-dance-file" type="file" accept=".vrma,model/gltf-binary" hidden />
       <button id="pet-read-aloud" title="朗读最新完整回复" hidden>朗读</button>
       <button id="click-through" title="Ctrl+Alt+P 或托盘恢复互动">穿透</button>
       <button id="hide-pet" title="从托盘重新显示">隐藏</button>
@@ -179,6 +184,13 @@ const $ = <T extends HTMLElement = HTMLElement>(selector: string) => document.qu
 const canvasHost = $<HTMLCanvasElement>('#character-canvas').parentElement!;
 let stage: CompanionStage;
 let musicDance: SystemMusicAnalyzer | undefined;
+let petDanceClips: VrmMotionClipInfo[] = [];
+let petDanceClipIndex = 0;
+let petDanceImportRevision = 0;
+let petDancePlaybackRate = 1;
+let petDanceLastBpm = 100;
+let petDanceLastMusicAt = 0;
+let petDanceLastRateUpdate = 0;
 const library = createCharacterLibrary();
 const libraryChannel = new BroadcastChannel('oigptpet-library-changed');
 let currentCharacter: CharacterSummary | null = null;
@@ -296,12 +308,74 @@ function status(message: string, error = false) {
 function stopMusicDance(message?: string) {
   musicDance?.stop();
   stage?.setMusicDanceSignal(undefined);
+  if (petMode && petDanceClips.length && stage?.motionIsPlaying()) stage.toggleMotion();
+  stage?.setMusicDanceMotionPlaying(false);
+  petDanceLastMusicAt = 0; petDancePlaybackRate = 1; petDanceLastRateUpdate = 0;
   if (petMode) {
     const button = $<HTMLButtonElement>('#pet-music-dance');
     button.dataset.active = 'false'; button.setAttribute('aria-pressed', 'false');
     button.textContent = '音乐舞动'; button.disabled = false;
   }
   if (message) status(message);
+}
+function clearPetDanceMotion() {
+  ++petDanceImportRevision;
+  stage?.clearMotion();
+  stage?.setMusicDanceMotionMode(false);
+  stage?.setMusicDanceMotionPlaying(false);
+  petDanceClips = []; petDanceClipIndex = 0; petDancePlaybackRate = 1; petDanceLastBpm = 100; petDanceLastMusicAt = 0; petDanceLastRateUpdate = 0;
+  if (!petMode) return;
+  const select = $<HTMLSelectElement>('#pet-dance-clip');
+  select.replaceChildren(); select.hidden = true;
+  $<HTMLButtonElement>('#pet-dance-clear').hidden = true;
+  $<HTMLInputElement>('#pet-dance-file').value = '';
+}
+function syncPetDanceMotion(signal: ReturnType<SystemMusicAnalyzer['sample']>, now: number) {
+  if (!petDanceClips.length) return;
+  if (signal) { petDanceLastMusicAt = now; petDanceLastBpm = signal.bpm; }
+  const playing = Boolean(musicDance?.active && petDanceLastMusicAt > 0 && now - petDanceLastMusicAt < 700);
+  if (playing && !stage.motionIsPlaying()) stage.toggleMotion();
+  else if (!playing && stage.motionIsPlaying()) stage.toggleMotion();
+  stage.setMusicDanceMotionPlaying(playing);
+  if (!playing || now - petDanceLastRateUpdate < 350) return;
+  const clip = petDanceClips.find(item => item.index === petDanceClipIndex);
+  if (!clip) return;
+  const targetRate = musicSynchronizedPlaybackRate(clip.duration, petDanceLastBpm);
+  petDancePlaybackRate += (targetRate - petDancePlaybackRate) * 0.3;
+  stage.setMotionPlaybackRate(petDancePlaybackRate);
+  petDanceLastRateUpdate = now;
+}
+async function importPetDance(file?: File) {
+  if (!file || !petMode || !stage.loaded || stage.sourceKind !== 'vrm') return;
+  if (!file.name.toLowerCase().endsWith('.vrma')) { status('请选择 .vrma 舞蹈文件。', true); return; }
+  if (file.size === 0 || file.size > MAX_MODEL_BYTES) { status('舞蹈文件不能为空且不能超过 64 MiB。', true); return; }
+  const revision = ++petDanceImportRevision;
+  const targetStage = stage;
+  const button = $<HTMLButtonElement>('#pet-dance-import');
+  button.disabled = true; status('正在本机读取 VRMA 舞步…');
+  try {
+    const buffer = await file.arrayBuffer();
+    if (revision !== petDanceImportRevision || targetStage !== stage) return;
+    const clips = await targetStage.loadMotion(buffer);
+    if (revision !== petDanceImportRevision || targetStage !== stage) return;
+    if (!clips.length) throw new Error('文件中没有可播放的舞步片段。');
+    petDanceClips = clips; petDanceClipIndex = clips[0].index; petDancePlaybackRate = 1; petDanceLastRateUpdate = 0;
+    const select = $<HTMLSelectElement>('#pet-dance-clip');
+    select.replaceChildren(...clips.map(clip => {
+      const option = document.createElement('option'); option.value = String(clip.index);
+      option.textContent = `${clip.name} · ${clip.duration.toFixed(1)} 秒`; return option;
+    }));
+    select.value = String(petDanceClipIndex); select.hidden = clips.length < 2;
+    $<HTMLButtonElement>('#pet-dance-clear').hidden = false;
+    targetStage.setMotionLoopMode('repeat'); targetStage.setMotionPlaybackRate(1);
+    if (targetStage.motionIsPlaying()) targetStage.toggleMotion();
+    targetStage.setMusicDanceMotionMode(true); targetStage.setMusicDanceMotionPlaying(false);
+    status(`已加载「${file.name}」的 ${clips.length} 段舞步；开始音乐舞动后会按节拍循环。`);
+  } catch (error) {
+    if (revision === petDanceImportRevision) status(error instanceof Error ? error.message : '舞步加载失败。', true);
+  } finally {
+    if (revision === petDanceImportRevision) button.disabled = false;
+  }
 }
 function restorePetChat() {
   const view = petChat.current(performance.now());
@@ -512,8 +586,10 @@ async function load(input: CompanionInput, persist: boolean, origin: 'local-impo
     }
     prepared.commit();
     if (petMode) {
+      clearPetDanceMotion();
       const musicButton = $<HTMLButtonElement>('#pet-music-dance');
       musicButton.hidden = input.kind !== 'vrm';
+      $<HTMLButtonElement>('#pet-dance-import').hidden = input.kind !== 'vrm';
       if (input.kind !== 'vrm') stopMusicDance('当前精灵图没有舞蹈帧，已停止音乐舞动。');
     }
     resetExternalMotionPreview();
@@ -1124,9 +1200,14 @@ async function bootstrap() {
   const frame = (now: number) => {
     if (closed) return;
     const context = renderContext(now); renderMonitor.setContext(context, now);
-    if (petMode && musicDance?.active) stage.setMusicDanceSignal(musicDance.sample(now));
-    else if (petMode && $<HTMLButtonElement>('#pet-music-dance').dataset.active === 'true') {
-      stopMusicDance('系统音频采集已结束，音乐舞动已停止。');
+    if (petMode) {
+      const captureActive = Boolean(musicDance?.active);
+      const signal = captureActive ? musicDance?.sample(now) : undefined;
+      stage.setMusicDanceSignal(signal);
+      syncPetDanceMotion(signal, now);
+      if (!captureActive && $<HTMLButtonElement>('#pet-music-dance').dataset.active === 'true') {
+        stopMusicDance('系统音频采集已结束，音乐舞动已停止。');
+      }
     }
     const delta = framePacer.tick(now, context.targetFps, context.activity === 'hidden');
     if (delta !== null) {
@@ -1255,6 +1336,26 @@ if (petMode) {
       status(`无法开始音乐舞动：${error instanceof Error ? error.message : '系统音频采集失败。'}`, true);
     } finally { button.disabled = false; }
   };
+  $('#pet-dance-import').onclick = () => {
+    if (!stage.loaded || stage.sourceKind !== 'vrm') { status('舞蹈 VRMA 目前仅适用于已加载的 VRM 桌宠。', true); return; }
+    $<HTMLInputElement>('#pet-dance-file').click();
+  };
+  $<HTMLInputElement>('#pet-dance-file').onchange = event => {
+    const input = event.currentTarget as HTMLInputElement;
+    void importPetDance(input.files?.[0]); input.value = '';
+  };
+  $<HTMLSelectElement>('#pet-dance-clip').onchange = event => {
+    const index = Number((event.currentTarget as HTMLSelectElement).value);
+    if (!petDanceClips.some(clip => clip.index === index)) return;
+    try {
+      stage.playMotion(index); stage.setMotionLoopMode('repeat'); stage.setMotionPlaybackRate(1);
+      if (stage.motionIsPlaying()) stage.toggleMotion();
+      stage.setMusicDanceMotionPlaying(false);
+      petDanceClipIndex = index; petDancePlaybackRate = 1; petDanceLastMusicAt = 0; petDanceLastRateUpdate = 0;
+      status(`已选择「${petDanceClips.find(clip => clip.index === index)?.name ?? '舞步'}」；音乐播放时自动同步速度。`);
+    } catch (error) { status(error instanceof Error ? error.message : '舞步切换失败。', true); }
+  };
+  $('#pet-dance-clear').onclick = () => { clearPetDanceMotion(); status('已清除 VRMA 舞步，音乐舞动会使用程序化动作。'); };
   $('#click-through').onclick = () => {
     forcedInteractive = false; ignoringMouse = true;
     void desktop!.setClickThrough(true);

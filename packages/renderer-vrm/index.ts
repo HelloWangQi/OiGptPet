@@ -50,6 +50,8 @@ export class VrmStage {
   private speechMouthTarget = 0;
   private speechMouthCurrent = 0;
   private musicDanceSignal?: MusicDanceSignal;
+  private musicDanceMotionMode = false;
+  private musicDanceMotionPlaying = false;
   private poseTransition?: {
     elapsed: number;
     bones: Array<{ node: THREE.Object3D; from: THREE.Quaternion; to: THREE.Quaternion }>;
@@ -148,6 +150,14 @@ export class VrmStage {
 
   setMusicDanceSignal(signal: MusicDanceSignal | undefined) {
     this.musicDanceSignal = signal;
+  }
+
+  setMusicDanceMotionMode(enabled: boolean) {
+    this.musicDanceMotionMode = enabled;
+  }
+
+  setMusicDanceMotionPlaying(playing: boolean) {
+    this.musicDanceMotionPlaying = playing;
   }
 
   async loadMotion(buffer: ArrayBuffer): Promise<VrmMotionClipInfo[]> {
@@ -279,6 +289,8 @@ export class VrmStage {
   clearMotion(): void {
     ++this.motionGeneration;
     this.releaseMotion();
+    this.musicDanceMotionMode = false;
+    this.musicDanceMotionPlaying = false;
     this.poseTransition = undefined;
     this.lastState = undefined;
     this.lastStateRevision = undefined;
@@ -396,7 +408,8 @@ export class VrmStage {
     this.lastStateRevision = stateRevision;
     const boundedDelta = Math.min(Math.max(delta, 0), 1 / 15);
     this.speechMouthCurrent = THREE.MathUtils.lerp(this.speechMouthCurrent, this.speechMouthTarget, 1 - Math.exp(-boundedDelta * 14));
-    const externalMotion = this.motionMixer !== undefined && this.activeMotion !== undefined;
+    const externalMotion = this.motionMixer !== undefined && this.activeMotion !== undefined
+      && (!this.musicDanceMotionMode || this.musicDanceMotionPlaying);
     if (externalMotion) {
       this.vrm?.humanoid.resetNormalizedPose();
       this.root.position.set(0, 0, 0);
