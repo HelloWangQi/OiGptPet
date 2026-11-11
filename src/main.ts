@@ -285,7 +285,7 @@ let renderReportPending = false;
 let nativeVisible = true;
 function renderContext(now: number): RenderContext {
   const activity = document.hidden || !nativeVisible ? 'hidden'
-    : musicDance?.active || isPetDancePreviewActive(now) || now - lastInteraction < IDLE_AFTER_MS ? 'active' : 'idle';
+    : musicDance?.active || isPetDancePreviewActive(now) || stage?.motionIsPlaying() || now - lastInteraction < IDLE_AFTER_MS ? 'active' : 'idle';
   const policy = PERFORMANCE_POLICIES[preferences.performance];
   return { kind: stage?.loaded ? stage.sourceKind : 'empty', mode: preferences.performance, activity,
     targetFps: activity === 'hidden' ? 0 : activity === 'idle' ? policy.idleFps : policy.activeFps, paused };
