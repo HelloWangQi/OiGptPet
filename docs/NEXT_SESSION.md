@@ -1,12 +1,10 @@
 # 当前接续点：0.13.0 桌宠舞步与工具栏
 
-源码功能提交 `861a4d1`（前置修复 `7484733`），0.12.0 发布说明提交 `f539df0`，分支 `codex/desktop-prototype`。0.12.0 GitHub Release 已发布：[下载页](https://github.com/HelloWangQi/OiGptPet/releases/tag/v0.12.0)。基础律动保持默认；新增“怦然心动风格”和“猫步轻悄风格”原创八拍舞步、固定 100 BPM/8 拍试听，以及 4/8/16/21 帧精灵图 SVG 模板下载。试听不采集系统音频；用户导入 VRMA 时使用 VRMA 动作。具体行为见 [MUSIC_DANCE.md](MUSIC_DANCE.md) 和 [SPRITE_DANCE.md](SPRITE_DANCE.md)。
+源码分支 `codex/desktop-prototype`。0.12.0 GitHub Release 已发布：[下载页](https://github.com/HelloWangQi/OiGptPet/releases/tag/v0.12.0)。0.13.0 引入“怦然心动风格”和“猫步轻悄风格”实验性八拍舞步、舞步试听，以及 4/8/16/21 帧精灵图 SVG 模板下载；音乐试听不采集系统音频，用户导入 VRMA 时使用 VRMA 动作。具体行为见 [MUSIC_DANCE.md](MUSIC_DANCE.md) 和 [SPRITE_DANCE.md](SPRITE_DANCE.md)。
 
-`npm run build` 和 `npm run verify:desktop` 均通过。当前 EXE：[OiGptPet.exe](../release/v0.12.0-1794361875817/OiGptPet-win32-x64/OiGptPet.exe)，冒烟报告：`artifacts/release-smoke/run-1794361880031/result.json`，结果 `ok=true`、`rendererErrors=[]`。本次发布包基于功能提交 `861a4d1` 构建；后续 `f297776`、`f539df0` 仅更新交接及发布文档。完整记录见 [0.12.0 版本说明](releases/v0.12.0.md)。`npm test` 未运行。
+**当前本地源码检查点待提交**：为回应“效果与 `vrm-dance-pet` 仍差距很大”，补齐科目三参考动作的驱动链：读取标准化静止姿势四元数并按 21/s 平滑插值；实际驱动髋、脊柱、胸、上胸、颈、头、肩、上臂、前臂、手腕、髋腿、膝、脚；加入参考工程默认 0.65 倍动作速度、能量缩放、屈膝换重心、身体侧倾/弹跳；跳舞时暂时关闭 VRM 自动视线，结束/换模型时恢复。试听时长随 0.65× 速度延长，保证完整播完八拍动作句。AOA 副歌舞步仍是实验改编，未逐段核对官方练习视频，不能称为原编舞。尚未用同一个 AvatarSample_B 同时渲染并目视比较参考程序和本项目，用户也尚未确认本轮达到目标，不要记作视觉验收通过。参考工程的 GIF、VRM 和程序没有打进安装包。
 
-**0.13.0 当前本地检查点 `8f02690`**：用户指出舞步与参考程序差距仍大。对照其 `vrm-dance-pet` 的预览和源码后，科目三改为 8 拍/140 BPM 编排，从标准化静止姿势直接驱动，修正肘部 Y 轴弯曲并加入膝部动作、整身侧移/侧倾；新配置默认该舞步，基础律动仍可手动选择，明确保存过的偏好保留。AOA 副歌舞步仍属实验改编，未逐段核对官方练习视频，不能称为原编舞。舞步效果尚未在同一 `AvatarSample_B.vrm` 上进行本项目与参考程序的渲染对照；用户尚未确认本次修改达到目标，不要记录为视觉验收通过。外部参考工程的 GIF、VRM 和程序本身未打进安装包。
-
-当前 EXE：[OiGptPet.exe](../release/v0.13.0-1794389401169/OiGptPet-win32-x64/OiGptPet.exe)，对应代码提交 `8f02690`。TypeScript、Vite 和打包通过；`npm run verify:desktop` 的实际 EXE 冒烟已跑到 `scripts/chat-smoke-steps.mjs:60`，因“完整回复可朗读”断言失败而退出，故整套验收未通过；前置动画/VRMA、图集导出、桌宠窗口步骤已运行。日志和截图在 `artifacts/release-smoke/run-1794389414786/`，没有完整成功报告。此前对新 EXE 的 Windows 窗口状态采集遇到两个同名窗口而未完成本机视觉检查。下一步应先用同一个 AvatarSample_B 对比参考图中的动作轮廓和节奏，再根据可见差异调动作，不能仅凭参数宣称已修好。`npm test` 未运行；实际麦克风、系统朗读仍待人工验收。
+最新 EXE：[OiGptPet.exe](../release/v0.13.0-1794391038409/OiGptPet-win32-x64/OiGptPet.exe)。`npm run verify:desktop` 的 TypeScript、Vite 和打包通过；第二次打包的保留脚本因仍运行的旧版 `OiGptPet.exe` 锁住 `release/v0.13.0-1794388789054/OiGptPet-win32-x64/debug.log` 而报 `EBUSY`，所以该次命令没有进入冒烟。随后直接运行现有 EXE 冒烟，止于 `external-motion-smoke-steps.mjs:58`（浏览器页关闭，等待导出结果失败），产物在 `artifacts/release-smoke/run-1794391134352/`；native log 记为“Ctrl+Alt+P unavailable; restore interactivity from the tray menu”。前一包 `run-1794390616096` 则在聊天朗读按钮断言处失败。整套桌面验收仍未通过，不能把新动作记作视觉验收通过。`release/` 暂有四个版本目录，保留策略因旧进程占用未能完成自动清理；不要强关占用中的应用或手删包。接续时先确认旧窗口已关闭，再从当前提交重跑 `npm run verify:desktop`，随后用同一个 AvatarSample_B 对比舞姿。`npm test` 未运行；实际麦克风、系统朗读仍待人工验收。
 
 ## 尚待处理
 

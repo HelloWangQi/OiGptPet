@@ -21,7 +21,7 @@ import type { VrmMotionClipInfo } from '../packages/renderer-vrm';
 import { SystemMusicAnalyzer } from './system-music-analyzer';
 import { readMusicDanceStylePreference, writeMusicDanceStylePreference } from './music-dance-preference';
 import { MUSIC_SILENCE_RESET_MS, musicSignalGraceMs, musicSynchronizedPlaybackRate } from '../packages/character-core/music-dance';
-import type { MusicDanceStyle } from '../packages/character-core/music-choreography';
+import { musicDancePlaybackRate, type MusicDanceStyle } from '../packages/character-core/music-choreography';
 import { createSpriteDanceTemplateSvg } from '../packages/renderer-sprite/dance-template';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
@@ -240,8 +240,16 @@ let selectedMusicDanceStyle: MusicDanceStyle = 'douyin-mix';
 const PET_DANCE_PREVIEW_BPM: Record<MusicDanceStyle, number> = { groove: 100, 'idol-pop': 124, catwalk: 116, 'douyin-mix': 140 };
 const PET_DANCE_PREVIEW_DEFAULT_BEATS = 8;
 function petDancePreviewTempo() { return PET_DANCE_PREVIEW_BPM[selectedMusicDanceStyle]; }
+function petDancePreviewPlaybackRate() {
+  return stage?.sourceKind === 'vrm' ? musicDancePlaybackRate(selectedMusicDanceStyle) : 1;
+}
 function petDancePreviewBeatCount() {
-  return PET_DANCE_PREVIEW_DEFAULT_BEATS;
+  return PET_DANCE_PREVIEW_DEFAULT_BEATS / petDancePreviewPlaybackRate();
+}
+function petDancePreviewDescription() {
+  const rate = petDancePreviewPlaybackRate();
+  const musicBeats = petDancePreviewBeatCount().toFixed(1);
+  return rate === 1 ? `${musicBeats} 拍音乐` : `${musicBeats} 拍音乐（舞步 ${rate.toFixed(2)}×）`;
 }
 let petDancePlaybackRate = 1;
 let petDanceLastBpm = 100;
@@ -1384,8 +1392,7 @@ async function bootstrap() {
   stage.setMusicDanceStyle(musicDanceStyle);
   if (petMode) {
     $<HTMLSelectElement>('#pet-dance-style').value = musicDanceStyle;
-    const beats = PET_DANCE_PREVIEW_DEFAULT_BEATS;
-    $<HTMLButtonElement>('#pet-dance-preview').title = `以 ${petDancePreviewTempo()} BPM 试听 ${beats} 拍；不采集系统音频`;
+    $<HTMLButtonElement>('#pet-dance-preview').title = `以 ${petDancePreviewTempo()} BPM 试听完整舞句（${petDancePreviewDescription()}）；不采集系统音频`;
   }
   if (petMode && desktop) musicDance = new SystemMusicAnalyzer();
   const resize = () => {
@@ -1407,7 +1414,7 @@ async function bootstrap() {
         const tempo = $<HTMLOutputElement>('#pet-dance-tempo');
         const previewActive = !captureActive && isPetDancePreviewActive(now);
         tempo.hidden = !captureActive && !previewActive;
-        let text = previewActive ? `试听 · ${petDancePreviewTempo()} BPM` : '等待节拍';
+        let text = previewActive ? `试听 · ${petDancePreviewTempo()} BPM${petDancePreviewPlaybackRate() === 1 ? '' : ` · ${petDancePreviewPlaybackRate().toFixed(2)}×`}` : '等待节拍';
         if (signal && captureActive) text = signal.tempoReady === false
           ? '检测节拍中'
           : `${Math.round(signal.bpm)} BPM${petDanceClips.length ? ` · ${petDancePlaybackRate.toFixed(2)}×` : ''}`;
@@ -1568,7 +1575,7 @@ if (petMode) {
     petDancePreviewStartedAt = performance.now();
     button.textContent = '停止试听';
     lastInteraction = petDancePreviewStartedAt;
-    status(`试听舞步 · ${petDancePreviewTempo()} BPM、${petDancePreviewBeatCount()} 拍，不会采集系统音频。`);
+    status(`试听舞步 · ${petDancePreviewTempo()} BPM、${petDancePreviewDescription()}，不会采集系统音频。`);
   };
   $('#pet-music-dance').onclick = async () => {
     const button = $<HTMLButtonElement>('#pet-music-dance');
@@ -1612,8 +1619,7 @@ if (petMode) {
     stage.setMusicDanceStyle(style);
     const saved = writeMusicDanceStylePreference(style);
     const names: Record<MusicDanceStyle, string> = { groove: '基础律动', 'idol-pop': '怦然心动·副歌实验改编', catwalk: '猫步轻悄风格', 'douyin-mix': '科目三·短视频舞步改编' };
-    const previewBeats = PET_DANCE_PREVIEW_DEFAULT_BEATS;
-    $<HTMLButtonElement>('#pet-dance-preview').title = `以 ${petDancePreviewTempo()} BPM 试听 ${previewBeats} 拍；不采集系统音频`;
+    $<HTMLButtonElement>('#pet-dance-preview').title = `以 ${petDancePreviewTempo()} BPM 试听完整舞句（${petDancePreviewDescription()}）；不采集系统音频`;
     if (previewWasActive) petDancePreviewStartedAt = performance.now();
     status(`已切换到「${names[style]}」${saved ? '，已记住本机选择' : '，本次关闭桌宠后会恢复默认'}；导入 VRMA 后将播放文件中的动作。`);
   };

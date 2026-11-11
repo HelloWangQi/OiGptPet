@@ -2,6 +2,11 @@ import type { MusicDanceSignal } from './music-dance';
 
 export type MusicDanceStyle = 'groove' | 'idol-pop' | 'catwalk' | 'douyin-mix';
 
+/** Preserve the reference dance's deliberate, slower movement rate. */
+export function musicDancePlaybackRate(style: MusicDanceStyle): number {
+  return style === 'douyin-mix' ? 0.65 : 1;
+}
+
 /** Pose channels for the authored, fixed-count single-avatar dance phrases. */
 export interface MusicDancePose {
   bodyPitch: number;
@@ -115,7 +120,7 @@ export function sampleMusicDancePose(style: Exclude<MusicDanceStyle, 'groove'>, 
   const detectedBeats = (signal.beatIndex ?? 0) + (Number.isFinite(signal.phase) ? Math.max(0, Math.min(0.999, signal.phase!)) : 0);
   // Match the reference app's default 0.65 motion rate while keeping the
   // detected audio beat untouched for other UI/response timing.
-  const totalBeats = style === 'douyin-mix' ? detectedBeats * 0.65 : detectedBeats;
+  const totalBeats = detectedBeats * musicDancePlaybackRate(style);
   const beat = ((Math.floor(totalBeats) % frames.length) + frames.length) % frames.length;
   const previous = (beat + frames.length - 1) % frames.length;
   const next = (beat + 1) % frames.length;
