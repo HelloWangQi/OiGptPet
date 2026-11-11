@@ -4,10 +4,17 @@ import path from 'node:path';
 export async function checkWorkshopLayout(desktop, page, output) {
   const original = await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(win => win.isResizable()).getContentSize());
   const results = [];
+  const actualViewports = new Set();
   try {
-    for (const [width, height] of [[1220, 850], [980, 700], [1440, 900]]) {
-      await desktop.evaluate(({ BrowserWindow }, [width, height]) => BrowserWindow.getAllWindows().find(win => win.isResizable()).setContentSize(width, height), [width, height]);
-      await page.waitForFunction(([width, height]) => innerWidth === width && innerHeight === height, [width, height]);
+    // Windows clamps requested content sizes to the active display work area.
+    // Sample the resulting viewport instead of waiting for an impossible exact size.
+    for (const [requestedWidth, requestedHeight] of [[1220, 850], [980, 700], [1120, 800]]) {
+      await desktop.evaluate(({ BrowserWindow }, [width, height]) => BrowserWindow.getAllWindows().find(win => win.isResizable()).setContentSize(width, height), [requestedWidth, requestedHeight]);
+      await page.waitForTimeout(150);
+      const viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
+      const { width, height } = viewport;
+      assert.ok(width >= 980 && height >= 700, 'Workshop viewport fell below the supported window minimum');
+      actualViewports.add(`${width}x${height}`);
       const sidebar = page.locator('.detail-column');
       await sidebar.evaluate(el => { el.scrollTop = 0; });
       const before = await page.locator('.preview-stage').boundingBox();
@@ -25,9 +32,10 @@ export async function checkWorkshopLayout(desktop, page, output) {
       await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2); await page.mouse.wheel(0, 700);
       await page.waitForTimeout(100);
       assert.equal(await page.evaluate(() => scrollY), 0, 'Wheel at panel end leaked to the page');
-      await page.screenshot({ path: path.join(output, `workshop-sidebar-${width}x${height}.png`) });
-      results.push({ width, height, geometry, previewFixed: true, documentScrollY: 0 });
+      await page.screenshot({ path: path.join(output, `workshop-sidebar-${requestedWidth}x${requestedHeight}.png`) });
+      results.push({ requestedWidth, requestedHeight, actualWidth: width, actualHeight: height, geometry, previewFixed: true, documentScrollY: 0 });
     }
+    assert.ok(actualViewports.size >= 2, 'Smoke must exercise at least two distinct actual viewports');
   } finally {
     await desktop.evaluate(({ BrowserWindow }, [width, height]) => BrowserWindow.getAllWindows().find(win => win.isResizable()).setContentSize(width, height), original);
     await page.locator('.detail-column').evaluate(el => { el.scrollTop = 0; });

@@ -1,6 +1,7 @@
 import {
   CELL_HEIGHT,
   CELL_WIDTH,
+  MAX_ENCODED_BYTES,
   type AnimationState,
   type AtlasInspection,
   type AtlasProfile,
@@ -13,6 +14,8 @@ import {
 import { sha256Hex } from '../atlas-preview/sha256';
 import { inspectAtlas } from '../atlas-tools/inspect';
 import { getAnimationFrameRect, getLookFrameRect } from '../atlas-tools/playback';
+import { inspectSpriteDanceStrip, type SpriteDanceStripInfo } from './dance-strip';
+import type { MusicDanceSignal } from '../character-core/music-dance';
 
 export const SPRITE_ALPHA_HIT_THRESHOLD = 8;
 export const SPRITE_MAX_CANVAS_DIMENSION = 4096;
@@ -55,11 +58,21 @@ interface RenderRequest {
   state: AnimationState;
   timeSeconds: number;
   lookAngleDegrees: number | undefined;
+  danceFrame: number | undefined;
 }
 
 interface CommittedFrame {
   sourceX: number;
   sourceY: number;
+  alphaMask: Uint8Array;
+  maskWidth: number;
+}
+
+interface FrameSource {
+  bitmap: ImageBitmap;
+  rect: FrameRect;
+  alphaMask: Uint8Array;
+  maskWidth: number;
 }
 
 type SpriteTransitionSource =
@@ -138,8 +151,14 @@ export class SpriteStage {
   private disposed = false;
   private generation = 0;
   private activeLoad: AbortController | null = null;
+  private danceGeneration = 0;
+  private activeDanceLoad: AbortController | null = null;
   private bitmap: ImageBitmap | null = null;
   private alphaMask: Uint8Array | null = null;
+  private danceBitmap: ImageBitmap | null = null;
+  private danceAlphaMask: Uint8Array | null = null;
+  private danceInfo: SpriteDanceStripInfo | null = null;
+  private musicDanceSignal?: MusicDanceSignal;
   private atlasWidth = 0;
   private profile: AtlasProfile | null = null;
   private lastRender: RenderRequest | null = null;
@@ -164,6 +183,79 @@ export class SpriteStage {
       && this.bitmap !== null
       && this.alphaMask !== null
       && this.profile !== null;
+  }
+
+  get danceStrip(): SpriteDanceStripInfo | null { return this.danceInfo; }
+
+  setMusicDanceSignal(signal: MusicDanceSignal | undefined) { this.musicDanceSignal = signal; }
+
+  async loadDanceStrip(blob: Blob, signal?: AbortSignal): Promise<SpriteDanceStripInfo> {
+    if (this.disposed || !this.loaded) throw abortError('请先加载精灵图角色。');
+    assertBlob(blob);
+    if (blob.type && blob.type !== 'image/png') throw new TypeError('舞蹈帧条带仅支持 PNG 文件。');
+    if (blob.size <= 0 || blob.size > MAX_ENCODED_BYTES) throw new RangeError(`舞蹈帧 PNG 必须小于等于 ${MAX_ENCODED_BYTES} 字节。`);
+    const generation = ++this.danceGeneration;
+    this.activeDanceLoad?.abort();
+    const controller = new AbortController();
+    this.activeDanceLoad = controller;
+    const relayAbort = () => controller.abort();
+    signal?.addEventListener('abort', relayAbort, { once: true });
+    let bitmap: ImageBitmap | null = null;
+    try {
+      if (signal?.aborted) controller.abort();
+      const header = new Uint8Array(await blob.slice(0, 24).arrayBuffer());
+      if (this.disposed || generation !== this.danceGeneration || controller.signal.aborted) throw abortError();
+      if (header.length !== 24 || header[0] !== 137 || header[1] !== 80 || header[2] !== 78
+        || header[3] !== 71 || header[4] !== 13 || header[5] !== 10 || header[6] !== 26 || header[7] !== 10
+        || header[12] !== 73 || header[13] !== 72 || header[14] !== 68 || header[15] !== 82) {
+        throw new TypeError('舞蹈帧条带不是有效的 PNG 文件。');
+      }
+      const dimensions = new DataView(header.buffer, header.byteOffset, header.byteLength);
+      const info = inspectSpriteDanceStrip(dimensions.getUint32(16, false), dimensions.getUint32(20, false), blob.size);
+      bitmap = await this.decodeBitmap(blob, controller.signal);
+      if (this.disposed || generation !== this.danceGeneration || controller.signal.aborted) throw abortError();
+      if (bitmap.width !== info.frameCount * info.frameWidth || bitmap.height !== info.frameHeight) {
+        throw new TypeError('PNG 解码尺寸与舞蹈帧条带文件头不一致。');
+      }
+      const pixels = this.readPixels(bitmap);
+      for (let frame = 0; frame < info.frameCount; frame += 1) {
+        const left = frame * info.frameWidth;
+        let visible = false;
+        for (let y = 0; y < info.frameHeight && !visible; y += 1) {
+          for (let x = left; x < left + info.frameWidth; x += 1) {
+            if ((pixels[(y * bitmap.width + x) * 4 + 3] ?? 0) >= SPRITE_ALPHA_HIT_THRESHOLD) {
+              visible = true; break;
+            }
+          }
+        }
+        if (!visible) throw new RangeError(`第 ${frame + 1} 帧完全透明，请移除空帧后再导入。`);
+      }
+      if (this.disposed || generation !== this.danceGeneration || controller.signal.aborted) throw abortError();
+      const previous = this.danceBitmap;
+      this.danceBitmap = bitmap;
+      this.danceAlphaMask = this.buildAlphaMask(pixels, bitmap.width, bitmap.height);
+      this.danceInfo = info;
+      bitmap = null;
+      previous?.close();
+      this.clearTransition();
+      this.lastRender = null;
+      this.lastFrame = null;
+      return info;
+    } finally {
+      bitmap?.close();
+      signal?.removeEventListener('abort', relayAbort);
+      if (this.activeDanceLoad === controller) this.activeDanceLoad = null;
+    }
+  }
+
+  clearDanceStrip() {
+    this.danceGeneration += 1;
+    this.activeDanceLoad?.abort();
+    this.activeDanceLoad = null;
+    this.releaseDanceStrip();
+    this.clearTransition();
+    this.lastRender = null;
+    this.lastFrame = null;
   }
 
   async load(
@@ -250,7 +342,17 @@ export class SpriteStage {
     if (this.disposed || !this.loaded) {
       return;
     }
-    const request = { state, timeSeconds, lookAngleDegrees };
+    const signal = this.musicDanceSignal;
+    let danceFrame: number | undefined;
+    if (state === 'idle' && this.danceBitmap && this.danceInfo && signal && signal.level > 0.005) {
+      const beatPhase = Number.isFinite(signal.phase)
+        ? Math.min(1, Math.max(0, signal.phase!))
+        : ((timeSeconds * signal.bpm / 60) % 1 + 1) % 1;
+      const beatIndex = Math.max(0, signal.beatIndex ?? Math.floor(timeSeconds * signal.bpm / 60));
+      const phrasePhase = ((beatIndex % 4) + beatPhase) / 4;
+      danceFrame = Math.min(this.danceInfo.frameCount - 1, Math.floor(phrasePhase * this.danceInfo.frameCount));
+    }
+    const request = { state, timeSeconds, lookAngleDegrees, danceFrame };
     const repeated = stateRevision !== undefined
       && this.lastStateRevision !== undefined
       && stateRevision !== this.lastStateRevision;
@@ -258,7 +360,8 @@ export class SpriteStage {
       && this.lastRender !== null
       && (this.lastRender.lookAngleDegrees === undefined) !== (lookAngleDegrees === undefined);
     if (stateRevision !== undefined && this.lastRender
-      && (this.lastRender.state !== state || repeated || gazeModeChanged)) {
+      && (this.lastRender.state !== state || repeated || gazeModeChanged
+        || (this.lastRender.danceFrame === undefined) !== (danceFrame === undefined))) {
       const interrupted = this.transition;
       const snapshot = interrupted ? this.captureTransitionSnapshot(interrupted) : null;
       this.transition = {
@@ -328,7 +431,7 @@ export class SpriteStage {
 
     const sourceX = this.lastFrame.sourceX + column;
     const sourceY = this.lastFrame.sourceY + row;
-    const alpha = this.alphaMask[sourceY * this.atlasWidth + sourceX];
+    const alpha = this.lastFrame.alphaMask[sourceY * this.lastFrame.maskWidth + sourceX];
     return alpha >= SPRITE_ALPHA_HIT_THRESHOLD;
   }
 
@@ -340,6 +443,7 @@ export class SpriteStage {
     this.generation += 1;
     this.activeLoad?.abort();
     this.activeLoad = null;
+    this.clearDanceStrip();
     this.releaseImage();
     this.clearCanvas();
   }
@@ -519,6 +623,7 @@ export class SpriteStage {
   }
 
   private releaseImage(): void {
+    this.clearDanceStrip();
     if (this.bitmap) {
       this.bitmap.close();
       this.bitmap = null;
@@ -530,6 +635,13 @@ export class SpriteStage {
     this.lastFrame = null;
     this.lastStateRevision = undefined;
     this.clearTransition();
+  }
+
+  private releaseDanceStrip(): void {
+    this.danceBitmap?.close();
+    this.danceBitmap = null;
+    this.danceAlphaMask = null;
+    this.danceInfo = null;
   }
 
   private captureTransitionSnapshot(transition: SpriteTransition): HTMLCanvasElement | null {
@@ -567,7 +679,7 @@ export class SpriteStage {
       return;
     }
 
-    const source = this.sourceRect(request);
+    const source = this.resolveSource(request);
 
     const canvasWidth = this.canvas.width;
     const canvasHeight = this.canvas.height;
@@ -587,7 +699,7 @@ export class SpriteStage {
       if (transition.from.kind === 'snapshot') {
         this.context.drawImage(transition.from.canvas, 0, 0);
       } else {
-        const previous = this.sourceRect(transition.from.request);
+        const previous = this.resolveSource(transition.from.request);
         this.drawSource(previous, destination);
       }
       this.context.globalAlpha = transition.progress;
@@ -596,20 +708,38 @@ export class SpriteStage {
     } else this.drawSource(source, destination);
 
     this.lastRender = request;
-    this.lastFrame = { sourceX: source.x, sourceY: source.y };
+    this.lastFrame = {
+      sourceX: source.rect.x,
+      sourceY: source.rect.y,
+      alphaMask: source.alphaMask,
+      maskWidth: source.maskWidth,
+    };
   }
 
-  private sourceRect(request: RenderRequest): FrameRect {
-    return this.profile === 'v2' && request.lookAngleDegrees !== undefined
-      ? getLookFrameRect(request.lookAngleDegrees)
-      : getAnimationFrameRect(request.state, request.timeSeconds);
+  private resolveSource(request: RenderRequest): FrameSource {
+    if (request.danceFrame !== undefined && this.danceBitmap && this.danceAlphaMask && this.danceInfo) {
+      return {
+        bitmap: this.danceBitmap,
+        rect: { x: request.danceFrame * CELL_WIDTH, y: 0, width: CELL_WIDTH, height: CELL_HEIGHT },
+        alphaMask: this.danceAlphaMask,
+        maskWidth: this.danceBitmap.width,
+      };
+    }
+    return {
+      bitmap: this.bitmap!,
+      rect: this.profile === 'v2' && request.lookAngleDegrees !== undefined
+        ? getLookFrameRect(request.lookAngleDegrees)
+        : getAnimationFrameRect(request.state, request.timeSeconds),
+      alphaMask: this.alphaMask!,
+      maskWidth: this.atlasWidth,
+    };
   }
 
-  private drawSource(source: FrameRect, destination: DestinationRect) {
+  private drawSource(source: FrameSource, destination: DestinationRect) {
     this.context.drawImage(
-      this.bitmap!,
-      source.x,
-      source.y,
+      source.bitmap,
+      source.rect.x,
+      source.rect.y,
       CELL_WIDTH,
       CELL_HEIGHT,
       destination.x,

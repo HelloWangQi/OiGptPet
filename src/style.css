@@ -14,6 +14,9 @@
 .pet-mode #pet-controls>*{flex:0 0 auto}
 .pet-mode #pet-dance-clip{width:140px;max-width:140px;padding:4px 5px;font-size:9px}
 .pet-mode #pet-music-sensitivity{width:84px;max-width:84px;padding:4px 3px;font-size:9px}
+.pet-mode #pet-dance-style{width:124px;max-width:124px;padding:4px 3px;font-size:9px}
+.pet-mode #pet-dance-template-frames{width:76px;max-width:76px;padding:4px 3px;font-size:9px}
+.pet-mode #pet-dance-preview{padding:4px 7px;font-size:9px}
 .pet-mode #pet-dance-tempo{padding:4px 5px;color:#668056;font:9px monospace}
 .pet-mode #pet-dance-energy{width:48px;height:5px;margin:0;accent-color:#789568}
 .external-motion-assignment-list{display:grid;gap:6px;margin-top:8px}

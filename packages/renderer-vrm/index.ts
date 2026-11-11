@@ -10,6 +10,7 @@ import { sampleMotion, sampleLook } from '../character-core';
 import { inspectVrmFile, type ModelInfo } from '../character-core/vrm-file';
 import type { AnimationState } from '../target-chatgpt/contract';
 import type { MusicDanceSignal } from '../character-core/music-dance';
+import { sampleMusicDancePose, type MusicDanceStyle } from '../character-core/music-choreography';
 import { actionTimeToPoseTime, poseTimeToActionTime, type VrmMotionLoopMode } from './motion-time';
 
 export type { VrmMotionLoopMode } from './motion-time';
@@ -50,6 +51,7 @@ export class VrmStage {
   private speechMouthTarget = 0;
   private speechMouthCurrent = 0;
   private musicDanceSignal?: MusicDanceSignal;
+  private musicDanceStyle: MusicDanceStyle = 'groove';
   private musicDanceMotionMode = false;
   private musicDanceMotionPlaying = false;
   private poseTransition?: {
@@ -150,6 +152,10 @@ export class VrmStage {
 
   setMusicDanceSignal(signal: MusicDanceSignal | undefined) {
     this.musicDanceSignal = signal;
+  }
+
+  setMusicDanceStyle(style: MusicDanceStyle) {
+    this.musicDanceStyle = style;
   }
 
   setMusicDanceMotionMode(enabled: boolean) {
@@ -367,6 +373,34 @@ export class VrmStage {
     const beatPosition = Number.isFinite(signal.phase)
       ? THREE.MathUtils.clamp(signal.phase!, 0, 1)
       : (phase * signal.bpm / 60) % 1;
+    if (this.musicDanceStyle !== 'groove') {
+      const pose = sampleMusicDancePose(this.musicDanceStyle, {
+        ...signal,
+        phase: beatPosition,
+        beatIndex: signal.beatIndex ?? Math.floor(phase * signal.bpm / 60),
+      });
+      const add = (name: VRMHumanBoneName, x = 0, y = 0, z = 0) => {
+        const bone = vrm.humanoid.getNormalizedBoneNode(name);
+        if (!bone) return;
+        bone.rotation.x += x * strength;
+        bone.rotation.y += y * strength;
+        bone.rotation.z += z * strength;
+      };
+      add('spine', pose.bodyPitch, pose.bodyYaw, pose.bodyRoll);
+      add('chest', pose.bodyPitch * 0.45, pose.bodyYaw * 0.4, pose.bodyRoll * 0.65);
+      add('leftUpperArm', pose.leftArmPitch, 0, pose.leftShoulder);
+      add('rightUpperArm', pose.rightArmPitch, 0, pose.rightShoulder);
+      add('leftLowerArm', -0.12, 0, pose.leftElbow);
+      add('rightLowerArm', -0.12, 0, pose.rightElbow);
+      add('leftUpperLeg', pose.leftStep);
+      add('rightUpperLeg', pose.rightStep);
+      add('leftLowerLeg', pose.leftKnee);
+      add('rightLowerLeg', pose.rightKnee);
+      add('head', pose.headPitch, pose.headYaw, pose.headRoll);
+      this.root.position.y += (pose.bounce + signal.beat * 0.035) * strength;
+      this.root.rotation.y += pose.bodyYaw * 0.35 * strength;
+      return;
+    }
     const beatPhase = beatPosition * Math.PI * 2;
     const sway = Math.sin(beatPhase);
     const opposite = Math.sin(beatPhase + Math.PI);
