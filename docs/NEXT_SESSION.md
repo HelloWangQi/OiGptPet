@@ -1,6 +1,14 @@
-# 接续下一阶段：精灵图桌宠音乐舞步
+# 当前接续点：0.12.0 音乐舞步
 
-开发计划见 [MUSIC_DANCE.md](MUSIC_DANCE.md) 和 [SPRITE_DANCE.md](SPRITE_DANCE.md)。提交 `415b1e1` 实现精灵图桌宠单独 PNG 舞蹈条带：每帧 192×208、2–21 帧、最多 20 MiB，按四拍播放；只在本次桌宠会话使用，ChatGPT 图集与角色备份不变，当前帧 alpha 用于点击命中。`npm run build` 与 `npm run verify:desktop` 均通过；EXE 为 `release/v0.11.0-1794298025444/OiGptPet-win32-x64/OiGptPet.exe`，冒烟报告为 `artifacts/release-smoke/run-1794298042725/result.json`。自动测试套件未运行，精灵图舞蹈实际视觉、透明点击/拖动和音乐同步仍需人工验收。之后可再开发帧条带制作模板，仍不把未经目标格式确认的舞蹈行写入 ChatGPT 图集。
+本地源码最终提交 `861a4d1`（前置修复 `7484733`），分支 `codex/desktop-prototype`，版本 `0.12.0`。基础律动保持默认；新增“怦然心动风格”和“猫步轻悄风格”原创八拍舞步、固定 100 BPM/8 拍试听，以及 4/8/16/21 帧精灵图 SVG 模板下载。试听不采集系统音频；用户导入 VRMA 时使用 VRMA 动作。具体行为见 [MUSIC_DANCE.md](MUSIC_DANCE.md) 和 [SPRITE_DANCE.md](SPRITE_DANCE.md)。
+
+`npm run build` 和 `npm run verify:desktop` 均通过。当前 EXE：[OiGptPet.exe](../release/v0.12.0-1794361875817/OiGptPet-win32-x64/OiGptPet.exe)，冒烟报告：`artifacts/release-smoke/run-1794361880031/result.json`，结果 `ok=true`、`rendererErrors=[]`。完整记录见 [0.12.0 本地检查点](releases/v0.12.0.md)。`npm test` 未运行；0.12.0 只在本地提交，没有推送或发布 GitHub Release。
+
+## 尚待处理
+
+- 用户用自己的目标 VRM 试听三种舞步，确认手臂左右方向、步幅、八拍接缝、发丝/衣物遮挡后反馈需调的角色；试听按钮便于先不启用系统音频比较动作。
+- 真实音乐回环、系统输出设备切换、精灵图 SVG 模板在绘图软件里的图层行为与 PNG 导出、透明区域拖动，以及麦克风/系统朗读仍需目标 Windows 人工体验。
+- 多 VRM 的 VRMA 动作语义仍需要真实模型视觉检查。Live2D 接入要等 SDK 授权与分发路径确认；ChatGPT 状态联动需先有受支持的官方接口。当前代码范围内已知可独立完成的音乐舞步和模板开发已交付，其他项目事项依赖上述人工验收或外部前置条件。
 
 ## v0.11.0 交接记录
 

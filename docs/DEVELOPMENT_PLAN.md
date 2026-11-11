@@ -1,6 +1,6 @@
 # OiGptPet 开发计划
 
-更新日期：2026-11-10。GitHub 正式发布至 0.11.0；此前 v0.6.0、v0.8.0、v0.8.5 的预发布标记已关闭。0.11.0 支持从多个 VRMA 文件组合动作行，Release 已上传 Windows x64 ZIP 与 SHA-256 校验文件，见 [0.11.0 发布记录](releases/v0.11.0.md)。本地检查点 `415b1e1` 修正了桌面分辨率受限时冒烟脚本仍要求精确窗口尺寸的问题。当前源码 `npm run verify:desktop` 通过；EXE 对应提交 `415b1e1`，报告见 `artifacts/release-smoke/run-1794298042725/result.json`。当前新阶段为桌宠精灵图音乐舞步，变更和验收范围见 [SPRITE_DANCE.md](SPRITE_DANCE.md)。真实音乐、精灵图舞步视觉质量和 VRMA 语义仍待人工验收；`npm test` 未运行。此前 VRM 与精灵图过渡、VRMA 预览定位/速度/循环及导出采样、角色库与对话功能情况按下文各阶段记录。旧版本托腮动作调优见 [0.8.9 说明](releases/v0.8.9.md)。
+更新日期：2026-11-11。GitHub 正式发布至 0.11.0；本地 0.12.0 增加三种 VRM 音乐舞步选择（原基础律动保留）和无音频的 8 拍试听，并提供精灵图 SVG 帧模板，详见[0.12.0 本地检查点](releases/v0.12.0.md)。最终源码提交 `861a4d1` 的 `npm run verify:desktop` 通过；EXE 位于 `release/v0.12.0-1794361875817/OiGptPet-win32-x64/OiGptPet.exe`，冒烟报告为 `artifacts/release-smoke/run-1794361880031/result.json`。0.12.0 尚未推送或发布。实际 VRM 舞姿、真实音乐回环、精灵图模板导出和系统语音仍待人工验收；`npm test` 未运行。此前功能与验收边界按下文阶段记录；旧版本托腮动作调优见 [0.8.9 说明](releases/v0.8.9.md)。
 
 0.8.7 已修正六帧动作导出跳过眨眼峰值的问题，实际保存并查看原模型与左右眼适配副本的待机眼部，详见 [0.8.7 检查点](CHECKPOINT_08_7.md)。局部眼部检查不等于整套动作或全部模型验收。
 
