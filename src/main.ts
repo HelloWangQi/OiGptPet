@@ -19,6 +19,7 @@ import { motionCapabilityRows } from './motion-capabilities-view';
 import { RenderMonitor, renderSampleText, type RenderContext } from './render-monitor';
 import type { VrmMotionClipInfo } from '../packages/renderer-vrm';
 import { SystemMusicAnalyzer } from './system-music-analyzer';
+import { readMusicDanceStylePreference, writeMusicDanceStylePreference } from './music-dance-preference';
 import { MUSIC_SILENCE_RESET_MS, musicSignalGraceMs, musicSynchronizedPlaybackRate } from '../packages/character-core/music-dance';
 import type { MusicDanceStyle } from '../packages/character-core/music-choreography';
 import { createSpriteDanceTemplateSvg } from '../packages/renderer-sprite/dance-template';
@@ -60,7 +61,7 @@ app.innerHTML = petMode ? `
       </select>
       <select id="pet-dance-style" aria-label="选择内置舞步风格" title="内置舞步风格；导入 VRMA 时由文件动作取代" hidden>
         <option value="groove" selected>基础律动</option>
-        <option value="idol-pop">怦然心动风格</option>
+        <option value="idol-pop">怦然心动·实验单人改编</option>
         <option value="catwalk">猫步轻悄风格</option>
       </select>
       <button id="pet-dance-preview" title="以 100 BPM 试听 8 拍；不采集系统音频" hidden>试听舞步</button>
@@ -1348,6 +1349,9 @@ async function bootstrap() {
     if (!desktop) $<HTMLSelectElement>('#pet-scale').title = '桌宠大小需要桌面应用。';
   }
   stage = new CompanionStage($<HTMLCanvasElement>('#character-canvas'));
+  const musicDanceStyle = readMusicDanceStylePreference();
+  stage.setMusicDanceStyle(musicDanceStyle);
+  if (petMode) $<HTMLSelectElement>('#pet-dance-style').value = musicDanceStyle;
   if (petMode && desktop) musicDance = new SystemMusicAnalyzer();
   const resize = () => {
     const bounds = canvasHost.getBoundingClientRect();
@@ -1540,8 +1544,9 @@ if (petMode) {
     const select = event.currentTarget as HTMLSelectElement;
     const style = select.value as MusicDanceStyle;
     stage.setMusicDanceStyle(style);
-    const names: Record<MusicDanceStyle, string> = { groove: '基础律动', 'idol-pop': '怦然心动风格', catwalk: '猫步轻悄风格' };
-    status(`已切换到「${names[style]}」；导入 VRMA 后将播放文件中的动作。`);
+    const saved = writeMusicDanceStylePreference(style);
+    const names: Record<MusicDanceStyle, string> = { groove: '基础律动', 'idol-pop': '怦然心动·实验单人改编', catwalk: '猫步轻悄风格' };
+    status(`已切换到「${names[style]}」${saved ? '，已记住本机选择' : '，本次关闭桌宠后会恢复默认'}；导入 VRMA 后将播放文件中的动作。`);
   };
   $('#pet-dance-import').onclick = () => {
     if (!desktop) { status('音乐 VRMA 舞步仅支持 Electron 独立桌面版。', true); return; }

@@ -388,10 +388,12 @@ export class VrmStage {
       };
       add('spine', pose.bodyPitch, pose.bodyYaw, pose.bodyRoll);
       add('chest', pose.bodyPitch * 0.45, pose.bodyYaw * 0.4, pose.bodyRoll * 0.65);
-      add('leftUpperArm', pose.leftArmPitch, 0, pose.leftShoulder);
-      add('rightUpperArm', pose.rightArmPitch, 0, pose.rightShoulder);
+      add('leftUpperArm', pose.leftArmPitch, pose.leftArmAcross, pose.leftShoulder);
+      add('rightUpperArm', pose.rightArmPitch, pose.rightArmAcross, pose.rightShoulder);
       add('leftLowerArm', -0.12, 0, pose.leftElbow);
       add('rightLowerArm', -0.12, 0, pose.rightElbow);
+      add('leftHand', pose.leftWrist);
+      add('rightHand', pose.rightWrist);
       add('leftUpperLeg', pose.leftStep);
       add('rightUpperLeg', pose.rightStep);
       add('leftLowerLeg', pose.leftKnee);
