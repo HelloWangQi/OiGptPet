@@ -4,6 +4,7 @@ import type { AnimationState } from '../packages/target-chatgpt/contract';
 import { createCompanionRenderer, type CompanionInput, type CompanionRenderer } from './renderer-adapters';
 import type { VrmMotionClipInfo, VrmMotionLoopMode } from '../packages/renderer-vrm';
 import type { MusicDanceSignal } from '../packages/character-core/music-dance';
+import type { MusicDanceStyle } from '../packages/character-core/music-choreography';
 import type { SpriteDanceStripInfo } from '../packages/renderer-sprite/dance-strip';
 
 export type { CompanionInput } from './renderer-adapters';
@@ -25,6 +26,7 @@ export class CompanionStage {
   private size = { width: 320, height: 420, ratio: 1 };
   private speechMouthOpen = 0;
   private musicDanceSignal?: MusicDanceSignal;
+  private musicDanceStyle: MusicDanceStyle = 'groove';
   private musicDanceMotionMode = false;
   private musicDanceMotionPlaying = false;
 
@@ -77,6 +79,7 @@ export class CompanionStage {
           this.kind = input.kind;
           candidate.setSpeechMouthOpen(this.speechMouthOpen);
           candidate.setMusicDanceSignal?.(this.musicDanceSignal);
+          candidate.setMusicDanceStyle?.(this.musicDanceStyle);
           candidate.setMusicDanceMotionMode?.(this.musicDanceMotionMode);
           candidate.setMusicDanceMotionPlaying?.(this.musicDanceMotionPlaying);
           committed = true;
@@ -111,6 +114,11 @@ export class CompanionStage {
   setMusicDanceSignal(signal: MusicDanceSignal | undefined) {
     this.musicDanceSignal = signal;
     this.current?.setMusicDanceSignal?.(signal);
+  }
+
+  setMusicDanceStyle(style: MusicDanceStyle) {
+    this.musicDanceStyle = style;
+    this.current?.setMusicDanceStyle?.(style);
   }
 
   async loadSpriteDanceStrip(blob: Blob, signal?: AbortSignal): Promise<SpriteDanceStripInfo> {

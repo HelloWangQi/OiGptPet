@@ -20,6 +20,8 @@ import { RenderMonitor, renderSampleText, type RenderContext } from './render-mo
 import type { VrmMotionClipInfo } from '../packages/renderer-vrm';
 import { SystemMusicAnalyzer } from './system-music-analyzer';
 import { MUSIC_SILENCE_RESET_MS, musicSignalGraceMs, musicSynchronizedPlaybackRate } from '../packages/character-core/music-dance';
+import type { MusicDanceStyle } from '../packages/character-core/music-choreography';
+import { createSpriteDanceTemplateSvg } from '../packages/renderer-sprite/dance-template';
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 const MAX_EXTERNAL_MOTION_LIBRARY_MIB = MAX_EXTERNAL_MOTION_LIBRARY_BYTES / 1024 / 1024;
@@ -56,10 +58,20 @@ app.innerHTML = petMode ? `
       <select id="pet-music-sensitivity" aria-label="音乐节拍检测灵敏度" title="音乐节拍检测灵敏度" hidden>
         <option value="0.7">灵敏度低</option><option value="1" selected>灵敏度中</option><option value="1.35">灵敏度高</option>
       </select>
+      <select id="pet-dance-style" aria-label="选择内置舞步风格" title="内置舞步风格；导入 VRMA 时由文件动作取代" hidden>
+        <option value="groove" selected>基础律动</option>
+        <option value="idol-pop">怦然心动风格</option>
+        <option value="catwalk">猫步轻悄风格</option>
+      </select>
       <output id="pet-dance-tempo" hidden aria-live="off" aria-label="当前节拍和舞步速度">等待节拍</output>
       <progress id="pet-dance-energy" max="1" value="0" hidden aria-label="当前系统输出混音能量"></progress>
       <button id="pet-dance-import" title="选择本机 VRMA 舞蹈动作" hidden>舞步文件</button>
       <button id="pet-dance-sprite-import" title="载入本机 PNG 舞蹈帧条带" hidden>舞蹈帧 PNG</button>
+      <select id="pet-dance-template-frames" aria-label="舞蹈模板帧数" title="下载 SVG 舞蹈帧条带模板" hidden>
+        <option value="4">4 帧模板</option><option value="8" selected>8 帧模板</option>
+        <option value="16">16 帧模板</option><option value="21">21 帧模板</option>
+      </select>
+      <button id="pet-dance-template" title="下载透明 SVG 帧模板；隐藏参考线后导出 PNG" hidden>下载模板</button>
       <select id="pet-dance-clip" aria-label="选择舞步动作片段" hidden></select>
       <button id="pet-dance-clear" title="移除已加载的舞步动作" hidden>清除舞步</button>
       <input id="pet-dance-file" type="file" accept=".vrma,model/gltf-binary" hidden />
@@ -339,6 +351,7 @@ function stopMusicDance(message?: string) {
     button.dataset.active = 'false'; button.setAttribute('aria-pressed', 'false');
     button.setAttribute('aria-busy', 'false'); button.textContent = '音乐舞动'; button.disabled = false;
     $<HTMLSelectElement>('#pet-music-sensitivity').hidden = true;
+    $<HTMLSelectElement>('#pet-dance-style').hidden = !desktop || stage?.sourceKind !== 'vrm' || petDanceClips.length > 0;
     $<HTMLOutputElement>('#pet-dance-tempo').hidden = true;
     const energy = $<HTMLProgressElement>('#pet-dance-energy'); energy.hidden = true; energy.value = 0;
   }
@@ -361,8 +374,11 @@ function clearPetDanceMotion() {
   const select = $<HTMLSelectElement>('#pet-dance-clip');
   select.replaceChildren(); select.hidden = true;
   $<HTMLButtonElement>('#pet-dance-clear').hidden = true;
+  $<HTMLSelectElement>('#pet-dance-style').hidden = !desktop || stage?.sourceKind !== 'vrm';
   $<HTMLInputElement>('#pet-dance-file').value = '';
   $<HTMLButtonElement>('#pet-dance-sprite-import').hidden = true;
+  $<HTMLSelectElement>('#pet-dance-template-frames').hidden = !desktop || stage?.sourceKind !== 'sprite';
+  $<HTMLButtonElement>('#pet-dance-template').hidden = !desktop || stage?.sourceKind !== 'sprite';
   $<HTMLInputElement>('#pet-dance-sprite-file').value = '';
 }
 function syncPetDanceMotion(signal: ReturnType<SystemMusicAnalyzer['sample']>, now: number) {
@@ -431,6 +447,7 @@ async function importPetDance(file?: File) {
     }));
     select.value = String(petDanceClipIndex); select.hidden = clips.length < 2;
     $<HTMLButtonElement>('#pet-dance-clear').hidden = false;
+    $<HTMLSelectElement>('#pet-dance-style').hidden = true;
     targetStage.setMotionLoopMode('repeat'); targetStage.setMotionPlaybackRate(1);
     if (targetStage.motionIsPlaying()) targetStage.toggleMotion();
     targetStage.setMusicDanceMotionMode(true); targetStage.setMusicDanceMotionPlaying(false);
@@ -460,6 +477,17 @@ async function importPetSpriteDance(file?: File) {
   } finally {
     if (revision === petDanceSpriteImportRevision) button.disabled = false;
   }
+}
+function downloadPetSpriteDanceTemplate() {
+  if (!desktop || !petMode || stage.sourceKind !== 'sprite') return;
+  const frames = Number($<HTMLSelectElement>('#pet-dance-template-frames').value);
+  const svg = createSpriteDanceTemplateSvg(frames);
+  const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url; link.download = `oigptpet-dance-${frames}-frames.svg`;
+  document.body.append(link); link.click(); link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  status(`已下载 ${frames} 帧 SVG 模板。用绘图软件打开，在 drawing-layer 作画；导出透明 PNG 前隐藏 template-guides。`);
 }
 function restorePetChat() {
   const view = petChat.current(performance.now());
@@ -675,6 +703,9 @@ async function load(input: CompanionInput, persist: boolean, origin: 'local-impo
       musicButton.hidden = input.kind !== 'vrm' || !desktop;
       $<HTMLButtonElement>('#pet-dance-import').hidden = input.kind !== 'vrm' || !desktop;
       $<HTMLButtonElement>('#pet-dance-sprite-import').hidden = input.kind !== 'sprite' || !desktop;
+      $<HTMLSelectElement>('#pet-dance-template-frames').hidden = input.kind !== 'sprite' || !desktop;
+      $<HTMLButtonElement>('#pet-dance-template').hidden = input.kind !== 'sprite' || !desktop;
+      $<HTMLSelectElement>('#pet-dance-style').hidden = input.kind !== 'vrm' || !desktop;
       $<HTMLButtonElement>('#pet-dance-clear').hidden = true;
       if (input.kind !== 'vrm') stopMusicDance('切换到精灵图后已停止音乐舞动；载入舞蹈帧 PNG 后可以继续。');
     }
@@ -1275,6 +1306,7 @@ async function bootstrap() {
     if (!desktop) $<HTMLSelectElement>('#pet-scale').title = '桌宠大小需要桌面应用。';
   }
   stage = new CompanionStage($<HTMLCanvasElement>('#character-canvas'));
+  stage.setMusicDanceStyle($<HTMLSelectElement>('#pet-dance-style').value as MusicDanceStyle);
   if (petMode && desktop) musicDance = new SystemMusicAnalyzer();
   const resize = () => {
     const bounds = canvasHost.getBoundingClientRect();
@@ -1451,6 +1483,13 @@ if (petMode) {
   $<HTMLSelectElement>('#pet-music-sensitivity').onchange = event => {
     musicDance?.setSensitivity(Number((event.currentTarget as HTMLSelectElement).value));
   };
+  $<HTMLSelectElement>('#pet-dance-style').onchange = event => {
+    const select = event.currentTarget as HTMLSelectElement;
+    const style = select.value as MusicDanceStyle;
+    stage.setMusicDanceStyle(style);
+    const names: Record<MusicDanceStyle, string> = { groove: '基础律动', 'idol-pop': '怦然心动风格', catwalk: '猫步轻悄风格' };
+    status(`已切换到「${names[style]}」；导入 VRMA 后将播放文件中的动作。`);
+  };
   $('#pet-dance-import').onclick = () => {
     if (!desktop) { status('音乐 VRMA 舞步仅支持 Electron 独立桌面版。', true); return; }
     if (!stage.loaded || stage.sourceKind !== 'vrm') { status('舞蹈 VRMA 目前仅适用于已加载的 VRM 桌宠。', true); return; }
@@ -1465,6 +1504,7 @@ if (petMode) {
     if (!stage.loaded || stage.sourceKind !== 'sprite') { status('请先加载精灵图桌宠。', true); return; }
     $<HTMLInputElement>('#pet-dance-sprite-file').click();
   };
+  $('#pet-dance-template').onclick = downloadPetSpriteDanceTemplate;
   $<HTMLInputElement>('#pet-dance-sprite-file').onchange = event => {
     const input = event.currentTarget as HTMLInputElement;
     void importPetSpriteDance(input.files?.[0]); input.value = '';
