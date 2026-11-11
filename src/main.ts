@@ -1306,7 +1306,6 @@ async function bootstrap() {
     if (!desktop) $<HTMLSelectElement>('#pet-scale').title = '桌宠大小需要桌面应用。';
   }
   stage = new CompanionStage($<HTMLCanvasElement>('#character-canvas'));
-  stage.setMusicDanceStyle($<HTMLSelectElement>('#pet-dance-style').value as MusicDanceStyle);
   if (petMode && desktop) musicDance = new SystemMusicAnalyzer();
   const resize = () => {
     const bounds = canvasHost.getBoundingClientRect();
