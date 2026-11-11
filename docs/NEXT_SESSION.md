@@ -1,8 +1,8 @@
 # 当前接续点：0.12.0 音乐舞步
 
-本地源码最终提交 `861a4d1`（前置修复 `7484733`），分支 `codex/desktop-prototype`，版本 `0.12.0`。基础律动保持默认；新增“怦然心动风格”和“猫步轻悄风格”原创八拍舞步、固定 100 BPM/8 拍试听，以及 4/8/16/21 帧精灵图 SVG 模板下载。试听不采集系统音频；用户导入 VRMA 时使用 VRMA 动作。具体行为见 [MUSIC_DANCE.md](MUSIC_DANCE.md) 和 [SPRITE_DANCE.md](SPRITE_DANCE.md)。
+源码功能提交 `861a4d1`（前置修复 `7484733`），0.12.0 发布说明提交 `f539df0`，分支 `codex/desktop-prototype`。0.12.0 GitHub Release 已发布：[下载页](https://github.com/HelloWangQi/OiGptPet/releases/tag/v0.12.0)。基础律动保持默认；新增“怦然心动风格”和“猫步轻悄风格”原创八拍舞步、固定 100 BPM/8 拍试听，以及 4/8/16/21 帧精灵图 SVG 模板下载。试听不采集系统音频；用户导入 VRMA 时使用 VRMA 动作。具体行为见 [MUSIC_DANCE.md](MUSIC_DANCE.md) 和 [SPRITE_DANCE.md](SPRITE_DANCE.md)。
 
-`npm run build` 和 `npm run verify:desktop` 均通过。当前 EXE：[OiGptPet.exe](../release/v0.12.0-1794361875817/OiGptPet-win32-x64/OiGptPet.exe)，冒烟报告：`artifacts/release-smoke/run-1794361880031/result.json`，结果 `ok=true`、`rendererErrors=[]`。完整记录见 [0.12.0 本地检查点](releases/v0.12.0.md)。`npm test` 未运行；0.12.0 只在本地提交，没有推送或发布 GitHub Release。
+`npm run build` 和 `npm run verify:desktop` 均通过。当前 EXE：[OiGptPet.exe](../release/v0.12.0-1794361875817/OiGptPet-win32-x64/OiGptPet.exe)，冒烟报告：`artifacts/release-smoke/run-1794361880031/result.json`，结果 `ok=true`、`rendererErrors=[]`。本次发布包基于功能提交 `861a4d1` 构建；后续 `f297776`、`f539df0` 仅更新交接及发布文档。完整记录见 [0.12.0 版本说明](releases/v0.12.0.md)。`npm test` 未运行。
 
 ## 尚待处理
 
