@@ -30,6 +30,12 @@ export interface VrmMotionClipInfo {
   compatibility: VrmMotionClipCompatibility;
 }
 
+const MUSIC_DANCE_BONES: VRMHumanBoneName[] = [
+  'hips', 'spine', 'chest', 'upperChest', 'neck', 'head', 'leftShoulder', 'rightShoulder',
+  'leftUpperArm', 'rightUpperArm', 'leftLowerArm', 'rightLowerArm', 'leftHand', 'rightHand',
+  'leftUpperLeg', 'rightUpperLeg', 'leftLowerLeg', 'rightLowerLeg', 'leftFoot', 'rightFoot',
+];
+
 export class VrmStage {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
@@ -52,6 +58,12 @@ export class VrmStage {
   private speechMouthCurrent = 0;
   private musicDanceSignal?: MusicDanceSignal;
   private musicDanceStyle: MusicDanceStyle = 'groove';
+  private musicDancePoseActive = false;
+  private musicDancePreviousLookAtAutoUpdate?: boolean;
+  private musicDanceRestPose = new Map<VRMHumanBoneName, THREE.Quaternion>();
+  private musicDanceEuler = new THREE.Euler(0, 0, 0, 'XYZ');
+  private musicDanceTarget = new THREE.Quaternion();
+  private musicDanceScratch = new THREE.Quaternion();
   private musicDanceMotionMode = false;
   private musicDanceMotionPlaying = false;
   private poseTransition?: {
@@ -111,6 +123,7 @@ export class VrmStage {
     this.root.add(candidate.scene);
     this.root.scale.setScalar(1);
     this.root.position.set(0, 0, 0);
+    this.captureMusicDanceRestPose();
     candidate.lookAt && (candidate.lookAt.target = this.lookTarget);
     this.lookTarget.position.set(0, 1.65, 5);
     this.applyPose('idle', 0);
@@ -335,27 +348,29 @@ export class VrmStage {
     for (const name of Object.keys(expressions?.expressionMap ?? {})) expressions?.setValue(name, 0);
   }
 
-  private applyPose(state: AnimationState, phase: number, look?: { yaw: number; pitch: number }, mouthOpen = 0) {
+  private applyPose(state: AnimationState, phase: number, look?: { yaw: number; pitch: number }, mouthOpen = 0, preserveSkeleton = false) {
     if (!this.vrm) return;
     const vrm = this.vrm;
-    vrm.humanoid.resetNormalizedPose();
+    if (!preserveSkeleton) vrm.humanoid.resetNormalizedPose();
     const p = sampleMotion(state, phase);
     const rotate = (name: Parameters<typeof vrm.humanoid.getNormalizedBoneNode>[0], x: number, y = 0, z = 0) => {
       vrm.humanoid.getNormalizedBoneNode(name)?.rotation.set(x, y, z);
     };
-    rotate('leftUpperArm', ...p.leftArm);
-    rotate('rightUpperArm', ...p.rightArm);
-    rotate('leftLowerArm', ...p.leftForearm);
-    rotate('rightLowerArm', ...p.rightForearm);
-    rotate('leftUpperLeg', p.leftLeg);
-    rotate('rightUpperLeg', p.rightLeg);
-    if (p.spine) rotate('spine', ...p.spine);
-    if (p.chest) rotate('chest', ...p.chest);
-    if (p.neck) rotate('neck', ...p.neck);
-    rotate('head', look?.pitch ?? p.headPitch, look?.yaw ?? p.headYaw, p.headRoll);
-    this.root.position.set(0, p.rootY, 0);
-    this.root.rotation.set(0, p.rootYaw, 0);
-    adaptFaceArms(name => vrm.humanoid.getNormalizedBoneNode(name), state);
+    if (!preserveSkeleton) {
+      rotate('leftUpperArm', ...p.leftArm);
+      rotate('rightUpperArm', ...p.rightArm);
+      rotate('leftLowerArm', ...p.leftForearm);
+      rotate('rightLowerArm', ...p.rightForearm);
+      rotate('leftUpperLeg', p.leftLeg);
+      rotate('rightUpperLeg', p.rightLeg);
+      if (p.spine) rotate('spine', ...p.spine);
+      if (p.chest) rotate('chest', ...p.chest);
+      if (p.neck) rotate('neck', ...p.neck);
+      rotate('head', look?.pitch ?? p.headPitch, look?.yaw ?? p.headYaw, p.headRoll);
+      this.root.position.set(0, p.rootY, 0);
+      this.root.rotation.set(0, p.rootYaw, 0);
+      adaptFaceArms(name => vrm.humanoid.getNormalizedBoneNode(name), state);
+    }
     const expressions = vrm.expressionManager;
     this.resetExpressions();
     applyBlink(expressions ?? undefined, p.blink);
@@ -366,7 +381,7 @@ export class VrmStage {
     else this.lookTarget.position.set(0, 1.65, 5);
   }
 
-  private applyMusicDancePose(signal: MusicDanceSignal, phase: number) {
+  private applyMusicDancePose(signal: MusicDanceSignal, phase: number, delta: number) {
     if (!this.vrm) return;
     const vrm = this.vrm;
     const strength = signal.level;
@@ -374,43 +389,61 @@ export class VrmStage {
       ? THREE.MathUtils.clamp(signal.phase!, 0, 1)
       : (phase * signal.bpm / 60) % 1;
     if (this.musicDanceStyle !== 'groove') {
-      // These are authored dance poses relative to the normalized VRM rest pose,
-      // not offsets from the idle pose (whose arms hang down). Reset first so a
-      // raised-arm keyframe can actually reach the intended silhouette.
-      vrm.humanoid.resetNormalizedPose();
       const pose = sampleMusicDancePose(this.musicDanceStyle, {
         ...signal,
         phase: beatPosition,
         beatIndex: signal.beatIndex ?? Math.floor(phase * signal.bpm / 60),
       });
-      // Fixed-count choreography must stay visible even when a song has a quiet
-      // passage; audio level adds only a small accent instead of scaling the
-      // entire dance down to nearly still.
-      const strength = 0.85 + THREE.MathUtils.clamp(signal.level, 0, 1) * 0.15;
-      const set = (name: VRMHumanBoneName, x = 0, y = 0, z = 0) => {
+      const energy = THREE.MathUtils.clamp(signal.level * 1.35, 0, 1);
+      const torsoStrength = 0.85 + energy * 0.35;
+      const armStrength = 1 + (torsoStrength - 1) * 0.25;
+      const legStrength = 1 + (torsoStrength - 1) * 0.35;
+      const smooth = 1 - Math.exp(-Math.min(Math.max(delta, 0), 1 / 15) * 21);
+      const set = (name: VRMHumanBoneName, x = 0, y = 0, z = 0, strength = torsoStrength) => {
         const bone = vrm.humanoid.getNormalizedBoneNode(name);
-        if (!bone) return;
-        bone.rotation.set(x * strength, y * strength, z * strength);
+        const rest = this.musicDanceRestPose.get(name);
+        if (!bone || !rest) return;
+        this.musicDanceEuler.set(x * strength, y * strength, z * strength, 'XYZ');
+        this.musicDanceTarget.setFromEuler(this.musicDanceEuler);
+        this.musicDanceScratch.copy(rest).multiply(this.musicDanceTarget);
+        bone.quaternion.slerp(this.musicDanceScratch, smooth);
       };
-      set('spine', pose.bodyPitch, pose.bodyYaw * 0.55, pose.bodyRoll * 0.65);
-      set('chest', pose.bodyPitch * 0.45, pose.bodyYaw * 0.4, pose.bodyRoll * 0.45);
-      // VRM normalized upper arms extend along X: Y reaches across the chest,
-      // Z raises/lowers the arm. X is axial twist and is deliberately left neutral.
-      set('leftUpperArm', 0, pose.leftArmAcross, pose.leftShoulder);
-      set('rightUpperArm', 0, pose.rightArmAcross, pose.rightShoulder);
-      // Flex the elbows around Y toward the front. The old Z rotation only swung
-      // the forearm sideways, which made the hand shapes look wrong.
-      set('leftLowerArm', 0, -Math.abs(pose.leftElbow), 0);
-      set('rightLowerArm', 0, Math.abs(pose.rightElbow), 0);
-      set('leftHand', pose.leftWrist);
-      set('rightHand', pose.rightWrist);
-      set('leftUpperLeg', pose.leftStep);
-      set('rightUpperLeg', pose.rightStep);
-      set('leftLowerLeg', pose.leftKnee);
-      set('rightLowerLeg', pose.rightKnee);
+      set('hips', pose.hipPitch, pose.hipYaw, pose.hipRoll);
+      set('spine', pose.bodyPitch, pose.bodyYaw, pose.bodyRoll);
+      set('chest', pose.chestPitch, pose.chestYaw, pose.chestRoll);
+      set('upperChest', pose.upperChestPitch, pose.upperChestYaw, pose.upperChestRoll);
+      set('neck', pose.neckPitch, pose.neckYaw, pose.neckRoll);
       set('head', pose.headPitch, pose.headYaw, pose.headRoll);
-      this.root.position.set(pose.bodySway * strength, (pose.bounce + signal.beat * 0.035) * strength, 0);
-      this.root.rotation.set(0, pose.bodyYaw * 0.35 * strength, pose.bodyRoll * 0.55 * strength);
+      set('leftShoulder', 0, 0, pose.leftShoulderJoint, armStrength);
+      set('rightShoulder', 0, 0, pose.rightShoulderJoint, armStrength);
+      // Keep the reference axis convention: upper-arm Y folds forward, Z lifts;
+      // elbows bend on Y, while wrist X/Y/Z each contribute to the hand flourish.
+      set('leftUpperArm', 0, pose.leftArmAcross, pose.leftShoulder, armStrength);
+      set('rightUpperArm', 0, pose.rightArmAcross, pose.rightShoulder, armStrength);
+      set('leftLowerArm', 0, pose.leftElbow, 0, armStrength);
+      set('rightLowerArm', 0, pose.rightElbow, 0, armStrength);
+      set('leftHand', pose.leftWrist, pose.leftWristYaw, pose.leftWristRoll, armStrength);
+      set('rightHand', pose.rightWrist, pose.rightWristYaw, pose.rightWristRoll, armStrength);
+      set('leftUpperLeg', pose.leftStep, 0, pose.leftLegSide, legStrength);
+      set('rightUpperLeg', pose.rightStep, 0, pose.rightLegSide, legStrength);
+      set('leftLowerLeg', pose.leftKnee, 0, 0, legStrength);
+      set('rightLowerLeg', pose.rightKnee, 0, 0, legStrength);
+      set('leftFoot', pose.leftFootPitch, 0, pose.leftFootRoll, legStrength);
+      set('rightFoot', pose.rightFootPitch, 0, pose.rightFootRoll, legStrength);
+      const sizeScale = 1.85 / 1.6;
+      const hitPulse = -0.012 * Math.abs(Math.sin(beatPosition * Math.PI)) * (0.4 + energy);
+      const x = pose.bodySway * sizeScale;
+      const y = (pose.bounce + hitPulse) * sizeScale;
+      this.root.position.set(
+        THREE.MathUtils.lerp(this.root.position.x, x, smooth),
+        THREE.MathUtils.lerp(this.root.position.y, y, smooth),
+        0,
+      );
+      this.root.rotation.set(
+        0,
+        pose.rootYaw,
+        pose.bodyTilt - pose.bodySway * 1.8,
+      );
       return;
     }
     const beatPhase = beatPosition * Math.PI * 2;
@@ -436,9 +469,27 @@ export class VrmStage {
     this.root.rotation.y += sway * 0.08 * strength;
   }
 
+  private setMusicDanceLookAtPaused(paused: boolean) {
+    const lookAt = this.vrm?.lookAt;
+    if (!lookAt) return;
+    if (paused && this.musicDancePreviousLookAtAutoUpdate === undefined) {
+      this.musicDancePreviousLookAtAutoUpdate = lookAt.autoUpdate;
+      lookAt.autoUpdate = false;
+    } else if (!paused && this.musicDancePreviousLookAtAutoUpdate !== undefined) {
+      lookAt.autoUpdate = this.musicDancePreviousLookAtAutoUpdate;
+      this.musicDancePreviousLookAtAutoUpdate = undefined;
+    }
+  }
+
   render(state: AnimationState, phase: number, delta: number, look?: { yaw: number; pitch: number }, stateRevision?: number) {
+    const externalMotion = this.motionMixer !== undefined && this.activeMotion !== undefined
+      && (!this.musicDanceMotionMode || this.musicDanceMotionPlaying);
+    const dancing = state === 'idle' ? this.musicDanceSignal : undefined;
+    const authoredDance = !externalMotion && Boolean(dancing) && this.musicDanceStyle !== 'groove';
+    const danceModeChanged = authoredDance !== this.musicDancePoseActive;
+    this.setMusicDanceLookAtPaused(authoredDance);
     const restarted = stateRevision !== undefined && this.lastStateRevision !== undefined && stateRevision !== this.lastStateRevision;
-    if (this.lastState !== undefined && (this.lastState !== state || restarted) && this.vrm) {
+    if (this.lastState !== undefined && (this.lastState !== state || restarted || danceModeChanged) && this.vrm) {
       const nodes = new Set(Object.values(this.vrm.humanoid.normalizedHumanBones).map(bone => bone.node));
       const bones = [...nodes].map(node => ({ node, from: node.quaternion.clone(), to: new THREE.Quaternion() }));
       const expressions = ['blink', 'blinkLeft', 'blinkRight', 'happy', 'sad', 'relaxed']
@@ -455,10 +506,9 @@ export class VrmStage {
     }
     this.lastState = state;
     this.lastStateRevision = stateRevision;
+    this.musicDancePoseActive = authoredDance;
     const boundedDelta = Math.min(Math.max(delta, 0), 1 / 15);
     this.speechMouthCurrent = THREE.MathUtils.lerp(this.speechMouthCurrent, this.speechMouthTarget, 1 - Math.exp(-boundedDelta * 14));
-    const externalMotion = this.motionMixer !== undefined && this.activeMotion !== undefined
-      && (!this.musicDanceMotionMode || this.musicDanceMotionPlaying);
     if (externalMotion) {
       this.vrm?.humanoid.resetNormalizedPose();
       this.root.position.set(0, 0, 0);
@@ -466,9 +516,9 @@ export class VrmStage {
       this.resetExpressions();
       this.motionMixer?.update(boundedDelta);
     } else {
-      const dancing = state === 'idle' ? this.musicDanceSignal : undefined;
-      this.applyPose(dancing ? 'idle' : state, phase, look, this.speechMouthCurrent);
-      if (dancing) this.applyMusicDancePose(dancing, phase);
+      const preserveSkeleton = Boolean(dancing && this.musicDanceStyle !== 'groove');
+      this.applyPose(dancing ? 'idle' : state, phase, look, this.speechMouthCurrent, preserveSkeleton);
+      if (dancing) this.applyMusicDancePose(dancing, phase, boundedDelta);
     }
     if (this.poseTransition && !externalMotion) {
       const transition = this.poseTransition;
@@ -531,6 +581,9 @@ export class VrmStage {
   private releaseModel() {
     ++this.motionGeneration;
     this.releaseMotion();
+    this.setMusicDanceLookAtPaused(false);
+    this.musicDancePoseActive = false;
+    this.musicDanceRestPose.clear();
     if (this.vrm) {
       this.lastState = undefined;
       this.lastStateRevision = undefined;
@@ -540,6 +593,16 @@ export class VrmStage {
       this.root.remove(this.vrm.scene);
       disposeVrmScene(this.vrm.scene);
       this.vrm = undefined;
+    }
+  }
+
+  private captureMusicDanceRestPose() {
+    this.musicDanceRestPose.clear();
+    this.musicDancePoseActive = false;
+    this.vrm?.humanoid.resetNormalizedPose();
+    for (const name of MUSIC_DANCE_BONES) {
+      const node = this.vrm?.humanoid.getNormalizedBoneNode(name);
+      if (node) this.musicDanceRestPose.set(name, node.quaternion.clone());
     }
   }
   private releaseMotion() {

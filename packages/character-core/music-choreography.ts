@@ -8,11 +8,27 @@ export interface MusicDancePose {
   bodyRoll: number;
   bodyYaw: number;
   bodySway: number;
+  bodyTilt: number;
+  rootYaw: number;
+  hipPitch: number;
+  hipRoll: number;
+  hipYaw: number;
+  chestPitch: number;
+  chestRoll: number;
+  chestYaw: number;
+  upperChestPitch: number;
+  upperChestRoll: number;
+  upperChestYaw: number;
   headPitch: number;
   headRoll: number;
   headYaw: number;
+  neckPitch: number;
+  neckRoll: number;
+  neckYaw: number;
   leftShoulder: number;
   rightShoulder: number;
+  leftShoulderJoint: number;
+  rightShoulderJoint: number;
   leftArmPitch: number;
   rightArmPitch: number;
   leftArmAcross: number;
@@ -20,11 +36,21 @@ export interface MusicDancePose {
   leftElbow: number;
   rightElbow: number;
   leftWrist: number;
+  leftWristYaw: number;
+  leftWristRoll: number;
   rightWrist: number;
+  rightWristYaw: number;
+  rightWristRoll: number;
   leftStep: number;
   rightStep: number;
+  leftLegSide: number;
+  rightLegSide: number;
   leftKnee: number;
   rightKnee: number;
+  leftFootPitch: number;
+  leftFootRoll: number;
+  rightFootPitch: number;
+  rightFootRoll: number;
   bounce: number;
 }
 
@@ -73,23 +99,32 @@ const douyinMix: PoseKeyframe[] = [
 ];
 
 const channels: (keyof MusicDancePose)[] = [
-  'bodyPitch', 'bodyRoll', 'bodyYaw', 'bodySway', 'headPitch', 'headRoll', 'headYaw',
-  'leftShoulder', 'rightShoulder', 'leftArmPitch', 'rightArmPitch', 'leftArmAcross', 'rightArmAcross',
-  'leftElbow', 'rightElbow', 'leftWrist', 'rightWrist', 'leftStep', 'rightStep', 'leftKnee', 'rightKnee', 'bounce',
+  'bodyPitch', 'bodyRoll', 'bodyYaw', 'bodySway', 'bodyTilt', 'rootYaw',
+  'hipPitch', 'hipRoll', 'hipYaw', 'chestPitch', 'chestRoll', 'chestYaw',
+  'upperChestPitch', 'upperChestRoll', 'upperChestYaw', 'headPitch', 'headRoll', 'headYaw',
+  'leftShoulder', 'rightShoulder', 'leftShoulderJoint', 'rightShoulderJoint',
+  'leftArmPitch', 'rightArmPitch', 'leftArmAcross', 'rightArmAcross',
+  'leftElbow', 'rightElbow', 'leftWrist', 'leftWristYaw', 'leftWristRoll',
+  'rightWrist', 'rightWristYaw', 'rightWristRoll', 'leftStep', 'rightStep',
+  'leftKnee', 'rightKnee', 'leftFootPitch', 'leftFootRoll', 'rightFootPitch', 'rightFootRoll', 'bounce',
 ];
 
 /** Sample an experimental eight-count phrase. Existing groove mode remains unchanged. */
 export function sampleMusicDancePose(style: Exclude<MusicDanceStyle, 'groove'>, signal: MusicDanceSignal): MusicDancePose {
   const frames = style === 'idol-pop' ? idolPop : style === 'douyin-mix' ? douyinMix : catwalk;
-  const totalBeats = (signal.beatIndex ?? 0) + (Number.isFinite(signal.phase) ? Math.max(0, Math.min(0.999, signal.phase!)) : 0);
+  const detectedBeats = (signal.beatIndex ?? 0) + (Number.isFinite(signal.phase) ? Math.max(0, Math.min(0.999, signal.phase!)) : 0);
+  // Match the reference app's default 0.65 motion rate while keeping the
+  // detected audio beat untouched for other UI/response timing.
+  const totalBeats = style === 'douyin-mix' ? detectedBeats * 0.65 : detectedBeats;
   const beat = ((Math.floor(totalBeats) % frames.length) + frames.length) % frames.length;
   const previous = (beat + frames.length - 1) % frames.length;
   const next = (beat + 1) % frames.length;
   const following = (beat + 2) % frames.length;
   const raw = totalBeats - Math.floor(totalBeats);
   // Briefly hold each experimental point pose on the beat, then travel to the next.
-  const idolTravel = Math.max(0, Math.min(1, (raw - 0.16) / 0.84));
-  const idolBlend = idolTravel * idolTravel * (3 - 2 * idolTravel);
+  const heldTravel = Math.max(0, Math.min(1, (raw - 0.16) / 0.84));
+  const idolBlend = heldTravel * heldTravel * (3 - 2 * heldTravel);
+  const smoothTravel = raw * raw * (3 - 2 * raw);
   const t2 = raw * raw;
   const t3 = t2 * raw;
   const pose = Object.fromEntries(channels.map(channel => {
@@ -98,7 +133,7 @@ export function sampleMusicDancePose(style: Exclude<MusicDanceStyle, 'groove'>, 
     const p2 = frames[next][channel] ?? 0;
     const p3 = frames[following][channel] ?? 0;
     const value = style === 'idol-pop' || style === 'douyin-mix'
-      ? p1 + (p2 - p1) * idolBlend
+      ? p1 + (p2 - p1) * (style === 'douyin-mix' ? smoothTravel : idolBlend)
       : 0.5 * ((2 * p1) + (-p0 + p2) * raw
         + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2
         + (-p0 + 3 * p1 - 3 * p2 + p3) * t3);
@@ -110,21 +145,64 @@ export function sampleMusicDancePose(style: Exclude<MusicDanceStyle, 'groove'>, 
   const transfer = Math.sin(totalBeats * TAU);
   if (style === 'douyin-mix') {
     const sink = 0.55 + 0.45 * Math.cos(totalBeats * Math.PI);
-    const kneeBase = 20 + 8 * sink;
+    const kneeBase = 12 + 8 * sink;
     const kneeL = kneeBase + 12 * Math.max(0, -transfer);
     const kneeR = kneeBase + 12 * Math.max(0, transfer);
+    const sideTilt = -0.14 * transfer;
+    const cosine = Math.cos(totalBeats * TAU);
+    const torsoRoll = -9 * transfer - 5 * cosine;
+    pose.hipPitch = degrees(4);
+    pose.hipYaw = degrees(18 * transfer);
+    pose.hipRoll = degrees(10 * cosine);
+    pose.bodyPitch += degrees(4);
+    pose.bodyYaw += degrees(-9 * transfer);
+    pose.bodyRoll += degrees(torsoRoll);
     pose.bodySway = 0.042 * transfer;
-    pose.bodyRoll += -0.14 * transfer;
-    pose.bodyYaw += degrees(18) * transfer;
+    pose.bodyTilt = sideTilt;
+    const energy = Math.max(0, Math.min(1, signal.level * 1.35));
+    pose.rootYaw = Math.sin(totalBeats * Math.PI / 2) * 0.10 * (0.5 + energy);
+    pose.chestPitch = degrees(2.5);
+    pose.chestYaw = degrees(-6 * transfer);
+    pose.chestRoll = degrees(2 * cosine);
+    pose.upperChestPitch = degrees(1.5);
+    pose.upperChestYaw = degrees(-4 * transfer);
+    pose.neckPitch = degrees(1.5);
+    pose.neckYaw = degrees(3 * transfer);
     pose.headYaw += degrees(8) * transfer;
+    pose.headPitch += degrees(4 * Math.sin(totalBeats * TAU * 2));
+    pose.headRoll += degrees(4 * Math.cos(totalBeats * TAU));
+    pose.leftShoulderJoint = degrees(5 * transfer);
+    pose.rightShoulderJoint = degrees(-5 * transfer);
     pose.leftStep = degrees(-3 - kneeL * 0.45);
     pose.rightStep = degrees(-3 - kneeR * 0.45);
+    pose.leftLegSide = degrees(13 + 3 * transfer);
+    pose.rightLegSide = degrees(-13 + 3 * transfer);
     pose.leftKnee = degrees(kneeL);
     pose.rightKnee = degrees(kneeR);
-    pose.bounce = -0.020 - 0.034 * sink;
+    pose.leftFootPitch = degrees(-5 - 3 * sink);
+    pose.rightFootPitch = pose.leftFootPitch;
+    pose.leftFootRoll = degrees(9 * transfer);
+    pose.rightFootRoll = pose.leftFootRoll;
+    pose.bounce = -0.020 - 0.034 * sink - 0.012 * Math.abs(Math.sin(raw * Math.PI)) * (0.4 + signal.level);
     const wristSpin = 0.7 * Math.sin(totalBeats * TAU * 0.75);
     pose.leftWrist += wristSpin;
     pose.rightWrist -= wristSpin;
+    pose.leftWristYaw = degrees(10 * Math.cos(totalBeats * TAU * 0.75));
+    pose.rightWristYaw = -pose.leftWristYaw;
+    pose.leftWristRoll = degrees(14 * Math.sin(totalBeats * TAU * 0.75));
+    pose.rightWristRoll = -pose.leftWristRoll;
+
+    // Low-amplitude groove layer from the reference: it keeps the torso and
+    // head alive between the eight authored hand poses.
+    const grooveBeat = totalBeats * TAU / 8;
+    const breath = Math.sin(totalBeats * Math.PI);
+    pose.bodyPitch += degrees(2 * breath);
+    pose.bodyRoll += degrees(1.5 * Math.sin(grooveBeat));
+    pose.chestPitch += degrees(1.2 * breath);
+    pose.neckPitch += degrees(Math.sin(grooveBeat + 0.6));
+    pose.headPitch += degrees(2 * Math.sin(grooveBeat * 2 + 0.4));
+    pose.headYaw += degrees(2.5 * Math.sin(grooveBeat));
+    pose.headRoll += degrees(1.5 * Math.cos(grooveBeat));
   } else {
     pose.bodySway += 0.028 * transfer;
     pose.bodyRoll += -0.055 * transfer;
