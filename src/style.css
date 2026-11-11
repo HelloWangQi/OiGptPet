@@ -92,3 +92,66 @@
   #pet-controls { left:6px; right:6px; transform:none; max-width:calc(100% - 12px); overflow-x:auto; scrollbar-width:thin; }
   #pet-controls button { flex:0 0 auto; }
 }
+
+/* Compact side dock keeps the pet's lower body visible; infrequent tools live in a flyout. */
+.pet-mode #pet-controls {
+  top:50%; right:10px; bottom:auto; left:auto; transform:translateY(-50%);
+  display:block; width:auto; max-width:none; overflow:visible; padding:0;
+  border:0; border-radius:0; background:transparent; white-space:normal;
+  opacity:0; visibility:hidden; pointer-events:none;
+  transition:opacity .18s ease, visibility .18s ease;
+}
+.pet-shell:hover #pet-controls,
+.pet-shell:focus-within #pet-controls,
+.pet-shell[data-tools-open="true"] #pet-controls {
+  opacity:1; visibility:visible; pointer-events:auto;
+}
+#pet-dock-primary {
+  display:grid; gap:6px; padding:5px;
+  border:1px solid #d8e0d1; border-radius:22px;
+  background:#f7f9f0e8; box-shadow:0 5px 18px #24301a26;
+  backdrop-filter:blur(12px);
+}
+#pet-dock-primary button {
+  display:grid; place-items:center; width:36px; height:36px; padding:0;
+  border:0; border-radius:14px; background:transparent;
+  color:#5f7655; font-size:13px; font-weight:600;
+  transition:background .15s ease, transform .15s ease;
+}
+#pet-dock-primary button:hover { background:#e4ebdc; transform:scale(1.06); }
+#pet-dock-primary button[aria-pressed="true"],
+#pet-dock-primary #pet-chat-toggle[data-open="true"] { background:#e2eadb; color:#405a3a; }
+#pet-dock-primary #pet-chat-cancel { background:#f4e5dd; color:#a34f38; }
+#pet-dock-primary #pet-tools-toggle { font-size:17px; letter-spacing:1px; }
+#pet-tools-panel {
+  position:absolute; top:50%; right:54px; transform:translateY(-50%);
+  display:grid; gap:12px; width:min(272px,calc(100vw - 76px));
+  max-height:calc(100vh - 24px); overflow-y:auto; overscroll-behavior:contain;
+  padding:13px; border:1px solid #d8e0d1; border-radius:15px;
+  background:#f7f9f0f2; box-shadow:0 8px 26px #24301a30;
+  backdrop-filter:blur(14px); scrollbar-width:thin;
+}
+.pet-tools-section { display:grid; gap:7px; min-width:0; }
+.pet-tools-section + .pet-tools-section { padding-top:10px; border-top:1px solid #e1e6db; }
+.pet-tools-section h2 { color:#77866e; font-size:10px; letter-spacing:.4px; }
+.pet-tools-actions { display:flex; flex-wrap:wrap; align-items:center; gap:6px; min-width:0; }
+.pet-tools-section button {
+  flex:1 1 auto; min-height:31px; padding:6px 9px;
+  border:1px solid #e0e5da; border-radius:8px; background:#fffefa;
+  color:#64735d; font-size:10px; text-align:center;
+}
+.pet-tools-section button:hover:not(:disabled) { border-color:#b6c5ab; background:#f0f4ea; }
+.pet-tools-section select { width:100%; min-width:0; padding:7px 8px; font-size:10px; }
+.pet-tools-section output { color:#668056; font:10px monospace; }
+.pet-tools-section progress { width:100%; margin:0; }
+.pet-tools-section #pet-dance-clip { flex:1 1 100%; }
+#pet-chat-composer { left:14px; right:58px; bottom:14px; }
+#pet-message { left:16px; right:58px; }
+@media(max-width:360px) {
+  .pet-mode #pet-controls { right:6px; }
+  #pet-dock-primary { gap:4px; padding:4px; }
+  #pet-dock-primary button { width:32px; height:32px; }
+  #pet-tools-panel { right:46px; width:calc(100vw - 58px); padding:10px; }
+  #pet-chat-composer { left:8px; right:48px; bottom:8px; }
+  #pet-message { left:8px; right:48px; }
+}

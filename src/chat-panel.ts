@@ -42,6 +42,7 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
       sendButton.hidden = !draft.trim() || voiceInput.listening || !chatComposer.hidden;
       sendButton.disabled = busy || sending;
       chatToggle.setAttribute('aria-expanded', String(!chatComposer.hidden));
+      chatToggle.setAttribute('aria-label', chatComposer.hidden ? '打开文字聊天' : '收起文字聊天');
       chatToggle.dataset.open = String(!chatComposer.hidden);
       chatSendButton.disabled = busy || sending || !draft.trim() || voiceInput.listening;
     };
@@ -103,6 +104,7 @@ export function setupChat(api: Desktop | undefined, petMode: boolean, onState: (
     };
     sendButton.onclick = () => void sendDraft();
     chatToggle.onclick = () => {
+      window.dispatchEvent(new Event('pet:close-tools'));
       chatComposer.hidden = !chatComposer.hidden;
       petShell.dataset.composerOpen = String(!chatComposer.hidden);
       chatInput.value = draft;

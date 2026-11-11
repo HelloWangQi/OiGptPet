@@ -49,38 +49,62 @@ app.innerHTML = petMode ? `
       <div><button id="pet-chat-close" type="button">收起</button><button id="pet-chat-send" class="pet-chat-send" type="submit">发送</button></div>
     </form>
     <div id="pet-controls" data-interactive>
-      <button id="workshop-button" title="角色工坊">工坊</button>
-      <button id="pet-chat-toggle" title="直接输入文字聊天" aria-expanded="false">聊聊</button>
-      <button id="pet-chat-cancel" title="停止当前回复" hidden>停止</button>
-      <button id="pet-voice-input" title="语音识别由系统服务提供，联网与处理方式由服务决定；检查转写后手动发送" aria-pressed="false">听写</button>
-      <button id="pet-voice-send" title="把转写文字发送给伙伴" hidden>发送</button>
-      <button id="pet-wave" title="挥手">挥手</button>
-      <button id="pet-music-dance" title="分析系统输出混音以提取节拍；不保存音频、不上传" hidden aria-pressed="false" aria-busy="false">音乐舞动</button>
-      <select id="pet-music-sensitivity" aria-label="音乐节拍检测灵敏度" title="音乐节拍检测灵敏度" hidden>
-        <option value="0.7">灵敏度低</option><option value="1" selected>灵敏度中</option><option value="1.35">灵敏度高</option>
-      </select>
-      <select id="pet-dance-style" aria-label="选择内置舞步风格" title="内置舞步风格；导入 VRMA 时由文件动作取代" hidden>
-        <option value="groove" selected>基础律动</option>
-        <option value="idol-pop">怦然心动·实验单人改编</option>
-        <option value="catwalk">猫步轻悄风格</option>
-      </select>
-      <button id="pet-dance-preview" title="以 100 BPM 试听 8 拍；不采集系统音频" hidden>试听舞步</button>
-      <output id="pet-dance-tempo" hidden aria-live="off" aria-label="当前节拍和舞步速度">等待节拍</output>
-      <progress id="pet-dance-energy" max="1" value="0" hidden aria-label="当前系统输出混音能量"></progress>
-      <button id="pet-dance-import" title="选择本机 VRMA 舞蹈动作" hidden>舞步文件</button>
-      <button id="pet-dance-sprite-import" title="载入本机 PNG 舞蹈帧条带" hidden>舞蹈帧 PNG</button>
-      <select id="pet-dance-template-frames" aria-label="舞蹈模板帧数" title="下载 SVG 舞蹈帧条带模板" hidden>
-        <option value="4">4 帧模板</option><option value="8" selected>8 帧模板</option>
-        <option value="16">16 帧模板</option><option value="21">21 帧模板</option>
-      </select>
-      <button id="pet-dance-template" title="下载透明 SVG 帧模板；隐藏参考线后导出 PNG" hidden>下载模板</button>
-      <select id="pet-dance-clip" aria-label="选择舞步动作片段" hidden></select>
-      <button id="pet-dance-clear" title="移除已加载的舞步动作" hidden>清除舞步</button>
+      <div id="pet-dock-primary" role="group" aria-label="常用桌宠操作">
+        <button id="pet-chat-toggle" title="直接输入文字聊天" aria-label="打开文字聊天" aria-expanded="false">聊</button>
+        <button id="pet-chat-cancel" title="停止当前回复" aria-label="停止回复" hidden>停</button>
+        <button id="pet-wave" title="挥手" aria-label="挥手">挥</button>
+        <button id="pet-music-dance" title="分析系统输出混音以提取节拍；不保存音频、不上传" aria-label="音乐舞动" hidden aria-pressed="false" aria-busy="false">舞</button>
+        <button id="pet-tools-toggle" title="更多工具" aria-label="更多桌宠工具" aria-expanded="false" aria-controls="pet-tools-panel">•••</button>
+      </div>
+      <div id="pet-tools-panel" role="group" aria-label="桌宠工具与舞步设置" hidden>
+        <section class="pet-tools-section">
+          <h2>桌宠</h2>
+          <div class="pet-tools-actions">
+            <button id="workshop-button" title="角色工坊">打开工坊</button>
+            <button id="click-through" title="Ctrl+Alt+P 或托盘恢复互动">鼠标穿透</button>
+            <button id="hide-pet" title="从托盘重新显示">隐藏桌宠</button>
+          </div>
+        </section>
+        <section class="pet-tools-section">
+          <h2>语音</h2>
+          <div class="pet-tools-actions">
+            <button id="pet-voice-input" title="语音识别由系统服务提供，联网与处理方式由服务决定；检查转写后手动发送" aria-pressed="false">听写</button>
+            <button id="pet-voice-send" title="把转写文字发送给伙伴" hidden>发送转写</button>
+            <button id="pet-read-aloud" title="朗读最新完整回复" hidden>朗读</button>
+          </div>
+        </section>
+        <section class="pet-tools-section">
+          <h2>舞步</h2>
+          <label class="sr-only" for="pet-dance-style">选择内置舞步</label>
+          <select id="pet-dance-style" aria-label="选择内置舞步风格" title="导入 VRMA 时由文件动作取代" hidden>
+            <option value="groove" selected>基础律动</option>
+            <option value="idol-pop">怦然心动·副歌实验改编</option>
+            <option value="catwalk">猫步轻悄风格</option>
+            <option value="douyin-mix">科目三·短视频舞步改编</option>
+          </select>
+          <select id="pet-music-sensitivity" aria-label="音乐节拍检测灵敏度" title="音乐节拍检测灵敏度" hidden>
+            <option value="0.7">灵敏度低</option><option value="1" selected>灵敏度中</option><option value="1.35">灵敏度高</option>
+          </select>
+          <select id="pet-dance-clip" aria-label="选择舞步动作片段" hidden></select>
+          <output id="pet-dance-tempo" hidden aria-live="off" aria-label="当前节拍和舞步速度">等待节拍</output>
+          <progress id="pet-dance-energy" max="1" value="0" hidden aria-label="当前系统输出混音能量"></progress>
+          <div class="pet-tools-actions">
+            <button id="pet-dance-preview" title="以固定 100 BPM 试听当前舞句；不采集系统音频" hidden>试听舞步</button>
+            <button id="pet-dance-import" title="选择本机 VRMA 舞蹈动作" hidden>导入 VRMA</button>
+            <button id="pet-dance-sprite-import" title="载入本机 PNG 舞蹈帧条带" hidden>舞蹈帧 PNG</button>
+            <button id="pet-dance-clear" title="移除已加载的舞步动作" hidden>清除舞步</button>
+          </div>
+          <div class="pet-tools-actions">
+            <select id="pet-dance-template-frames" aria-label="舞蹈模板帧数" title="下载 SVG 舞蹈帧条带模板" hidden>
+              <option value="4">4 帧模板</option><option value="8" selected>8 帧模板</option>
+              <option value="16">16 帧模板</option><option value="21">21 帧模板</option>
+            </select>
+            <button id="pet-dance-template" title="下载透明 SVG 帧模板；隐藏参考线后导出 PNG" hidden>下载模板</button>
+          </div>
+        </section>
+      </div>
       <input id="pet-dance-file" type="file" accept=".vrma,model/gltf-binary" hidden />
       <input id="pet-dance-sprite-file" type="file" accept="image/png,.png" hidden />
-      <button id="pet-read-aloud" title="朗读最新完整回复" hidden>朗读</button>
-      <button id="click-through" title="Ctrl+Alt+P 或托盘恢复互动">穿透</button>
-      <button id="hide-pet" title="从托盘重新显示">隐藏</button>
     </div>
   </main>` : `
   <aside class="rail">
@@ -212,8 +236,12 @@ let petDanceImportRevision = 0;
 let petDanceSpriteImportRevision = 0;
 let petDanceSpriteReady = false;
 let petDancePreviewStartedAt = 0;
+let selectedMusicDanceStyle: MusicDanceStyle = 'groove';
 const PET_DANCE_PREVIEW_BPM = 100;
-const PET_DANCE_PREVIEW_BEATS = 8;
+const PET_DANCE_PREVIEW_DEFAULT_BEATS = 8;
+function petDancePreviewBeatCount() {
+  return selectedMusicDanceStyle === 'douyin-mix' ? 16 : PET_DANCE_PREVIEW_DEFAULT_BEATS;
+}
 let petDancePlaybackRate = 1;
 let petDanceLastBpm = 100;
 let petDanceTempoReady = false;
@@ -263,7 +291,7 @@ function renderContext(now: number): RenderContext {
     targetFps: activity === 'hidden' ? 0 : activity === 'idle' ? policy.idleFps : policy.activeFps, paused };
 }
 function isPetDancePreviewActive(now = performance.now()) {
-  return petDancePreviewStartedAt > 0 && now - petDancePreviewStartedAt < PET_DANCE_PREVIEW_BEATS * 60_000 / PET_DANCE_PREVIEW_BPM;
+  return petDancePreviewStartedAt > 0 && now - petDancePreviewStartedAt < petDancePreviewBeatCount() * 60_000 / PET_DANCE_PREVIEW_BPM;
 }
 function stopPetDancePreview() {
   petDancePreviewStartedAt = 0;
@@ -273,7 +301,7 @@ function stopPetDancePreview() {
 function samplePetDancePreview(now: number) {
   if (!petDancePreviewStartedAt) return undefined;
   const elapsed = now - petDancePreviewStartedAt;
-  if (elapsed >= PET_DANCE_PREVIEW_BEATS * 60_000 / PET_DANCE_PREVIEW_BPM) {
+  if (elapsed >= petDancePreviewBeatCount() * 60_000 / PET_DANCE_PREVIEW_BPM) {
     stopPetDancePreview();
     return undefined;
   }
@@ -387,7 +415,7 @@ function stopMusicDance(message?: string) {
   petDanceLastMusicAt = 0; petDancePendingSince = 0; petDancePlaybackRate = 1; petDanceLastBpm = 100; petDanceTempoReady = false; petDanceRestartOnNextStart = hadSession && petDanceClips.length > 0; petDanceLastRateUpdate = 0; petDanceLastUiUpdate = 0;
   if (button) {
     button.dataset.active = 'false'; button.setAttribute('aria-pressed', 'false');
-    button.setAttribute('aria-busy', 'false'); button.textContent = '音乐舞动'; button.disabled = false;
+    button.setAttribute('aria-busy', 'false'); button.textContent = '舞'; button.title = '开始或停止系统音乐舞动'; button.disabled = false;
     $<HTMLSelectElement>('#pet-music-sensitivity').hidden = true;
     $<HTMLSelectElement>('#pet-dance-style').hidden = !desktop || stage?.sourceKind !== 'vrm' || petDanceClips.length > 0;
     $<HTMLOutputElement>('#pet-dance-tempo').hidden = true;
@@ -1350,8 +1378,13 @@ async function bootstrap() {
   }
   stage = new CompanionStage($<HTMLCanvasElement>('#character-canvas'));
   const musicDanceStyle = readMusicDanceStylePreference();
+  selectedMusicDanceStyle = musicDanceStyle;
   stage.setMusicDanceStyle(musicDanceStyle);
-  if (petMode) $<HTMLSelectElement>('#pet-dance-style').value = musicDanceStyle;
+  if (petMode) {
+    $<HTMLSelectElement>('#pet-dance-style').value = musicDanceStyle;
+    const beats = musicDanceStyle === 'douyin-mix' ? 16 : PET_DANCE_PREVIEW_DEFAULT_BEATS;
+    $<HTMLButtonElement>('#pet-dance-preview').title = `以 100 BPM 试听 ${beats} 拍；不采集系统音频`;
+  }
   if (petMode && desktop) musicDance = new SystemMusicAnalyzer();
   const resize = () => {
     const bounds = canvasHost.getBoundingClientRect();
@@ -1481,7 +1514,36 @@ async function bootstrap() {
 }
 
 if (petMode) {
+  const petControls = $<HTMLDivElement>('#pet-controls');
+  const toolsPanel = $<HTMLDivElement>('#pet-tools-panel');
+  const toolsToggle = $<HTMLButtonElement>('#pet-tools-toggle');
+  const closePetTools = () => {
+    toolsPanel.hidden = true;
+    petControls.dataset.toolsOpen = 'false';
+    toolsToggle.setAttribute('aria-expanded', 'false');
+    toolsToggle.setAttribute('aria-label', '更多桌宠工具');
+    toolsToggle.textContent = '•••';
+  };
+  toolsToggle.onclick = () => {
+    const open = toolsPanel.hidden;
+    toolsPanel.hidden = !open;
+    petControls.dataset.toolsOpen = String(open);
+    toolsToggle.setAttribute('aria-expanded', String(open));
+    toolsToggle.setAttribute('aria-label', open ? '收起桌宠工具' : '更多桌宠工具');
+    toolsToggle.textContent = open ? '×' : '•••';
+  };
+  document.addEventListener('pointerdown', event => {
+    if (!petControls.contains(event.target as Node)) closePetTools();
+  });
+  document.addEventListener('keydown', event => {
+    if (event.key === 'Escape' && !toolsPanel.hidden) {
+      closePetTools(); toolsToggle.focus();
+    }
+  });
+  window.addEventListener('pet:close-tools', closePetTools);
+  petControls.dataset.toolsOpen = 'false';
   $('#workshop-button').onclick = () => {
+    closePetTools();
     window.dispatchEvent(new Event('pet:open-workshop'));
     void desktop!.openWorkshop();
   };
@@ -1504,7 +1566,7 @@ if (petMode) {
     petDancePreviewStartedAt = performance.now();
     button.textContent = '停止试听';
     lastInteraction = petDancePreviewStartedAt;
-    status('试听舞步 · 固定 100 BPM、8 拍，不会采集系统音频。');
+    status(`试听舞步 · 固定 100 BPM、${petDancePreviewBeatCount()} 拍，不会采集系统音频。`);
   };
   $('#pet-music-dance').onclick = async () => {
     const button = $<HTMLButtonElement>('#pet-music-dance');
@@ -1517,13 +1579,13 @@ if (petMode) {
     const requestRevision = ++petMusicDanceStartRevision;
     button.disabled = true;
     button.setAttribute('aria-busy', 'true');
-    button.textContent = '正在连接…';
+    button.textContent = '舞'; button.title = '正在连接系统音频…';
     status('等待系统音频共享授权；通过后只在本机分析音频，不保存或上传。');
     try {
       await musicDance?.start();
       if (requestRevision !== petMusicDanceStartRevision) return;
       if (!musicDance?.active) throw new Error('系统音频采集没有启动。');
-      button.dataset.active = 'true'; button.setAttribute('aria-pressed', 'true'); button.textContent = '停止舞动';
+      button.dataset.active = 'true'; button.setAttribute('aria-pressed', 'true'); button.textContent = '舞'; button.title = '停止音乐舞动';
       $<HTMLSelectElement>('#pet-music-sensitivity').hidden = false;
       status('正在本机分析系统输出混音并跟随节拍舞动；音频不会保存或上传。');
       lastInteraction = performance.now();
@@ -1543,9 +1605,13 @@ if (petMode) {
   $<HTMLSelectElement>('#pet-dance-style').onchange = event => {
     const select = event.currentTarget as HTMLSelectElement;
     const style = select.value as MusicDanceStyle;
+    selectedMusicDanceStyle = style;
     stage.setMusicDanceStyle(style);
     const saved = writeMusicDanceStylePreference(style);
-    const names: Record<MusicDanceStyle, string> = { groove: '基础律动', 'idol-pop': '怦然心动·实验单人改编', catwalk: '猫步轻悄风格' };
+    const names: Record<MusicDanceStyle, string> = { groove: '基础律动', 'idol-pop': '怦然心动·副歌实验改编', catwalk: '猫步轻悄风格', 'douyin-mix': '科目三·短视频舞步改编' };
+    const previewBeats = style === 'douyin-mix' ? 16 : PET_DANCE_PREVIEW_DEFAULT_BEATS;
+    $<HTMLButtonElement>('#pet-dance-preview').title = `以 100 BPM 试听 ${previewBeats} 拍；不采集系统音频`;
+    if (isPetDancePreviewActive()) petDancePreviewStartedAt = performance.now();
     status(`已切换到「${names[style]}」${saved ? '，已记住本机选择' : '，本次关闭桌宠后会恢复默认'}；导入 VRMA 后将播放文件中的动作。`);
   };
   $('#pet-dance-import').onclick = () => {

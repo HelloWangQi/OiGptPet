@@ -3,6 +3,7 @@ dist/
 release/
 .cache/
 artifacts/
+/douyin_ref/
 *.log
 *.tsbuildinfo
 public/models/*.vrm
