@@ -1,10 +1,12 @@
-# 当前接续点：0.12.0 音乐舞步
+# 当前接续点：0.13.0 桌宠舞步与工具栏
 
 源码功能提交 `861a4d1`（前置修复 `7484733`），0.12.0 发布说明提交 `f539df0`，分支 `codex/desktop-prototype`。0.12.0 GitHub Release 已发布：[下载页](https://github.com/HelloWangQi/OiGptPet/releases/tag/v0.12.0)。基础律动保持默认；新增“怦然心动风格”和“猫步轻悄风格”原创八拍舞步、固定 100 BPM/8 拍试听，以及 4/8/16/21 帧精灵图 SVG 模板下载。试听不采集系统音频；用户导入 VRMA 时使用 VRMA 动作。具体行为见 [MUSIC_DANCE.md](MUSIC_DANCE.md) 和 [SPRITE_DANCE.md](SPRITE_DANCE.md)。
 
 `npm run build` 和 `npm run verify:desktop` 均通过。当前 EXE：[OiGptPet.exe](../release/v0.12.0-1794361875817/OiGptPet-win32-x64/OiGptPet.exe)，冒烟报告：`artifacts/release-smoke/run-1794361880031/result.json`，结果 `ok=true`、`rendererErrors=[]`。本次发布包基于功能提交 `861a4d1` 构建；后续 `f297776`、`f539df0` 仅更新交接及发布文档。完整记录见 [0.12.0 版本说明](releases/v0.12.0.md)。`npm test` 未运行。
 
-**0.13.0 本地开发中，尚未构建或验证**：AOA《怦然心动》改以用户选定的副歌招牌动作范围作为目标，目前仍是参考 point-dance 主题的实验性单人动作，八拍顺序尚未逐段对照原练习视频，不称为原编舞；本机 `douyin_ref` 实为《科目三》片段，已从 59–63 秒与 99–103 秒采样姿势设计 16 拍的独立选项，两个动作源不可混为一谈。舞步选择保存在本机偏好中。桌宠底部横条已改成右侧纵向常用按钮坞及可收起的工具浮层。用户提供的视频/截图/抓取数据由 `.gitignore` 排除，不打包。项目版本为 0.13.0，0.12.0 已发布包保持不变。本轮尚未运行测试、构建或 `npm run verify:desktop`；方向、幅度及小窗口布局未在 EXE 中人工验收。用户验证前须从当前源码运行 verify 并给出对应 EXE 路径和提交。
+**0.13.0 本地开发检查点 `37c95ad`**：AOA《怦然心动》改以用户选定的副歌招牌动作范围作为目标，目前仍是参考 point-dance 主题的实验性单人动作，八拍顺序尚未逐段对照原练习视频，不称为原编舞；本机 `douyin_ref` 实为《科目三》片段，已从 59–63 秒与 99–103 秒采样姿势设计 16 拍的独立选项，两个动作源不可混为一谈。舞步选择保存在本机偏好中。桌宠底部横条已改成右侧纵向常用按钮坞及可收起的工具浮层。用户提供的视频/截图/抓取数据由 `.gitignore` 排除，不打包。
+
+为 VRMA 播放期间维持活动帧率，避免 10 秒后掉入 idle 帧率；速度冒烟现在从明确归零的位置比较相同的 400ms 窗口。运行 `npm run verify:desktop` 后，最新构建包为 [OiGptPet.exe](../release/v0.13.0-1794386826942/OiGptPet-win32-x64/OiGptPet.exe)，对应代码提交 `37c95ad`。TypeScript/Vite/打包通过，实际 EXE 冒烟通过 VRMA 0.5×/2×速度及 PNG/报告导出检查；随后在桌宠本体拖动步骤 `scripts/pet-drag-smoke-steps.mjs:112` 超时，诊断为点击可见精灵像素后未进入拖拽态，测试记录中的后续 `pointermove` 已是 `buttons=0`。因此 `verify:desktop` 整体失败，不能视为验收通过；失败截图和前置导出产物在 `artifacts/release-smoke/run-1794386841289/`。不需要重复处理已通过的 VRMA 速度断言；接续时先查明拖拽自动化失败是否稳定复现以及应用命中测试是否需修复，再从当前源码重跑 `npm run verify:desktop`。`npm test` 未运行。舞蹈风格、方向、幅度和小窗口布局尚待人工查看；实际麦克风与系统朗读也未在本轮测试。
 
 ## 尚待处理
 
