@@ -89,7 +89,7 @@ app.innerHTML = petMode ? `
           <output id="pet-dance-tempo" hidden aria-live="off" aria-label="当前节拍和舞步速度">等待节拍</output>
           <progress id="pet-dance-energy" max="1" value="0" hidden aria-label="当前系统输出混音能量"></progress>
           <div class="pet-tools-actions">
-            <button id="pet-dance-preview" title="以固定 100 BPM 试听当前舞句；不采集系统音频" hidden>试听舞步</button>
+            <button id="pet-dance-preview" title="试听当前舞句；不采集系统音频" hidden>试听舞步</button>
             <button id="pet-dance-import" title="选择本机 VRMA 舞蹈动作" hidden>导入 VRMA</button>
             <button id="pet-dance-sprite-import" title="载入本机 PNG 舞蹈帧条带" hidden>舞蹈帧 PNG</button>
             <button id="pet-dance-clear" title="移除已加载的舞步动作" hidden>清除舞步</button>
@@ -236,11 +236,12 @@ let petDanceImportRevision = 0;
 let petDanceSpriteImportRevision = 0;
 let petDanceSpriteReady = false;
 let petDancePreviewStartedAt = 0;
-let selectedMusicDanceStyle: MusicDanceStyle = 'groove';
-const PET_DANCE_PREVIEW_BPM = 100;
+let selectedMusicDanceStyle: MusicDanceStyle = 'douyin-mix';
+const PET_DANCE_PREVIEW_BPM: Record<MusicDanceStyle, number> = { groove: 100, 'idol-pop': 124, catwalk: 116, 'douyin-mix': 140 };
 const PET_DANCE_PREVIEW_DEFAULT_BEATS = 8;
+function petDancePreviewTempo() { return PET_DANCE_PREVIEW_BPM[selectedMusicDanceStyle]; }
 function petDancePreviewBeatCount() {
-  return selectedMusicDanceStyle === 'douyin-mix' ? 16 : PET_DANCE_PREVIEW_DEFAULT_BEATS;
+  return PET_DANCE_PREVIEW_DEFAULT_BEATS;
 }
 let petDancePlaybackRate = 1;
 let petDanceLastBpm = 100;
@@ -291,7 +292,7 @@ function renderContext(now: number): RenderContext {
     targetFps: activity === 'hidden' ? 0 : activity === 'idle' ? policy.idleFps : policy.activeFps, paused };
 }
 function isPetDancePreviewActive(now = performance.now()) {
-  return petDancePreviewStartedAt > 0 && now - petDancePreviewStartedAt < petDancePreviewBeatCount() * 60_000 / PET_DANCE_PREVIEW_BPM;
+  return petDancePreviewStartedAt > 0 && now - petDancePreviewStartedAt < petDancePreviewBeatCount() * 60_000 / petDancePreviewTempo();
 }
 function stopPetDancePreview() {
   petDancePreviewStartedAt = 0;
@@ -301,11 +302,12 @@ function stopPetDancePreview() {
 function samplePetDancePreview(now: number) {
   if (!petDancePreviewStartedAt) return undefined;
   const elapsed = now - petDancePreviewStartedAt;
-  if (elapsed >= petDancePreviewBeatCount() * 60_000 / PET_DANCE_PREVIEW_BPM) {
+  const bpm = petDancePreviewTempo();
+  if (elapsed >= petDancePreviewBeatCount() * 60_000 / bpm) {
     stopPetDancePreview();
     return undefined;
   }
-  const beatDuration = 60_000 / PET_DANCE_PREVIEW_BPM;
+  const beatDuration = 60_000 / bpm;
   const beatPosition = (elapsed % beatDuration) / beatDuration;
   const beatIndex = Math.floor(elapsed / beatDuration);
   return {
@@ -315,7 +317,7 @@ function samplePetDancePreview(now: number) {
     beatIndex,
     tempoReady: true,
     fresh: true,
-    bpm: PET_DANCE_PREVIEW_BPM,
+    bpm,
   };
 }
 function canPreviewPetDance() {
@@ -1382,8 +1384,8 @@ async function bootstrap() {
   stage.setMusicDanceStyle(musicDanceStyle);
   if (petMode) {
     $<HTMLSelectElement>('#pet-dance-style').value = musicDanceStyle;
-    const beats = musicDanceStyle === 'douyin-mix' ? 16 : PET_DANCE_PREVIEW_DEFAULT_BEATS;
-    $<HTMLButtonElement>('#pet-dance-preview').title = `以 100 BPM 试听 ${beats} 拍；不采集系统音频`;
+    const beats = PET_DANCE_PREVIEW_DEFAULT_BEATS;
+    $<HTMLButtonElement>('#pet-dance-preview').title = `以 ${petDancePreviewTempo()} BPM 试听 ${beats} 拍；不采集系统音频`;
   }
   if (petMode && desktop) musicDance = new SystemMusicAnalyzer();
   const resize = () => {
@@ -1405,7 +1407,7 @@ async function bootstrap() {
         const tempo = $<HTMLOutputElement>('#pet-dance-tempo');
         const previewActive = !captureActive && isPetDancePreviewActive(now);
         tempo.hidden = !captureActive && !previewActive;
-        let text = previewActive ? `试听 · ${PET_DANCE_PREVIEW_BPM} BPM` : '等待节拍';
+        let text = previewActive ? `试听 · ${petDancePreviewTempo()} BPM` : '等待节拍';
         if (signal && captureActive) text = signal.tempoReady === false
           ? '检测节拍中'
           : `${Math.round(signal.bpm)} BPM${petDanceClips.length ? ` · ${petDancePlaybackRate.toFixed(2)}×` : ''}`;
@@ -1566,7 +1568,7 @@ if (petMode) {
     petDancePreviewStartedAt = performance.now();
     button.textContent = '停止试听';
     lastInteraction = petDancePreviewStartedAt;
-    status(`试听舞步 · 固定 100 BPM、${petDancePreviewBeatCount()} 拍，不会采集系统音频。`);
+    status(`试听舞步 · ${petDancePreviewTempo()} BPM、${petDancePreviewBeatCount()} 拍，不会采集系统音频。`);
   };
   $('#pet-music-dance').onclick = async () => {
     const button = $<HTMLButtonElement>('#pet-music-dance');
@@ -1605,13 +1607,14 @@ if (petMode) {
   $<HTMLSelectElement>('#pet-dance-style').onchange = event => {
     const select = event.currentTarget as HTMLSelectElement;
     const style = select.value as MusicDanceStyle;
+    const previewWasActive = isPetDancePreviewActive();
     selectedMusicDanceStyle = style;
     stage.setMusicDanceStyle(style);
     const saved = writeMusicDanceStylePreference(style);
     const names: Record<MusicDanceStyle, string> = { groove: '基础律动', 'idol-pop': '怦然心动·副歌实验改编', catwalk: '猫步轻悄风格', 'douyin-mix': '科目三·短视频舞步改编' };
-    const previewBeats = style === 'douyin-mix' ? 16 : PET_DANCE_PREVIEW_DEFAULT_BEATS;
-    $<HTMLButtonElement>('#pet-dance-preview').title = `以 100 BPM 试听 ${previewBeats} 拍；不采集系统音频`;
-    if (isPetDancePreviewActive()) petDancePreviewStartedAt = performance.now();
+    const previewBeats = PET_DANCE_PREVIEW_DEFAULT_BEATS;
+    $<HTMLButtonElement>('#pet-dance-preview').title = `以 ${petDancePreviewTempo()} BPM 试听 ${previewBeats} 拍；不采集系统音频`;
+    if (previewWasActive) petDancePreviewStartedAt = performance.now();
     status(`已切换到「${names[style]}」${saved ? '，已记住本机选择' : '，本次关闭桌宠后会恢复默认'}；导入 VRMA 后将播放文件中的动作。`);
   };
   $('#pet-dance-import').onclick = () => {

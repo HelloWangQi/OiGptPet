@@ -374,33 +374,43 @@ export class VrmStage {
       ? THREE.MathUtils.clamp(signal.phase!, 0, 1)
       : (phase * signal.bpm / 60) % 1;
     if (this.musicDanceStyle !== 'groove') {
+      // These are authored dance poses relative to the normalized VRM rest pose,
+      // not offsets from the idle pose (whose arms hang down). Reset first so a
+      // raised-arm keyframe can actually reach the intended silhouette.
+      vrm.humanoid.resetNormalizedPose();
       const pose = sampleMusicDancePose(this.musicDanceStyle, {
         ...signal,
         phase: beatPosition,
         beatIndex: signal.beatIndex ?? Math.floor(phase * signal.bpm / 60),
       });
-      const add = (name: VRMHumanBoneName, x = 0, y = 0, z = 0) => {
+      // Fixed-count choreography must stay visible even when a song has a quiet
+      // passage; audio level adds only a small accent instead of scaling the
+      // entire dance down to nearly still.
+      const strength = 0.85 + THREE.MathUtils.clamp(signal.level, 0, 1) * 0.15;
+      const set = (name: VRMHumanBoneName, x = 0, y = 0, z = 0) => {
         const bone = vrm.humanoid.getNormalizedBoneNode(name);
         if (!bone) return;
-        bone.rotation.x += x * strength;
-        bone.rotation.y += y * strength;
-        bone.rotation.z += z * strength;
+        bone.rotation.set(x * strength, y * strength, z * strength);
       };
-      add('spine', pose.bodyPitch, pose.bodyYaw, pose.bodyRoll);
-      add('chest', pose.bodyPitch * 0.45, pose.bodyYaw * 0.4, pose.bodyRoll * 0.65);
-      add('leftUpperArm', pose.leftArmPitch, pose.leftArmAcross, pose.leftShoulder);
-      add('rightUpperArm', pose.rightArmPitch, pose.rightArmAcross, pose.rightShoulder);
-      add('leftLowerArm', -0.12, 0, pose.leftElbow);
-      add('rightLowerArm', -0.12, 0, pose.rightElbow);
-      add('leftHand', pose.leftWrist);
-      add('rightHand', pose.rightWrist);
-      add('leftUpperLeg', pose.leftStep);
-      add('rightUpperLeg', pose.rightStep);
-      add('leftLowerLeg', pose.leftKnee);
-      add('rightLowerLeg', pose.rightKnee);
-      add('head', pose.headPitch, pose.headYaw, pose.headRoll);
-      this.root.position.y += (pose.bounce + signal.beat * 0.035) * strength;
-      this.root.rotation.y += pose.bodyYaw * 0.35 * strength;
+      set('spine', pose.bodyPitch, pose.bodyYaw * 0.55, pose.bodyRoll * 0.65);
+      set('chest', pose.bodyPitch * 0.45, pose.bodyYaw * 0.4, pose.bodyRoll * 0.45);
+      // VRM normalized upper arms extend along X: Y reaches across the chest,
+      // Z raises/lowers the arm. X is axial twist and is deliberately left neutral.
+      set('leftUpperArm', 0, pose.leftArmAcross, pose.leftShoulder);
+      set('rightUpperArm', 0, pose.rightArmAcross, pose.rightShoulder);
+      // Flex the elbows around Y toward the front. The old Z rotation only swung
+      // the forearm sideways, which made the hand shapes look wrong.
+      set('leftLowerArm', 0, -Math.abs(pose.leftElbow), 0);
+      set('rightLowerArm', 0, Math.abs(pose.rightElbow), 0);
+      set('leftHand', pose.leftWrist);
+      set('rightHand', pose.rightWrist);
+      set('leftUpperLeg', pose.leftStep);
+      set('rightUpperLeg', pose.rightStep);
+      set('leftLowerLeg', pose.leftKnee);
+      set('rightLowerLeg', pose.rightKnee);
+      set('head', pose.headPitch, pose.headYaw, pose.headRoll);
+      this.root.position.set(pose.bodySway * strength, (pose.bounce + signal.beat * 0.035) * strength, 0);
+      this.root.rotation.set(0, pose.bodyYaw * 0.35 * strength, pose.bodyRoll * 0.55 * strength);
       return;
     }
     const beatPhase = beatPosition * Math.PI * 2;

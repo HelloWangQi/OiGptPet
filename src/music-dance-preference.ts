@@ -7,9 +7,9 @@ const styles: readonly MusicDanceStyle[] = ['groove', 'idol-pop', 'catwalk', 'do
 export function readMusicDanceStylePreference(): MusicDanceStyle {
   try {
     const value = localStorage.getItem(storageKey);
-    return styles.find(style => style === value) ?? 'groove';
+    return styles.find(style => style === value) ?? 'douyin-mix';
   } catch {
-    return 'groove';
+    return 'douyin-mix';
   }
 }
 

@@ -2,11 +2,12 @@ import type { MusicDanceSignal } from './music-dance';
 
 export type MusicDanceStyle = 'groove' | 'idol-pop' | 'catwalk' | 'douyin-mix';
 
-/** Small additive pose values layered over the character's idle pose. */
+/** Pose channels for the authored, fixed-count single-avatar dance phrases. */
 export interface MusicDancePose {
   bodyPitch: number;
   bodyRoll: number;
   bodyYaw: number;
+  bodySway: number;
   headPitch: number;
   headRoll: number;
   headYaw: number;
@@ -28,6 +29,8 @@ export interface MusicDancePose {
 }
 
 type PoseKeyframe = Partial<MusicDancePose>;
+const TAU = Math.PI * 2;
+const degrees = (value: number) => value * Math.PI / 180;
 
 const idolPop: PoseKeyframe[] = [
   // Experimental single-avatar phrase inspired by the three publicly named point-dance motifs.
@@ -55,28 +58,22 @@ const catwalk: PoseKeyframe[] = [
 ];
 
 const douyinMix: PoseKeyframe[] = [
-  // Single-avatar adaptation of the local 科目三 reference clip: raised-fist hops,
-  // chest accents, forward points, and cross-body arm sweeps from its two sampled phrases.
-  { bodyRoll: -0.025, bodyYaw: 0.025, rightShoulder: -0.18, rightArmPitch: -0.22, rightElbow: -0.26, leftShoulder: 0.12, leftArmPitch: -0.14, leftElbow: 0.14, leftStep: -0.08, rightStep: 0.08, bounce: 0.025 },
-  { bodyRoll: 0.035, bodyYaw: 0.025, rightShoulder: -0.78, rightArmPitch: -0.28, rightElbow: -0.9, leftShoulder: 0.1, leftArmPitch: -0.08, leftElbow: 0.12, leftStep: 0.08, rightStep: -0.12, rightKnee: 0.14, bounce: 0.075 },
-  { bodyRoll: -0.025, bodyYaw: -0.025, rightShoulder: -0.86, rightArmPitch: -0.3, rightElbow: -0.88, leftShoulder: 0.1, leftArmPitch: -0.1, leftElbow: 0.12, leftStep: -0.12, rightStep: 0.08, leftKnee: 0.14, bounce: 0.07 },
-  { bodyRoll: 0.035, bodyYaw: 0.025, rightShoulder: -0.8, rightArmPitch: -0.28, rightElbow: -0.9, leftShoulder: 0.1, leftArmPitch: -0.08, leftElbow: 0.12, leftStep: 0.08, rightStep: -0.12, rightKnee: 0.14, bounce: 0.075 },
-  { bodyRoll: -0.025, bodyYaw: -0.025, rightShoulder: -0.84, rightArmPitch: -0.3, rightElbow: -0.88, leftShoulder: 0.1, leftArmPitch: -0.1, leftElbow: 0.12, leftStep: -0.12, rightStep: 0.08, leftKnee: 0.14, bounce: 0.07 },
-  { bodyPitch: -0.035, bodyRoll: 0.045, rightShoulder: -0.3, rightArmPitch: -0.28, rightArmAcross: -0.2, rightElbow: -0.58, leftShoulder: 0.08, leftArmPitch: -0.12, leftElbow: 0.12, leftStep: 0.08, rightStep: -0.1, bounce: 0.045 },
-  { bodyPitch: -0.02, bodyRoll: -0.04, rightShoulder: -0.26, rightArmPitch: -0.3, rightArmAcross: -0.22, rightElbow: -0.58, leftShoulder: 0.08, leftArmPitch: -0.12, leftElbow: 0.12, leftStep: -0.1, rightStep: 0.08, rightKnee: 0.08, bounce: 0.04 },
-  { bodyPitch: -0.035, bodyRoll: 0.04, rightShoulder: -0.3, rightArmPitch: -0.28, rightArmAcross: -0.2, rightElbow: -0.58, leftShoulder: 0.08, leftArmPitch: -0.12, leftElbow: 0.12, leftStep: 0.08, rightStep: -0.1, bounce: 0.045 },
-  { bodyRoll: -0.045, bodyYaw: 0.06, rightShoulder: -0.34, rightArmPitch: -0.7, rightElbow: -0.18, leftShoulder: 0.55, leftArmPitch: -0.18, leftElbow: -0.12, leftStep: -0.2, rightStep: 0.2, bounce: 0.025 },
-  { bodyRoll: 0.045, bodyYaw: -0.06, rightShoulder: -0.34, rightArmPitch: -0.72, rightElbow: -0.18, leftShoulder: 0.58, leftArmPitch: -0.16, leftElbow: -0.12, leftStep: 0.2, rightStep: -0.18, bounce: 0.025 },
-  { bodyRoll: -0.07, bodyYaw: 0.08, rightShoulder: 0.26, rightArmPitch: -0.18, rightArmAcross: -0.5, rightElbow: -0.46, leftShoulder: 0.42, leftArmPitch: -0.2, leftArmAcross: 0.18, leftElbow: -0.16, leftStep: -0.16, rightStep: 0.16, bounce: 0.02 },
-  { bodyRoll: 0.07, bodyYaw: -0.08, rightShoulder: 0.3, rightArmPitch: -0.14, rightArmAcross: -0.5, rightElbow: -0.5, leftShoulder: 0.38, leftArmPitch: -0.16, leftArmAcross: 0.2, leftElbow: -0.14, leftStep: 0.16, rightStep: -0.16, bounce: 0.02 },
-  { bodyRoll: -0.04, bodyYaw: 0.04, rightShoulder: -0.22, rightArmPitch: -0.72, rightElbow: -0.2, leftShoulder: 0.6, leftArmPitch: -0.18, leftElbow: -0.08, leftStep: -0.18, rightStep: 0.18, bounce: 0.025 },
-  { bodyRoll: 0.06, bodyYaw: -0.06, rightShoulder: 0.24, rightArmPitch: -0.2, rightArmAcross: -0.34, rightElbow: -0.62, leftShoulder: 0.12, leftArmPitch: -0.06, leftArmAcross: 0.14, leftElbow: -0.12, leftStep: 0.14, rightStep: -0.14, bounce: 0.02 },
-  { bodyRoll: -0.055, bodyYaw: 0.06, rightShoulder: 0.3, rightArmPitch: -0.2, rightArmAcross: -0.36, rightElbow: -0.62, leftShoulder: 0.14, leftArmPitch: -0.06, leftArmAcross: 0.16, leftElbow: -0.12, leftStep: -0.14, rightStep: 0.14, bounce: 0.02 },
-  { bodyRoll: 0.045, bodyYaw: -0.05, rightShoulder: -0.32, rightArmPitch: -0.72, rightElbow: -0.18, leftShoulder: 0.56, leftArmPitch: -0.16, leftElbow: -0.1, leftStep: 0.18, rightStep: -0.18, bounce: 0.025 },
+  // Eight-count solo adaptation following the supplied VRM dance reference:
+  // chest gather, alternating raised-fist accents, double-arm hits and a cross-body finish.
+  // Arm values follow normalized VRM axes: upper-arm Y reaches forward, Z raises;
+  // lower-arm Y flexes the elbow. This is an adaptation, not a claim of exact choreography.
+  { leftArmAcross: degrees(-58), leftShoulder: degrees(-30), leftElbow: degrees(-74), rightArmAcross: degrees(58), rightShoulder: degrees(30), rightElbow: degrees(74) },
+  { leftArmAcross: degrees(-12), leftShoulder: degrees(-52), leftElbow: degrees(-18), rightArmAcross: degrees(46), rightShoulder: degrees(-8), rightElbow: degrees(20), bodyRoll: degrees(5) },
+  { leftArmAcross: degrees(-16), leftShoulder: degrees(-50), leftElbow: degrees(-14), rightArmAcross: degrees(40), rightShoulder: degrees(-42), rightElbow: degrees(88), bodyRoll: degrees(-5) },
+  { leftArmAcross: degrees(-46), leftShoulder: degrees(-34), leftElbow: degrees(-32), rightArmAcross: degrees(42), rightShoulder: degrees(-36), rightElbow: degrees(86), bodyYaw: degrees(5) },
+  { leftArmAcross: degrees(-74), leftShoulder: degrees(-12), leftElbow: degrees(-82), rightArmAcross: degrees(74), rightShoulder: degrees(12), rightElbow: degrees(82), bodyPitch: degrees(4) },
+  { leftArmAcross: degrees(-76), leftShoulder: degrees(-56), leftElbow: degrees(-34), rightArmAcross: degrees(76), rightShoulder: degrees(56), rightElbow: degrees(34), bodyPitch: degrees(-3) },
+  { leftArmAcross: degrees(-84), leftShoulder: degrees(-20), leftElbow: degrees(-22), rightArmAcross: degrees(84), rightShoulder: degrees(20), rightElbow: degrees(22), bodyYaw: degrees(-5) },
+  { leftArmAcross: degrees(-30), leftShoulder: degrees(-30), leftElbow: degrees(-86), rightArmAcross: degrees(20), rightShoulder: degrees(44), rightElbow: degrees(16), bodyRoll: degrees(6) },
 ];
 
 const channels: (keyof MusicDancePose)[] = [
-  'bodyPitch', 'bodyRoll', 'bodyYaw', 'headPitch', 'headRoll', 'headYaw',
+  'bodyPitch', 'bodyRoll', 'bodyYaw', 'bodySway', 'headPitch', 'headRoll', 'headYaw',
   'leftShoulder', 'rightShoulder', 'leftArmPitch', 'rightArmPitch', 'leftArmAcross', 'rightArmAcross',
   'leftElbow', 'rightElbow', 'leftWrist', 'rightWrist', 'leftStep', 'rightStep', 'leftKnee', 'rightKnee', 'bounce',
 ];
@@ -108,9 +105,38 @@ export function sampleMusicDancePose(style: Exclude<MusicDanceStyle, 'groove'>, 
     return [channel, value];
   })) as unknown as MusicDancePose;
 
-  // Keep the experimental point poses readable; the other style retains a small continuous sway.
-  const microSway = style === 'idol-pop' || style === 'douyin-mix' ? 0 : Math.sin(raw * Math.PI * 2) * 0.025;
-  pose.bodyYaw += microSway;
-  pose.headRoll -= microSway * 0.55;
+  // Add visible weight transfer and knee action between hand poses. The provided
+  // reference uses a grounded side-to-side step, not isolated arm waving.
+  const transfer = Math.sin(totalBeats * TAU);
+  if (style === 'douyin-mix') {
+    const sink = 0.55 + 0.45 * Math.cos(totalBeats * Math.PI);
+    const kneeBase = 20 + 8 * sink;
+    const kneeL = kneeBase + 12 * Math.max(0, -transfer);
+    const kneeR = kneeBase + 12 * Math.max(0, transfer);
+    pose.bodySway = 0.042 * transfer;
+    pose.bodyRoll += -0.14 * transfer;
+    pose.bodyYaw += degrees(18) * transfer;
+    pose.headYaw += degrees(8) * transfer;
+    pose.leftStep = degrees(-3 - kneeL * 0.45);
+    pose.rightStep = degrees(-3 - kneeR * 0.45);
+    pose.leftKnee = degrees(kneeL);
+    pose.rightKnee = degrees(kneeR);
+    pose.bounce = -0.020 - 0.034 * sink;
+    const wristSpin = 0.7 * Math.sin(totalBeats * TAU * 0.75);
+    pose.leftWrist += wristSpin;
+    pose.rightWrist -= wristSpin;
+  } else {
+    pose.bodySway += 0.028 * transfer;
+    pose.bodyRoll += -0.055 * transfer;
+    pose.leftStep += -0.065 - 0.065 * Math.max(0, transfer);
+    pose.rightStep += -0.065 - 0.065 * Math.max(0, -transfer);
+    pose.leftKnee += 0.12 + 0.13 * Math.max(0, -transfer);
+    pose.rightKnee += 0.12 + 0.13 * Math.max(0, transfer);
+  }
+  if (style !== 'idol-pop' && style !== 'douyin-mix') {
+    const microSway = Math.sin(raw * Math.PI * 2) * 0.025;
+    pose.bodyYaw += microSway;
+    pose.headRoll -= microSway * 0.55;
+  }
   return pose;
 }
