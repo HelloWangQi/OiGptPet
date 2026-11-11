@@ -4,9 +4,9 @@
 
 `npm run build` 和 `npm run verify:desktop` 均通过。当前 EXE：[OiGptPet.exe](../release/v0.12.0-1794361875817/OiGptPet-win32-x64/OiGptPet.exe)，冒烟报告：`artifacts/release-smoke/run-1794361880031/result.json`，结果 `ok=true`、`rendererErrors=[]`。本次发布包基于功能提交 `861a4d1` 构建；后续 `f297776`、`f539df0` 仅更新交接及发布文档。完整记录见 [0.12.0 版本说明](releases/v0.12.0.md)。`npm test` 未运行。
 
-**0.13.0 本地开发检查点 `37c95ad`**：AOA《怦然心动》改以用户选定的副歌招牌动作范围作为目标，目前仍是参考 point-dance 主题的实验性单人动作，八拍顺序尚未逐段对照原练习视频，不称为原编舞；本机 `douyin_ref` 实为《科目三》片段，已从 59–63 秒与 99–103 秒采样姿势设计 16 拍的独立选项，两个动作源不可混为一谈。舞步选择保存在本机偏好中。桌宠底部横条已改成右侧纵向常用按钮坞及可收起的工具浮层。用户提供的视频/截图/抓取数据由 `.gitignore` 排除，不打包。
+**0.13.0 当前本地检查点 `8f02690`**：用户指出舞步与参考程序差距仍大。对照其 `vrm-dance-pet` 的预览和源码后，科目三改为 8 拍/140 BPM 编排，从标准化静止姿势直接驱动，修正肘部 Y 轴弯曲并加入膝部动作、整身侧移/侧倾；新配置默认该舞步，基础律动仍可手动选择，明确保存过的偏好保留。AOA 副歌舞步仍属实验改编，未逐段核对官方练习视频，不能称为原编舞。舞步效果尚未在同一 `AvatarSample_B.vrm` 上进行本项目与参考程序的渲染对照；用户尚未确认本次修改达到目标，不要记录为视觉验收通过。外部参考工程的 GIF、VRM 和程序本身未打进安装包。
 
-为 VRMA 播放期间维持活动帧率，避免 10 秒后掉入 idle 帧率；速度冒烟现在从明确归零的位置比较相同的 400ms 窗口。运行 `npm run verify:desktop` 后，最新构建包为 [OiGptPet.exe](../release/v0.13.0-1794386826942/OiGptPet-win32-x64/OiGptPet.exe)，对应代码提交 `37c95ad`。TypeScript/Vite/打包通过，实际 EXE 冒烟通过 VRMA 0.5×/2×速度及 PNG/报告导出检查；随后在桌宠本体拖动步骤 `scripts/pet-drag-smoke-steps.mjs:112` 超时，诊断为点击可见精灵像素后未进入拖拽态，测试记录中的后续 `pointermove` 已是 `buttons=0`。因此 `verify:desktop` 整体失败，不能视为验收通过；失败截图和前置导出产物在 `artifacts/release-smoke/run-1794386841289/`。不需要重复处理已通过的 VRMA 速度断言；接续时先查明拖拽自动化失败是否稳定复现以及应用命中测试是否需修复，再从当前源码重跑 `npm run verify:desktop`。`npm test` 未运行。舞蹈风格、方向、幅度和小窗口布局尚待人工查看；实际麦克风与系统朗读也未在本轮测试。
+当前 EXE：[OiGptPet.exe](../release/v0.13.0-1794389401169/OiGptPet-win32-x64/OiGptPet.exe)，对应代码提交 `8f02690`。TypeScript、Vite 和打包通过；`npm run verify:desktop` 的实际 EXE 冒烟已跑到 `scripts/chat-smoke-steps.mjs:60`，因“完整回复可朗读”断言失败而退出，故整套验收未通过；前置动画/VRMA、图集导出、桌宠窗口步骤已运行。日志和截图在 `artifacts/release-smoke/run-1794389414786/`，没有完整成功报告。此前对新 EXE 的 Windows 窗口状态采集遇到两个同名窗口而未完成本机视觉检查。下一步应先用同一个 AvatarSample_B 对比参考图中的动作轮廓和节奏，再根据可见差异调动作，不能仅凭参数宣称已修好。`npm test` 未运行；实际麦克风、系统朗读仍待人工验收。
 
 ## 尚待处理
 
