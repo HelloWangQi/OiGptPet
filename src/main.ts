@@ -55,6 +55,7 @@ app.innerHTML = petMode ? `
         <button id="pet-wave" title="挥手" aria-label="挥手">挥</button>
         <button id="pet-music-dance" title="分析系统输出混音以提取节拍；不保存音频、不上传" aria-label="音乐舞动" hidden aria-pressed="false" aria-busy="false">舞</button>
         <button id="pet-tools-toggle" title="更多工具" aria-label="更多桌宠工具" aria-expanded="false" aria-controls="pet-tools-panel">•••</button>
+        <button id="pet-quit" title="保存桌面位置并退出 OiGptPet" aria-label="退出 OiGptPet">×</button>
       </div>
       <div id="pet-tools-panel" data-interactive role="group" aria-label="桌宠工具与舞步设置" hidden>
         <section class="pet-tools-section">
@@ -1463,7 +1464,19 @@ async function bootstrap() {
     if (previous.target.hasPointerCapture(previous.pointerId)) previous.target.releasePointerCapture(previous.pointerId);
     void desktop!.endDrag().catch(console.error);
   };
+  let interactiveRects: DOMRect[] = [];
   if (petMode) {
+    const interactiveElements = [...document.querySelectorAll<HTMLElement>('[data-interactive]')];
+    const refreshInteractiveRects = () => {
+      interactiveRects = interactiveElements.flatMap(element => element.hidden || element.closest('[hidden]')
+        ? [] : [element.getBoundingClientRect()]);
+    };
+    const interactiveResizeObserver = new ResizeObserver(refreshInteractiveRects);
+    for (const element of interactiveElements) interactiveResizeObserver.observe(element);
+    const interactiveMutationObserver = new MutationObserver(refreshInteractiveRects);
+    interactiveMutationObserver.observe(document.body, { attributes: true, attributeFilter: ['hidden', 'style'], subtree: true });
+    window.addEventListener('resize', refreshInteractiveRects);
+    refreshInteractiveRects();
     canvasHost.addEventListener('pointerdown', event => {
       if (event.button !== 0 || !event.isPrimary || (event.target as HTMLElement).id !== 'character-canvas'
         || !stage.hitTest(event.clientX, event.clientY)) return;
@@ -1497,12 +1510,8 @@ async function bootstrap() {
     lastPointer = performance.now();
     lastInteraction = lastPointer;
     if (petMode && !forcedInteractive && !bodyDrag) {
-      const overInteractiveRegion = [...document.querySelectorAll<HTMLElement>('[data-interactive]')].some(element => {
-        if (element.hidden || element.closest('[hidden]') || getComputedStyle(element).display === 'none') return false;
-        const rect = element.getBoundingClientRect();
-        return event.clientX >= rect.left && event.clientX <= rect.right
-          && event.clientY >= rect.top && event.clientY <= rect.bottom;
-      });
+      const overInteractiveRegion = interactiveRects.some(rect => event.clientX >= rect.left && event.clientX <= rect.right
+        && event.clientY >= rect.top && event.clientY <= rect.bottom);
       const interactive = (event.target as HTMLElement)?.closest('[data-interactive]')
         || overInteractiveRegion || stage.hitTest(event.clientX, event.clientY);
       const next = !interactive;
@@ -1583,6 +1592,7 @@ if (petMode) {
     void desktop!.openWorkshop();
   };
   $('#hide-pet').onclick = () => void desktop!.hidePet();
+  $('#pet-quit').onclick = () => { void desktop!.quit().catch(error => status(`退出失败：${String(error)}`, true)); };
   $('#pet-read-aloud').onclick = () => {
     if (petSpeech?.speaking) { petSpeech.stop(); return; }
     const view = petChat.current(performance.now());

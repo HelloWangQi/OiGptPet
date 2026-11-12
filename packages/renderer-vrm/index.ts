@@ -52,6 +52,8 @@ export class VrmStage {
   private motionLoopMode: VrmMotionLoopMode = 'repeat';
   private disposed = false;
   private lookTarget = new THREE.Object3D();
+  private readonly hitRaycaster = new THREE.Raycaster();
+  private readonly hitNdc = new THREE.Vector2();
   private lastState?: AnimationState;
   private lastStateRevision?: number;
   private speechMouthTarget = 0;
@@ -665,9 +667,9 @@ export class VrmStage {
   renderLook(angle: number) { this.render('idle', 0, 0, sampleLook(angle)); }
   hitTest(x: number, y: number) {
     const bounds = this.canvas.getBoundingClientRect();
-    const ray = new THREE.Raycaster();
-    ray.setFromCamera(new THREE.Vector2((x - bounds.left) / bounds.width * 2 - 1, -(y - bounds.top) / bounds.height * 2 + 1), this.camera);
-    return ray.intersectObject(this.root, true).length > 0;
+    this.hitNdc.set((x - bounds.left) / bounds.width * 2 - 1, -(y - bounds.top) / bounds.height * 2 + 1);
+    this.hitRaycaster.setFromCamera(this.hitNdc, this.camera);
+    return this.hitRaycaster.intersectObject(this.root, true).length > 0;
   }
   get loaded() { return Boolean(this.vrm); }
   private releaseModel() {

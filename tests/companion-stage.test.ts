@@ -5,6 +5,7 @@ vi.mock('../packages/renderer-vrm', () => ({ VrmStage: class {
   loaded = false;
   disposed = false;
   render = vi.fn(); resize = vi.fn(); hitTest = vi.fn(() => true); setSpeechMouthOpen = vi.fn();
+  setMusicDanceSignal = vi.fn(); setMusicDanceStyle = vi.fn(); setMusicDanceMotionMode = vi.fn(); setMusicDanceMotionPlaying = vi.fn();
   playMotion = vi.fn(); toggleMotion = vi.fn(() => true); clearMotion = vi.fn();
   constructor(public canvas: any) { probe.instances.push(this); }
   async load() {
@@ -18,6 +19,7 @@ vi.mock('../packages/renderer-sprite', () => ({ SPRITE_MAX_CANVAS_DIMENSION: 409
   loaded = false;
   disposed = false;
   render = vi.fn(); resize = vi.fn(); hitTest = vi.fn(() => false);
+  setMusicDanceSignal = vi.fn();
   constructor(public canvas: any) { probe.instances.push(this); }
   async load() { await probe.load?.(); this.loaded = true; }
   dispose() { this.disposed = true; this.loaded = false; }
@@ -63,9 +65,9 @@ describe('transactional visible companion replacement', () => {
   it('late results from superseded preparation cannot commit', async () => {
     const { stage } = fixture(); let resolve!: () => void;
     probe.load = () => new Promise<void>((done) => { resolve = done; });
-    const old = stage.prepare(sprite()); const rejected = expect(old).rejects.toMatchObject({ name: 'AbortError' });
+    const old = stage.prepare(sprite()); const rejected = old.then(() => null, error => error);
     probe.load = undefined; const latest = await stage.prepare(vrm()); latest.commit();
-    resolve(); await rejected;
+    resolve(); await expect(rejected).resolves.toMatchObject({ name: 'AbortError' });
     expect(probe.instances[0].disposed).toBe(true); expect(stage.sourceKind).toBe('vrm');
   });
   it('cancellation after loading but before persistence commit preserves visible state', async () => {

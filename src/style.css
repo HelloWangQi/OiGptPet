@@ -109,27 +109,28 @@
 #pet-dock-primary {
   display:grid; gap:6px; padding:5px;
   border:1px solid #d8e0d1; border-radius:22px;
-  background:#f7f9f0e8; box-shadow:0 5px 18px #24301a26;
-  backdrop-filter:blur(12px);
+  background:#f7f9f0f5; box-shadow:0 3px 10px #24301a20;
 }
 #pet-dock-primary button {
   display:grid; place-items:center; width:36px; height:36px; padding:0;
   border:0; border-radius:14px; background:transparent;
   color:#5f7655; font-size:13px; font-weight:600;
-  transition:background .15s ease, transform .15s ease;
+  transition:background .1s ease, color .1s ease;
 }
-#pet-dock-primary button:hover { background:#e4ebdc; transform:scale(1.06); }
+#pet-dock-primary button:hover { background:#e4ebdc; }
 #pet-dock-primary button[aria-pressed="true"],
 #pet-dock-primary #pet-chat-toggle[data-open="true"] { background:#e2eadb; color:#405a3a; }
 #pet-dock-primary #pet-chat-cancel { background:#f4e5dd; color:#a34f38; }
 #pet-dock-primary #pet-tools-toggle { font-size:17px; letter-spacing:1px; }
+#pet-dock-primary #pet-quit { color:#a34f48; font-size:20px; font-weight:400; }
+#pet-dock-primary #pet-quit:hover { background:#f5e2df; color:#8e332d; }
 #pet-tools-panel {
   position:absolute; top:50%; right:54px; transform:translateY(-50%);
   display:grid; gap:12px; width:min(272px,calc(100vw - 76px));
   max-height:calc(100vh - 24px); overflow-y:auto; overscroll-behavior:contain;
   padding:13px; border:1px solid #d8e0d1; border-radius:15px;
-  background:#f7f9f0f2; box-shadow:0 8px 26px #24301a30;
-  backdrop-filter:blur(14px); scrollbar-width:thin;
+  background:#f7f9f0fa; box-shadow:0 5px 16px #24301a24;
+  scrollbar-width:thin;
 }
 .pet-mode .pet-shell[data-tools-open="true"] { overflow:visible; }
 .pet-mode #pet-controls { top:0; bottom:0; transform:none; display:flex; align-items:center; }

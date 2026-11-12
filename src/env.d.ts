@@ -31,6 +31,7 @@ interface Window {
     openPet(): Promise<void>;
     openWorkshop(): Promise<void>;
     hidePet(): Promise<void>;
+    quit(): Promise<void>;
     startDrag(): Promise<boolean>;
     endDrag(): Promise<void>;
     setClickThrough(value: boolean): Promise<void>;

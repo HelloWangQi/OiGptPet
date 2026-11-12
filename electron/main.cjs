@@ -231,6 +231,10 @@ function handlers() {
   ipcMain.handle('pet:open', (event) => { trusted(event); openPet(); });
   ipcMain.handle('workshop:open', (event) => { trusted(event); openWorkshop(); });
   ipcMain.handle('pet:hide', (event) => { trusted(event); pet?.hide(); });
+  ipcMain.handle('pet:quit', (event) => {
+    if (trusted(event) !== pet) throw new Error('Only the pet can request application exit');
+    app.quit();
+  });
   ipcMain.handle('pet:click-through', (event, enabled) => {
     trusted(event);
     if (typeof enabled !== 'boolean') throw new Error('Invalid toggle');
