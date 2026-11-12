@@ -2,15 +2,23 @@ import assert from 'node:assert/strict';
 import path from 'node:path';
 
 export async function checkWorkshopLayout(desktop, page, output) {
-  const original = await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(win => win.isResizable()).getContentSize());
+  const original = await desktop.evaluate(({ BrowserWindow }) => {
+    const win = BrowserWindow.getAllWindows().find(win => win.isResizable());
+    if (win.isMaximized()) win.unmaximize();
+    return win.getContentSize();
+  });
   const results = [];
   const actualViewports = new Set();
   try {
     // Windows clamps requested content sizes to the active display work area.
     // Sample the resulting viewport instead of waiting for an impossible exact size.
     for (const [requestedWidth, requestedHeight] of [[1220, 850], [980, 700], [1120, 800]]) {
-      await desktop.evaluate(({ BrowserWindow }, [width, height]) => BrowserWindow.getAllWindows().find(win => win.isResizable()).setContentSize(width, height), [requestedWidth, requestedHeight]);
-      await page.waitForTimeout(150);
+      const nativeSize = await desktop.evaluate(({ BrowserWindow }, [width, height]) => {
+        const win = BrowserWindow.getAllWindows().find(win => win.isResizable());
+        win.setContentSize(width, height);
+        return win.getContentSize();
+      }, [requestedWidth, requestedHeight]);
+      await page.waitForFunction(([width, height]) => innerWidth === width && innerHeight === height, nativeSize);
       const viewport = await page.evaluate(() => ({ width: innerWidth, height: innerHeight }));
       const { width, height } = viewport;
       assert.ok(width >= 980 && height >= 700, 'Workshop viewport fell below the supported window minimum');

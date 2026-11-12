@@ -1,5 +1,15 @@
 # 当前接续点：0.13.0 桌宠舞步与工具栏
 
+## 最新：舞步坐标与桌宠比例修复
+
+本轮统一 AOA/猫步的手臂编排坐标与 VRM 标准化 T 姿势，纠正左右屈肘符号，并将原有前伸通道映射到实际使用的上臂 Y 轴。补齐颈部与腿部侧摆默认通道。科目三数据保持原坐标；自动混合使用修复后的姿态。相机恢复与画布一致的宽高比，避免角色被横向压瘦。普通动作暂停时冻结已绘制姿态，恢复后才处理动作切换，导出/显式采样仍可零时间定位。
+
+舞步方向与节拍时钟两份回归文件共 5 项通过；最终 `npm run verify:desktop` 全部通过，实际 EXE 报告为 `artifacts/release-smoke/run-1794453456937/result.json`。修正了旧聊天冒烟未展开工具面板就断言朗读可见的错误；布局冒烟等待原生尺寸与渲染窗口同步。同 AvatarSample_B 的实际 EXE 录帧已检查收臂、单侧手势和比例，结果在 `artifacts/dance-visual-compare/`，修复前帧保留于其 `before-arm-fix/`。AOA 仍为实验编排，未认定复刻官方原舞，也未认定整体效果超过 Qoder。
+
+最新 EXE：`E:\GitWorkSpace\OiGptPet\release\v0.13.0-1794453452491\OiGptPet-win32-x64\OiGptPet.exe`。本轮只在本地提交。下方为先前轮次记录，其 EXE 可能已被三包保留策略清理。
+
+## 先前记录
+
 本轮为音乐舞动增加连续节拍时钟：漏拍时舞句继续前进，BPM 更新不会使动作位置回退，鼓点仍用于重拍反馈；长时间静音会重置。自动混合按连续舞步时间选择舞段。真实音乐与舞姿观感仍需体验，不能据此认定已超过参考程序。
 
 源码分支 `codex/desktop-prototype`。0.12.0 GitHub Release 已发布：[下载页](https://github.com/HelloWangQi/OiGptPet/releases/tag/v0.12.0)。0.13.0 引入“怦然心动风格”和“猫步轻悄风格”实验性八拍舞步、舞步试听，以及 4/8/16/21 帧精灵图 SVG 模板下载；音乐试听不采集系统音频，用户导入 VRMA 时使用 VRMA 动作。具体行为见 [MUSIC_DANCE.md](MUSIC_DANCE.md) 和 [SPRITE_DANCE.md](SPRITE_DANCE.md)。

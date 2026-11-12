@@ -63,7 +63,22 @@ type PoseKeyframe = Partial<MusicDancePose>;
 const TAU = Math.PI * 2;
 const degrees = (value: number) => value * Math.PI / 180;
 
-const idolPop: PoseKeyframe[] = [
+// These two phrases were authored as lifts from relaxed arms, while VRM
+// normalized arms start horizontal. Convert once before interpolation/blending.
+function normalizedArmPhrase(frames: PoseKeyframe[]): PoseKeyframe[] {
+  return frames.map(frame => ({
+    ...frame,
+    leftShoulder: -Math.PI / 2 + (frame.leftShoulder ?? 0) * 2,
+    rightShoulder: Math.PI / 2 + (frame.rightShoulder ?? 0) * 2,
+    leftArmAcross: -Math.abs(frame.leftArmAcross ?? 0) - Math.abs(frame.leftArmPitch ?? 0),
+    rightArmAcross: Math.abs(frame.rightArmAcross ?? 0) + Math.abs(frame.rightArmPitch ?? 0),
+    leftArmPitch: 0, rightArmPitch: 0,
+    leftElbow: -Math.abs(frame.leftElbow ?? 0),
+    rightElbow: Math.abs(frame.rightElbow ?? 0),
+  }));
+}
+
+const idolPop = normalizedArmPhrase([
   // Experimental single-avatar phrase inspired by the three publicly named point-dance motifs.
   // Timing, order, and pose shapes have not been visually checked against the official video.
   { bodyRoll: -0.035, bodyYaw: 0.04, headRoll: 0.035, leftShoulder: 0.24, rightShoulder: -0.24, leftArmPitch: -0.34, rightArmPitch: -0.34, leftArmAcross: 0.3, rightArmAcross: -0.3, leftElbow: 0.48, rightElbow: -0.48, leftWrist: 0.08, rightWrist: -0.08, leftStep: -0.12, rightStep: 0.12, bounce: 0.018 },
@@ -74,9 +89,9 @@ const idolPop: PoseKeyframe[] = [
   { bodyRoll: 0.075, bodyYaw: 0.07, headYaw: -0.08, leftShoulder: 0.18, rightShoulder: -0.72, leftArmPitch: -0.24, rightArmPitch: -0.62, leftArmAcross: 0.25, rightArmAcross: -0.1, leftElbow: 0.5, rightElbow: -0.9, rightWrist: 0.62, leftStep: 0.18, rightStep: -0.12, rightKnee: 0.13, bounce: 0.038 },
   { bodyRoll: -0.06, bodyYaw: -0.07, headYaw: 0.08, leftShoulder: 0.72, rightShoulder: -0.2, leftArmPitch: -0.62, rightArmPitch: -0.24, leftArmAcross: 0.1, rightArmAcross: -0.25, leftElbow: 0.9, rightElbow: -0.5, leftWrist: -0.62, leftStep: -0.12, rightStep: 0.18, leftKnee: 0.13, bounce: 0.04 },
   { bodyPitch: -0.015, bodyRoll: 0.04, headRoll: -0.07, leftShoulder: 0.48, rightShoulder: -0.48, leftArmPitch: -0.3, rightArmPitch: -0.3, leftArmAcross: 0.16, rightArmAcross: -0.16, leftElbow: 0.46, rightElbow: -0.46, leftWrist: 0.08, rightWrist: -0.08, leftStep: 0.12, rightStep: -0.12, bounce: 0.024 },
-];
+]);
 
-const catwalk: PoseKeyframe[] = [
+const catwalk = normalizedArmPhrase([
   // Original single-avatar adaptation of Like a Cat's wings, catwalk, and meow-sway ideas.
   { bodyRoll: -0.035, bodyYaw: 0.07, headRoll: 0.06, headYaw: -0.08, leftShoulder: 0.72, rightShoulder: -0.72, leftArmPitch: -0.12, rightArmPitch: -0.12, leftElbow: 0.42, rightElbow: -0.42, leftWrist: 0.28, rightWrist: -0.28, leftStep: -0.12, rightStep: 0.12, bounce: 0.014 },
   { bodyRoll: 0.1, bodyYaw: -0.08, headRoll: -0.04, headYaw: 0.08, leftShoulder: 0.38, rightShoulder: -0.22, leftArmPitch: -0.16, rightArmPitch: -0.18, leftArmAcross: 0.16, rightArmAcross: -0.2, leftElbow: 0.42, rightElbow: -0.6, rightWrist: 0.48, leftStep: 0.24, rightStep: -0.16, leftKnee: 0.16, bounce: 0.018 },
@@ -86,7 +101,7 @@ const catwalk: PoseKeyframe[] = [
   { bodyRoll: 0.08, bodyYaw: -0.08, headRoll: -0.05, headYaw: 0.08, leftShoulder: 0.24, rightShoulder: -0.58, leftArmPitch: -0.18, rightArmPitch: -0.34, leftArmAcross: 0.18, rightArmAcross: -0.18, leftElbow: 0.54, rightElbow: -0.68, leftWrist: 0.42, rightWrist: 0.48, leftStep: 0.22, rightStep: -0.16, leftKnee: 0.18, bounce: 0.02 },
   { bodyRoll: -0.055, bodyYaw: 0.08, headRoll: 0.07, headYaw: -0.08, leftShoulder: 0.64, rightShoulder: -0.3, leftArmPitch: -0.34, rightArmPitch: -0.18, leftArmAcross: 0.18, rightArmAcross: -0.1, leftElbow: 0.68, rightElbow: -0.48, leftWrist: -0.46, rightWrist: -0.3, leftStep: -0.12, rightStep: 0.2, rightKnee: 0.16, bounce: 0.014 },
   { bodyRoll: 0.12, bodyYaw: -0.1, headRoll: -0.06, headYaw: 0.1, leftShoulder: 0.42, rightShoulder: -0.72, leftArmPitch: -0.2, rightArmPitch: -0.24, leftElbow: 0.56, rightElbow: -0.58, leftWrist: 0.48, rightWrist: -0.48, leftStep: 0.2, rightStep: -0.12, leftKnee: 0.18, bounce: 0.024 },
-];
+]);
 
 const douyinMix: PoseKeyframe[] = [
   // Eight-count solo adaptation following the supplied VRM dance reference:
@@ -107,6 +122,7 @@ const channels: (keyof MusicDancePose)[] = [
   'bodyPitch', 'bodyRoll', 'bodyYaw', 'bodySway', 'bodyTilt', 'rootYaw',
   'hipPitch', 'hipRoll', 'hipYaw', 'chestPitch', 'chestRoll', 'chestYaw',
   'upperChestPitch', 'upperChestRoll', 'upperChestYaw', 'headPitch', 'headRoll', 'headYaw',
+  'neckPitch', 'neckRoll', 'neckYaw', 'leftLegSide', 'rightLegSide',
   'leftShoulder', 'rightShoulder', 'leftShoulderJoint', 'rightShoulderJoint',
   'leftArmPitch', 'rightArmPitch', 'leftArmAcross', 'rightArmAcross',
   'leftElbow', 'rightElbow', 'leftWrist', 'leftWristYaw', 'leftWristRoll',

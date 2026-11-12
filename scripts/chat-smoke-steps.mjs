@@ -46,7 +46,7 @@ export async function checkChat(desktop, page, pet) {
     await page.waitForFunction(() => document.querySelector('#chat-log [data-reply-state="partial"]')?.textContent.includes('你好，'));
     assert.equal(await page.locator('#chat-send').isDisabled(), true);
     await pet.waitForFunction(() => document.querySelector('#pet-message').textContent === '你好，', undefined, { polling: 100 });
-    assert.equal(await pet.locator('#pet-read-aloud').isHidden(), true, 'Partial text must not be offered for speech');
+    assert.equal(await pet.locator('#pet-read-aloud').evaluate(button => button.hidden), true, 'Partial text must not be offered for speech');
     await desktop.evaluate(() => {
       const response = { status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: '你好，桌宠！<img src=x>' }] }] };
       globalThis.__chatStream.enqueue(new TextEncoder().encode('data: ' + JSON.stringify({ type: 'response.completed', response }) + '\n\n'));
@@ -57,7 +57,13 @@ export async function checkChat(desktop, page, pet) {
     assert.equal(await page.locator('#chat-log p').count(), 2);
     assert.equal(await page.locator('#chat-log img').count(), 0);
     await pet.waitForFunction(() => document.querySelector('#pet-message').textContent.includes('你好，桌宠！'), undefined, { polling: 100 });
-    assert.equal(await pet.locator('#pet-read-aloud').isHidden(), false, 'A complete reply should be available to read aloud');
+    assert.equal(await pet.locator('#pet-read-aloud').evaluate(button => button.hidden), false, 'A complete reply should be available to read aloud');
+    // Speech now lives inside the collapsible tools panel. Verify its own state
+    // first, then open the panel before checking visibility and button hit areas.
+    await pet.locator('#pet-tools-toggle').evaluate(button => {
+      if (button.getAttribute('aria-expanded') !== 'true') button.click();
+    });
+    assert.equal(await pet.locator('#pet-read-aloud').isHidden(), false);
     await assert.rejects(pet.evaluate(() => window.petDesktop.sendChat('越权')), /Only the workshop/);
     await page.locator('#pet-scale').selectOption('0.8');
     await pet.waitForFunction(() => document.querySelector('.pet-shell').getBoundingClientRect().width < 300);

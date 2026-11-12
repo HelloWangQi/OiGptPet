@@ -207,9 +207,9 @@ export class VrmStage {
     this.renderer.setSize(width, height, false);
     const aspect = width / Math.max(height, 1);
     if (this.camera instanceof THREE.PerspectiveCamera) {
-      // Portrait pet windows need extra horizontal action room for VRM arms,
-      // sleeves, hair, and the authored side steps without shrinking the body.
-      const fitAspect = this.petPresentation ? Math.max(aspect, 0.96) : aspect;
+      // Projection must match the canvas: inflating aspect squeezes the avatar
+      // horizontally. Camera distance supplies the required action room.
+      const fitAspect = aspect;
       this.camera.aspect = fitAspect;
       if (this.petPresentation) {
         const tanY = Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2);
@@ -563,6 +563,14 @@ export class VrmStage {
   render(state: AnimationState, phase: number, delta: number, look?: { yaw: number; pitch: number }, stateRevision?: number) {
     const externalMotion = this.motionMixer !== undefined && this.activeMotion !== undefined
       && (!this.musicDanceMotionMode || this.musicDanceMotionPlaying);
+    // The application sends a zero step while paused. Reapplying normalized
+    // poses/look-at at zero time can still change raw bones and spring state.
+    // Keep the displayed pose, and defer action transitions until resuming.
+    // Explicit sampling helpers omit stateRevision and retain zero-step seeks.
+    if (delta <= 0 && stateRevision !== undefined && this.lastState !== undefined && !externalMotion) {
+      this.renderer.render(this.scene, this.camera);
+      return;
+    }
     const dancing = state === 'idle' ? this.musicDanceSignal : undefined;
     const authoredDance = !externalMotion && Boolean(dancing) && this.musicDanceStyle !== 'groove';
     const danceModeChanged = authoredDance !== this.musicDancePoseActive;
