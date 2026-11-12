@@ -67,6 +67,16 @@ export async function checkChat(desktop, page, pet) {
     await assert.rejects(pet.evaluate(() => window.petDesktop.sendChat('越权')), /Only the workshop/);
     await page.locator('#pet-scale').selectOption('0.8');
     await pet.waitForFunction(() => document.querySelector('.pet-shell').getBoundingClientRect().width < 300);
+    await pet.locator('#pet-tools-toggle').evaluate(button => {
+      if (button.getAttribute('aria-expanded') !== 'true') button.click();
+    });
+    await pet.locator('#pet-tools-panel').waitFor({ state: 'visible' });
+    const separateTools = await pet.evaluate(() => {
+      const model = document.querySelector('#character-canvas').getBoundingClientRect();
+      const tools = document.querySelector('#pet-tools-panel').getBoundingClientRect();
+      return tools.right <= model.left || tools.left >= model.right;
+    });
+    assert.equal(separateTools, true, 'Tools must occupy space outside the model canvas');
     for (const id of ['workshop-button', 'pet-chat-toggle', 'pet-voice-input', 'pet-wave', 'pet-read-aloud', 'click-through', 'hide-pet']) {
       const button = pet.locator(`#${id}`);
       await button.evaluate(element => element.scrollIntoView({ inline: 'nearest', block: 'nearest' }));

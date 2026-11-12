@@ -56,7 +56,7 @@ app.innerHTML = petMode ? `
         <button id="pet-music-dance" title="分析系统输出混音以提取节拍；不保存音频、不上传" aria-label="音乐舞动" hidden aria-pressed="false" aria-busy="false">舞</button>
         <button id="pet-tools-toggle" title="更多工具" aria-label="更多桌宠工具" aria-expanded="false" aria-controls="pet-tools-panel">•••</button>
       </div>
-      <div id="pet-tools-panel" role="group" aria-label="桌宠工具与舞步设置" hidden>
+      <div id="pet-tools-panel" data-interactive role="group" aria-label="桌宠工具与舞步设置" hidden>
         <section class="pet-tools-section">
           <h2>桌宠</h2>
           <div class="pet-tools-actions">
@@ -1540,20 +1540,32 @@ if (petMode) {
   const petControls = $<HTMLDivElement>('#pet-controls');
   const toolsPanel = $<HTMLDivElement>('#pet-tools-panel');
   const toolsToggle = $<HTMLButtonElement>('#pet-tools-toggle');
+  const applyToolsLayout = (layout: PetToolsLayout) => {
+    const shell = $<HTMLElement>('.pet-shell');
+    shell.style.width = layout.open ? `${layout.petWidth}px` : '';
+    shell.style.left = layout.open ? `${layout.petLeft}px` : '';
+    shell.dataset.toolsOpen = String(layout.open);
+    toolsPanel.style.setProperty('--tools-left', `${layout.toolsLeft}px`);
+    toolsPanel.style.setProperty('--tools-width', `${layout.toolsWidth}px`);
+    toolsPanel.hidden = !layout.open;
+    petControls.dataset.toolsOpen = String(layout.open);
+    toolsToggle.setAttribute('aria-expanded', String(layout.open));
+    toolsToggle.setAttribute('aria-label', layout.open ? '收起桌宠工具' : '更多桌宠工具');
+    toolsToggle.textContent = layout.open ? '×' : '•••';
+  };
+  desktop!.onToolsLayout(applyToolsLayout);
   const closePetTools = () => {
+    if (toolsPanel.hidden) return;
     toolsPanel.hidden = true;
     petControls.dataset.toolsOpen = 'false';
     toolsToggle.setAttribute('aria-expanded', 'false');
     toolsToggle.setAttribute('aria-label', '更多桌宠工具');
     toolsToggle.textContent = '•••';
+    void desktop!.setToolsOpen(false).catch(error => status(String(error), true));
   };
   toolsToggle.onclick = () => {
-    const open = toolsPanel.hidden;
-    toolsPanel.hidden = !open;
-    petControls.dataset.toolsOpen = String(open);
-    toolsToggle.setAttribute('aria-expanded', String(open));
-    toolsToggle.setAttribute('aria-label', open ? '收起桌宠工具' : '更多桌宠工具');
-    toolsToggle.textContent = open ? '×' : '•••';
+    const open = Boolean(toolsPanel.hidden);
+    void desktop!.setToolsOpen(open).catch(error => status(String(error), true));
   };
   document.addEventListener('pointerdown', event => {
     if (!petControls.contains(event.target as Node)) closePetTools();

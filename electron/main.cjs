@@ -6,6 +6,7 @@ const fs = require('node:fs/promises');
 const { createWindowRecovery } = require('./window-recovery.cjs');
 const { createWindowStateStore } = require('./window-state.cjs');
 const { createPetDrag } = require('./pet-drag.cjs');
+const { expandedToolsLayout } = require('./pet-tools-layout.cjs');
 const { createPreferencesStore } = require('./preferences.cjs');
 const { createCharacterPackageSaver } = require('./character-package-save.cjs');
 const { collectDesktopDiagnostics, createDiagnosticsExporter } = require('./desktop-diagnostics.cjs');
@@ -22,6 +23,7 @@ if (process.env.OIGPTPET_TEST === '1' && process.env.OIGPTPET_TEST_USER_DATA) {
 const clientRoot = !app.isPackaged && process.env.OIGPTPET_SMOKE_DEMO === '1' ? path.join(root, '.cache', 'demo-dist') : path.join(root, 'dist');
 let workshop;
 let pet;
+let petToolsLayout;
 let tray;
 let savedBounds;
 let windowRecovery;
@@ -116,6 +118,22 @@ function currentBounds() {
   return windowRecovery.boundsFor(savedBounds);
 }
 
+function setPetToolsOpen(open) {
+  if (!pet || pet.isDestroyed()) return;
+  const current = pet.getBounds();
+  const base = petToolsLayout
+    ? { ...current, x: current.x + petToolsLayout.petLeft, width: petToolsLayout.petWidth }
+    : current;
+  const next = open ? expandedToolsLayout(base, screen.getDisplayMatching(base).workArea)
+    : { bounds: base, layout: { open: false, petWidth: base.width, petLeft: 0, toolsLeft: 0, toolsWidth: 288 } };
+  petToolsLayout = open ? next.layout : undefined;
+  pet.setBounds(next.bounds);
+  pet.setIgnoreMouseEvents(false);
+  pet.webContents.send('pet:tools-layout', next.layout);
+  persistBounds();
+  return next.layout;
+}
+
 async function updatePreferences(patch) {
   const next = await preferences.update(patch);
   if (pet && !pet.isDestroyed()) {
@@ -134,7 +152,7 @@ function openPet() {
   pet.on('hide', endPetDrag);
   pet.on('closed', () => petDrag.stop(false));
   pet.on('close', persistBounds);
-  pet.on('closed', () => { pet = null; });
+  pet.on('closed', () => { pet = null; petToolsLayout = undefined; });
   persistBounds();
   loadView(pet, 'pet').catch(console.error);
 }
@@ -142,6 +160,7 @@ function openPet() {
 function persistBounds() {
   if (quitting || !pet || pet.isDestroyed()) return;
   savedBounds = pet.getBounds();
+  if (petToolsLayout) savedBounds = { ...savedBounds, x: savedBounds.x + petToolsLayout.petLeft, width: petToolsLayout.petWidth };
   windowState.schedule(savedBounds);
 }
 
@@ -217,6 +236,11 @@ function handlers() {
     if (typeof enabled !== 'boolean') throw new Error('Invalid toggle');
     pet?.setIgnoreMouseEvents(petDrag.active ? false : enabled, { forward: true });
   });
+  ipcMain.handle('pet:tools-open', (event, open) => {
+    if (trusted(event) !== pet) throw new Error('Only the pet can open its tools');
+    if (typeof open !== 'boolean') throw new Error('Invalid tools toggle');
+    return setPetToolsOpen(open);
+  });
   ipcMain.handle('preferences:get', (event) => { trusted(event); return preferences.get(); });
   ipcMain.handle('preferences:set', async (event, patch) => { trusted(event); return updatePreferences(patch); });
   ipcMain.handle('pet:scale', async (event, scale) => {
@@ -264,7 +288,10 @@ else {
       } catch { return new Response('Invalid resource', { status: 400 }); }
     });
     await fs.mkdir(app.getPath('userData'), { recursive: true });
-    windowRecovery = createWindowRecovery({ screen, powerMonitor, getWindow: () => pet, getScale: () => preferences.get().scale });
+    windowRecovery = createWindowRecovery({ screen, powerMonitor, getWindow: () => {
+      if (petToolsLayout) setPetToolsOpen(false);
+      return pet;
+    }, getScale: () => preferences.get().scale });
     try { await preferences.load(); } catch (error) { console.error('Preferences could not be read:', error.message); }
     try { await chat.load(); } catch { console.warn('Chat settings could not be loaded; save them again in the workshop.'); }
     try { savedBounds = await windowState.load(); } catch (error) { console.error('Window position could not be read:', error.message); }

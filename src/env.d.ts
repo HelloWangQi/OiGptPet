@@ -1,5 +1,6 @@
 declare const __WITH_DEMO__: boolean;
 declare const __APP_VERSION__: string;
+interface PetToolsLayout { open: boolean; petWidth: number; petLeft: number; toolsLeft: number; toolsWidth: number }
 interface CompanionChatState { status: string; text?: string; requestId?: string; sequence: number }
 interface ChatReadiness { ready: boolean; code: 'ready' | 'missing_model' | 'invalid_model' | 'missing_key' | 'unavailable' | 'unreadable_key' | 'busy' | 'timeout' | 'cancelled' }
 interface CompanionChatSnapshot {
@@ -34,6 +35,8 @@ interface Window {
     endDrag(): Promise<void>;
     setClickThrough(value: boolean): Promise<void>;
     setScale(value: number): Promise<void>;
+    setToolsOpen(value: boolean): Promise<PetToolsLayout>;
+    onToolsLayout(callback: (layout: PetToolsLayout) => void): () => void;
     getPreferences(): Promise<import('./desktop-preferences').DesktopPreferences>;
     setPreferences(patch: import('./desktop-preferences').PreferencesPatch): Promise<import('./desktop-preferences').DesktopPreferences>;
     onPreferencesChanged(callback: (preferences: import('./desktop-preferences').DesktopPreferences) => void): () => void;

@@ -32,6 +32,12 @@ contextBridge.exposeInMainWorld('petDesktop', Object.freeze({
   endDrag: () => ipcRenderer.invoke('pet:drag-end'),
   setClickThrough: (value) => ipcRenderer.invoke('pet:click-through', value),
   setScale: (value) => ipcRenderer.invoke('pet:scale', value),
+  setToolsOpen: (value) => ipcRenderer.invoke('pet:tools-open', value),
+  onToolsLayout: (callback) => {
+    const listener = (_event, layout) => callback(layout);
+    ipcRenderer.on('pet:tools-layout', listener);
+    return () => ipcRenderer.removeListener('pet:tools-layout', listener);
+  },
   getPreferences: () => ipcRenderer.invoke('preferences:get'),
   setPreferences: (patch) => ipcRenderer.invoke('preferences:set', patch),
   onPreferencesChanged: (callback) => {

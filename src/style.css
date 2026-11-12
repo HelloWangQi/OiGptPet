@@ -131,6 +131,12 @@
   background:#f7f9f0f2; box-shadow:0 8px 26px #24301a30;
   backdrop-filter:blur(14px); scrollbar-width:thin;
 }
+.pet-mode .pet-shell[data-tools-open="true"] { overflow:visible; }
+.pet-mode #pet-controls { top:0; bottom:0; transform:none; display:flex; align-items:center; }
+.pet-mode #pet-tools-panel {
+  position:fixed; left:var(--tools-left, 0px); right:auto;
+  width:var(--tools-width, 288px); box-sizing:border-box;
+}
 .pet-tools-section { display:grid; gap:7px; min-width:0; }
 .pet-tools-section + .pet-tools-section { padding-top:10px; border-top:1px solid #e1e6db; }
 .pet-tools-section h2 { color:#77866e; font-size:10px; letter-spacing:.4px; }
