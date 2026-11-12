@@ -21,15 +21,21 @@ export async function checkDefaultStartup(executablePath, root) {
     return pet;
   }
   async function workshop(pet) {
-    const next = app.waitForEvent('window');
     await pet.evaluate(() => window.petDesktop.openWorkshop());
-    return await next;
+    const deadline = Date.now() + 15000;
+    while (Date.now() < deadline) {
+      const page = app.windows().find(window => window.url().includes('mode=workshop'));
+      if (page) return page;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    throw new Error('Workshop window was not found');
   }
   try {
     let pet = await launch();
     assert.equal(await pet.evaluate(() => document.body.dataset.characterId), expectedId);
-    assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter(w => w.isVisible()).length), 1);
-    assert.equal(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].isResizable()), false);
+    const states = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map(w => ({ resizable: w.isResizable(), visible: w.isVisible(), minimized: w.isMinimized() })));
+    assert.ok(states.some(w => !w.resizable && w.visible && !w.minimized), 'Pet should be visible');
+    assert.ok(states.some(w => w.resizable && w.minimized), 'Workshop should start minimized');
     assert.equal(await pet.locator('#pet-dance-style').evaluate(element => element.hidden), true);
     const page = await workshop(pet);
     await page.waitForFunction(() => document.querySelector('#character-name')?.textContent === 'BREAK VENOM', null, { timeout: 90000 });
@@ -57,7 +63,7 @@ export async function checkDefaultStartup(executablePath, root) {
     pet = await launch();
     assert.equal(await pet.evaluate(() => document.body.dataset.characterId), chosenId, 'Restart should retain a later user-selected model');
     assert.equal(await readDanceHash(pet), selectedHash, 'Restart should retain the selected dance');
-    return { launchesAsPet: true, defaultModel: true, defaultVrmaLoaded: true, workshopAvailable: true,
+    return { launchesAsPet: true, workshopStartsMinimized: true, defaultModel: true, defaultVrmaLoaded: true, workshopAvailable: true,
       workshopDanceSync: true, invalidDancePreserved: true, laterChoicePreserved: true, selectedDanceRestored: true };
   } finally { if (app) await app.close(); }
 }

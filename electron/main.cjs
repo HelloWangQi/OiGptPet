@@ -109,12 +109,13 @@ async function loadView(win, mode) {
   else await win.loadURL(`oipet://app/index.html?mode=${mode}`);
 }
 
-function openWorkshop() {
-  if (workshop && !workshop.isDestroyed()) { workshop.show(); workshop.focus(); return; }
-  workshop = secureWindow({ width: 1220, height: 850, minWidth: 980, minHeight: 700, backgroundColor: '#f5f4f0', title: 'OiGptPet · 角色工坊', autoHideMenuBar: true });
+function openWorkshop(startMinimized = false) {
+  if (workshop && !workshop.isDestroyed()) { if (workshop.isMinimized()) workshop.restore(); workshop.show(); workshop.focus(); return; }
+  workshop = secureWindow({ width: 1220, height: 850, minWidth: 980, minHeight: 700, backgroundColor: '#f5f4f0', title: 'OiGptPet · 角色工坊', autoHideMenuBar: true, show: !startMinimized });
   workshop.on('closed', () => { chat.cancel(); workshop = null; });
   workshop.webContents.on('did-start-navigation', (_event, _url, _inPlace, isMainFrame) => { if (isMainFrame) chat.cancel(); });
   loadView(workshop, 'workshop').catch(console.error);
+  if (startMinimized) { workshop.showInactive(); workshop.minimize(); }
 }
 
 function currentBounds() {
@@ -350,15 +351,15 @@ else {
     tray = new Tray(makeTrayIcon());
     tray.setToolTip('OiGptPet · Ctrl+Alt+P 恢复互动');
     tray.setContextMenu(Menu.buildFromTemplate([
-      { label: '打开角色工坊', click: openWorkshop },
+      { label: '打开角色工坊', click: () => openWorkshop() },
       { label: '显示桌宠 / 恢复互动', click: recoverPet },
       { label: '隐藏桌宠', click: () => pet?.hide() },
       { type: 'separator' }, { label: '退出 OiGptPet', click: () => app.quit() },
     ]));
-    tray.on('double-click', openWorkshop);
+    tray.on('double-click', () => openWorkshop());
     const registered = globalShortcut.register('CommandOrControl+Alt+P', recoverPet);
     if (!registered) console.warn('Ctrl+Alt+P unavailable; restore interactivity from the tray menu.');
-    if (usePackagedDefaults) openPet(); else openWorkshop();
+    if (usePackagedDefaults) { openPet(); openWorkshop(true); } else openWorkshop();
   }).catch((error) => { console.error(error); app.exit(1); });
   app.on('window-all-closed', () => { if (quitting) app.quit(); });
   app.on('before-quit', event => {
