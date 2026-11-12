@@ -130,7 +130,11 @@ try {
   await page.screenshot({ path: path.join(output, 'restored-sprite-library.png') });
   const motionCapabilities = await checkMotionCapabilities(desktop, page, root, output);
   assert.deepEqual(errors, []);
-  const quickExit = await checkPetQuickExit(desktop, pet);
+  const exitPetEvent = desktop.waitForEvent('window');
+  await page.locator('#open-pet').click();
+  const exitPet = await exitPetEvent;
+  exitPet.on('pageerror', (error) => errors.push(error.message));
+  const quickExit = await checkPetQuickExit(desktop, exitPet);
   desktop = undefined;
   await writeFile(path.join(output, 'result.json'), JSON.stringify({ ok: true, version: latest.version, directory: latest.directory, packaged, files, emptyFirstStart: true, localImport: true, persistedAfterRestart: true, spritePetRendered: true, spriteLibraryRestored: true, preferencesRestored: true, petBounds: bounds, bodyDrag, petDock, quickExit, workshopDragRejected: true, motionCapabilities, renderMonitoring, workshopLayout, vrmTransitions, externalMotion, spriteTransitions, rendererErrors: errors }, null, 2));
   await writeFile(path.join(outputRoot, 'latest.json'), JSON.stringify({ directory: path.basename(output), version: latest.version }, null, 2));

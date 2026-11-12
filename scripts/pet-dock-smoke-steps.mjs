@@ -95,6 +95,9 @@ export async function checkPetDock(desktop, page, pet) {
 }
 
 export async function checkPetQuickExit(desktop, pet) {
+  const dockRect = await pet.locator('#pet-controls').evaluate(element => element.getBoundingClientRect().toJSON());
+  await pet.mouse.move(dockRect.left + dockRect.width / 2, dockRect.top + dockRect.height / 2);
+  await pet.locator('#pet-quit').waitFor({ state: 'visible' });
   const exited = new Promise(resolve => desktop.process().once('exit', (code, signal) => resolve({ code, signal })));
   await pet.locator('#pet-quit').click();
   let timer;
