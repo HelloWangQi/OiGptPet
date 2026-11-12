@@ -39,6 +39,13 @@ describe('local EXE package retention', () => {
     expect((await retainPackages(root, { apply: true })).kept).toEqual(['v0.4.0-1', 'v0.4.0-5', 'v0.4.0-4']);
     expect(JSON.parse(await readFile(path.join(root, 'latest.json'), 'utf8')).directory).toContain('v0.4.0-1');
   });
+  it('defers an occupied old executable without removing its files', async () => {
+    const root = await fixture();
+    const result = await retainPackages(root, { apply: true, isInUse: async app => app.includes('v0.4.0-2') });
+    expect(result.deferred).toEqual(['v0.4.0-2']);
+    expect(result.removed).toEqual(['v0.4.0-1']);
+    expect(await readFile(path.join(root, 'v0.4.0-2', 'OiGptPet-win32-x64', 'OiGptPet.exe'), 'utf8')).toBe('test package');
+  });
   it('refuses deletion when the latest pointer is corrupt', async () => {
     const root = await fixture(); await writeFile(path.join(root, 'latest.json'), '{broken');
     await expect(retainPackages(root, { apply: true })).rejects.toThrow();

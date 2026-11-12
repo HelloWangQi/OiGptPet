@@ -46,4 +46,6 @@ await writeFile(new URL('release/latest.json', root), JSON.stringify({
   directory: path.relative(fileURLToPath(new URL('release/', root)), output[0]).split(path.sep).join('/'),
 }, null, 2));
 console.log(output.join('\n'));
-console.log(JSON.stringify(await retainPackages(fileURLToPath(new URL('release/', root)), { apply: true })));
+const retention = await retainPackages(fileURLToPath(new URL('release/', root)), { apply: true });
+console.log(JSON.stringify(retention));
+if (retention.deferred.length) console.warn(`正在运行或被占用的旧包暂时保留：${retention.deferred.join(', ')}。关闭旧版后，下次打包会重试清理。`);
