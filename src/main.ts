@@ -124,7 +124,7 @@ app.innerHTML = petMode ? `
       <section class="preview-column">
         <div class="section-heading"><div><span class="section-number">01</span><h2>遇见你的新搭档</h2></div><span class="muted small">让喜欢的角色，陪在身边。</span></div>
         <div class="preview-stage" id="drop-zone">
-          <div class="stage-label"><span class="live-dot"></span> LIVE PREVIEW <span id="format-badge">VRM 1.0</span></div>
+          <div class="stage-label"><span class="live-dot"></span> LIVE PREVIEW <span id="format-badge">VRM 0.0 / 1.0</span></div>
           <div class="stage-grid"></div><div class="stage-halo"></div><div class="ground-shadow"></div>
           <canvas id="character-canvas" aria-label="VRM 角色实时预览"></canvas>
           <div class="stage-empty" id="stage-empty"><span>初次见面，请多关照。</span><p>导入 VRM 或精灵图，开启陪伴。</p></div>
@@ -149,7 +149,7 @@ app.innerHTML = petMode ? `
       <aside class="detail-column" tabindex="0" aria-label="角色和陪伴设置">
         <section class="detail-section"><div class="section-heading"><div><span class="section-number">02</span><h2>你的角色</h2></div><span class="tag">VRM</span></div>
           <button class="character-card" id="load-demo" ${__WITH_DEMO__ ? '' : 'hidden'}><div class="avatar-monogram">S<span>✦</span></div><div><strong>官方示例角色</strong><span>pixiv · VRM 1.0</span></div><span class="card-arrow">↗</span></button>
-          <button class="import-zone" id="import-button" disabled>${icon.plus}<strong>导入我的角色</strong><span>VRM 1.0 ≤64 MiB · PNG / WebP ≤20 MiB</span></button>
+          <button class="import-zone" id="import-button" disabled>${icon.plus}<strong>导入我的角色</strong><span>VRM 0.0 / 1.0 ≤64 MiB · PNG / WebP ≤20 MiB</span></button>
           <input type="file" id="model-file" accept=".vrm,.png,.webp,image/png,image/webp" hidden />
           <label class="field-label" for="sprite-profile">导入精灵图规格</label>
           <select id="sprite-profile"><option value="v2">v2 · 含 16 方向视线</option><option value="v1">v1 · 仅动作</option></select>
@@ -720,7 +720,7 @@ function showCharacter(summary: CharacterSummary | null, value: ModelInfo | null
   if (petMode) { restorePetChat(); return; }
   $('#external-motion-panel').hidden = input.kind !== 'vrm';
   $('#stage-empty').hidden = true;
-  $('#format-badge').textContent = input.kind === 'vrm' ? 'VRM 1.0' : `SPRITE ${input.profile}`;
+  $('#format-badge').textContent = input.kind === 'vrm' ? `VRM ${value?.version ?? '0.0 / 1.0'}` : `SPRITE ${input.profile}`;
   $('#character-name').textContent = summary?.name ?? value?.name ?? '本地精灵图';
   if (!value) {
     $('#model-capabilities').hidden = true; $('#motion-capability-rows').replaceChildren(); $('#motion-summary').textContent = '';
@@ -1540,7 +1540,7 @@ async function bootstrap() {
     }
     if (active) await load(assetInput(active), false, 'local-import', active.summary);
     else if (__WITH_DEMO__) await demo(false);
-    else status('导入本机的 VRM 1.0 角色或精灵图，开始陪伴。');
+    else status('导入本机的 VRM 0.0 / 1.0 角色或精灵图，开始陪伴。');
     await refreshLibrary();
   } catch (error) { status(`本地角色读取或迁移失败，原数据已保留：${error instanceof Error ? error.message : '请重试。'}`, true); }
   updatePackageControls();

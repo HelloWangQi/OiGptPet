@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-import { VRM, VRMLoaderPlugin, type VRMHumanBoneName } from '@pixiv/three-vrm';
+import { VRM, VRMLoaderPlugin, VRMUtils, type VRMHumanBoneName } from '@pixiv/three-vrm';
 import { createVRMAnimationClip, VRMAnimationLoaderPlugin, VRMLookAtQuaternionProxy, type VRMAnimation } from '@pixiv/three-vrm-animation';
 import { disposeVrmScene } from './dispose';
 import { inspectMotionCapabilities } from '../character-core/motion-capabilities';
@@ -165,6 +165,7 @@ export class VrmStage {
     this.poseTransition = undefined;
     candidate.scene.position.set(0, 0, 0);
     candidate.scene.rotation.set(0, 0, 0);
+    VRMUtils.rotateVRM0(candidate);
     this.root.add(candidate.scene);
     this.root.scale.setScalar(1);
     this.root.position.set(0, 0, 0);
