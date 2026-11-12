@@ -429,7 +429,8 @@ export class VrmStage {
     if (!preserveSkeleton) vrm.humanoid.resetNormalizedPose();
     const p = sampleMotion(state, phase);
     const rotate = (name: Parameters<typeof vrm.humanoid.getNormalizedBoneNode>[0], x: number, y = 0, z = 0) => {
-      vrm.humanoid.getNormalizedBoneNode(name)?.rotation.set(x, y, z);
+      const axis = vrm.meta.metaVersion === '0' ? -1 : 1;
+      vrm.humanoid.getNormalizedBoneNode(name)?.rotation.set(x * axis, y, z * axis);
     };
     if (!preserveSkeleton) {
       rotate('leftUpperArm', ...p.leftArm);
@@ -478,7 +479,8 @@ export class VrmStage {
         const bone = vrm.humanoid.getNormalizedBoneNode(name);
         const rest = this.musicDanceRestPose.get(name);
         if (!bone || !rest) return;
-        this.musicDanceEuler.set(x * strength, y * strength, z * strength, 'XYZ');
+        const axis = vrm.meta.metaVersion === '0' ? -1 : 1;
+        this.musicDanceEuler.set(x * strength * axis, y * strength, z * strength * axis, 'XYZ');
         this.musicDanceTarget.setFromEuler(this.musicDanceEuler);
         this.musicDanceScratch.copy(rest).multiply(this.musicDanceTarget);
         bone.quaternion.slerp(this.musicDanceScratch, smooth);
