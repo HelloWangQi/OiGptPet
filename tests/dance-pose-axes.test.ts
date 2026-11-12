@@ -2,6 +2,20 @@ import { describe, expect, it } from 'vitest';
 import { sampleMusicDancePose } from '../packages/character-core/music-choreography';
 
 describe('authored dance normalized bone directions', () => {
+  for (const style of ['idol-pop', 'catwalk', 'douyin-mix', 'auto-mix'] as const) {
+    it(`${style} visibly transfers weight through hips and alternating knees`, () => {
+      const poses = Array.from({ length: 640 }, (_, index) => {
+        const beat = index / 40;
+        return sampleMusicDancePose(style, { level: 0.8, beat: 0, bpm: 120, beatIndex: Math.floor(beat), phase: beat % 1 });
+      });
+      const yaw = poses.map(p => p.hipYaw);
+      expect(Math.max(...yaw) - Math.min(...yaw)).toBeGreaterThan(0.8);
+      expect(Math.max(...poses.map(p => p.leftKnee))).toBeGreaterThan(0.6);
+      expect(Math.max(...poses.map(p => p.leftKnee - p.rightKnee))).toBeGreaterThan(0.25);
+      expect(Math.min(...poses.map(p => p.leftKnee - p.rightKnee))).toBeLessThan(-0.25);
+      expect(poses.every(p => p.leftKnee >= 0 && p.rightKnee >= 0)).toBe(true);
+    });
+  }
   for (const style of ['idol-pop', 'catwalk', 'auto-mix'] as const) {
     it(`${style} keeps elbows bending inward throughout interpolation`, () => {
       for (let beat = 0; beat < 16; beat += 0.025) {
