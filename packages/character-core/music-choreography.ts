@@ -208,7 +208,9 @@ export function sampleMusicDancePose(style: Exclude<MusicDanceStyle, 'groove'>, 
   // lower body read as a small vibration rather than alternating steps.
   const transfer = Math.sin(totalBeats * Math.PI);
   if (style === 'douyin-mix') {
-    const sink = 0.55 + 0.45 * Math.cos(totalBeats * Math.PI);
+    const liftL = Math.max(0, -transfer);
+    const liftR = Math.max(0, transfer);
+    const sink = 0.5 + 0.5 * Math.cos(totalBeats * TAU);
     const kneeBase = 16 + 12 * sink;
     const kneeL = kneeBase + 22 * Math.max(0, -transfer);
     const kneeR = kneeBase + 22 * Math.max(0, transfer);
@@ -216,8 +218,8 @@ export function sampleMusicDancePose(style: Exclude<MusicDanceStyle, 'groove'>, 
     const cosine = Math.cos(totalBeats * TAU);
     const torsoRoll = -9 * transfer - 5 * cosine;
     pose.hipPitch = degrees(4);
-    pose.hipYaw = degrees(30 * transfer);
-    pose.hipRoll = degrees(12 * cosine);
+    pose.hipYaw = degrees(20 * transfer);
+    pose.hipRoll = degrees(7 * transfer);
     pose.bodyPitch += degrees(4);
     pose.bodyYaw += degrees(-9 * transfer);
     pose.bodyRoll += degrees(torsoRoll);
@@ -239,15 +241,16 @@ export function sampleMusicDancePose(style: Exclude<MusicDanceStyle, 'groove'>, 
     pose.rightShoulderJoint = degrees(-5 * transfer);
     pose.leftStep = degrees(-4 - kneeL * 0.48 - 8 * Math.max(0, -transfer));
     pose.rightStep = degrees(-4 - kneeR * 0.48 - 8 * Math.max(0, transfer));
-    pose.leftLegSide = degrees(13 + 3 * transfer);
-    pose.rightLegSide = degrees(-13 + 3 * transfer);
+    // The lifted leg opens outward while the body shifts over the supporting leg.
+    pose.leftLegSide = degrees(13 + 3 * transfer + 14 * liftL);
+    pose.rightLegSide = degrees(-13 + 3 * transfer - 14 * liftR);
     pose.leftKnee = degrees(kneeL);
     pose.rightKnee = degrees(kneeR);
     pose.leftFootPitch = degrees(-5 - 3 * sink);
     pose.rightFootPitch = pose.leftFootPitch;
     pose.leftFootRoll = degrees(9 * transfer);
     pose.rightFootRoll = pose.leftFootRoll;
-    pose.bounce = -0.035 - 0.06 * sink;
+    pose.bounce = -0.04 - 0.018 * sink + 0.018 * Math.abs(transfer);
     const wristSpin = 0.7 * Math.sin(totalBeats * TAU * 0.75);
     pose.leftWrist += wristSpin;
     pose.rightWrist -= wristSpin;
@@ -273,7 +276,7 @@ export function sampleMusicDancePose(style: Exclude<MusicDanceStyle, 'groove'>, 
     const sink = 0.5 + 0.5 * Math.cos(totalBeats * TAU);
     const drive = 0.65 + 0.35 * clampDanceSignal(signal.level);
     pose.hipPitch = degrees(5);
-    pose.hipYaw = degrees(32 * transfer * drive);
+    pose.hipYaw = degrees(21 * transfer * drive);
     pose.hipRoll = degrees(9 * transfer);
     pose.bodyYaw += degrees(-12 * transfer * drive);
     pose.chestYaw = degrees(-8 * transfer * drive);
@@ -285,13 +288,13 @@ export function sampleMusicDancePose(style: Exclude<MusicDanceStyle, 'groove'>, 
     pose.rightKnee = degrees(kneeR);
     pose.leftStep = degrees(-kneeL * 0.48 - 12 * liftL * drive);
     pose.rightStep = degrees(-kneeR * 0.48 - 12 * liftR * drive);
-    pose.leftLegSide = degrees(9 + 5 * transfer);
-    pose.rightLegSide = degrees(-9 + 5 * transfer);
+    pose.leftLegSide = degrees(9 + 5 * transfer + 14 * liftL * drive);
+    pose.rightLegSide = degrees(-9 + 5 * transfer - 14 * liftR * drive);
     pose.leftFootPitch = degrees(-5 - 10 * liftL);
     pose.rightFootPitch = degrees(-5 - 10 * liftR);
     pose.leftFootRoll = degrees(5 * transfer);
     pose.rightFootRoll = degrees(5 * transfer);
-    pose.bounce = -0.035 - 0.055 * sink;
+    pose.bounce = -0.04 - 0.018 * sink + 0.018 * Math.abs(transfer);
   }
   if (style !== 'idol-pop' && style !== 'douyin-mix') {
     const microSway = Math.sin(raw * Math.PI * 2) * 0.025;

@@ -9,7 +9,9 @@ describe('authored dance normalized bone directions', () => {
         return sampleMusicDancePose(style, { level: 0.8, beat: 0, bpm: 120, beatIndex: Math.floor(beat), phase: beat % 1 });
       });
       const yaw = poses.map(p => p.hipYaw);
-      expect(Math.max(...yaw) - Math.min(...yaw)).toBeGreaterThan(0.8);
+      expect(Math.max(...yaw) - Math.min(...yaw)).toBeGreaterThan(0.55);
+      expect(poses.some(p => p.bodySway < -0.03 && p.leftLegSide > 0.27)).toBe(true);
+      expect(poses.some(p => p.bodySway > 0.03 && p.rightLegSide < -0.27)).toBe(true);
       expect(Math.max(...poses.map(p => p.leftKnee))).toBeGreaterThan(0.6);
       expect(Math.max(...poses.map(p => p.leftKnee - p.rightKnee))).toBeGreaterThan(0.25);
       expect(Math.min(...poses.map(p => p.leftKnee - p.rightKnee))).toBeLessThan(-0.25);
