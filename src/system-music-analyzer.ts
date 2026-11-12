@@ -1,5 +1,6 @@
 import { MUSIC_SILENCE_RESET_MS, musicSignalGraceMs, type MusicDanceSignal } from '../packages/character-core/music-dance';
 import { musicDancePlaybackRate } from '../packages/character-core/music-choreography';
+import { DanceBeatClock } from './dance-beat-clock';
 
 function clamp(value: number, min: number, max: number) { return Math.min(max, Math.max(min, value)); }
 
@@ -15,6 +16,7 @@ function median(values: number[]) {
 
 /** Captures the Windows output mix in memory for local beat analysis only. */
 export class SystemMusicAnalyzer {
+  private readonly danceClock = new DanceBeatClock();
   private readonly pendingCaptures = new Set<{ stream: MediaStream; context?: AudioContext }>();
   private stream?: MediaStream;
   private context?: AudioContext;
@@ -96,6 +98,7 @@ export class SystemMusicAnalyzer {
       this.smoothedMid = 0;
       this.smoothedTreble = 0;
       this.bandHistory = [];
+      this.danceClock.reset();
       this.bandFocus = 'bass';
       this.lastBandFocusBeat = -1;
       this.baseline = 0;
@@ -152,8 +155,11 @@ export class SystemMusicAnalyzer {
       this.bandFocus = 'bass';
       this.lastBandFocusBeat = -1;
       this.bandHistory = [];
+      this.danceClock.reset();
     }
 
+    // Advance using the previous tempo before an onset can update the estimate.
+    this.danceClock.advance(now, this.bpm, this.lastBeatAt > 0);
     if (energy > 0.035 / this.sensitivity && onset > Math.max(0.012 / this.sensitivity, this.baseline * 0.2) && now - this.lastBeatAt >= 240) {
       if (this.lastBeatAt > 0) {
         const interval = now - this.lastBeatAt;
@@ -168,9 +174,10 @@ export class SystemMusicAnalyzer {
       this.lastBeatLevel = clamp((this.smoothedEnergy - 0.018 / this.sensitivity) * 8 * this.sensitivity, 0, 1);
     }
 
+    const danceBeats = this.danceClock.advance(now, this.bpm, this.lastBeatAt > 0);
     const lowEnergy = this.smoothedEnergy < 0.02 / this.sensitivity
       || (this.quietSince && now - this.quietSince >= 300 && this.smoothedEnergy < 0.055 / this.sensitivity);
-    const focusBeat = Math.floor(Math.max(0, this.beatIndex) * musicDancePlaybackRate('auto-mix'));
+    const focusBeat = Math.floor(danceBeats * musicDancePlaybackRate('auto-mix'));
     if (this.lastBeatAt && focusBeat % 4 === 0 && this.lastBandFocusBeat !== focusBeat && this.bandHistory.length) {
       const averages = { bass: 0, mid: 0, treble: 0 };
       for (const sample of this.bandHistory) {
@@ -190,7 +197,6 @@ export class SystemMusicAnalyzer {
       const grace = musicSignalGraceMs(this.bpm);
       if (!this.lastBeatAt || now - this.lastBeatAt >= grace || quietFor >= grace) return undefined;
     }
-    const beatDuration = 60_000 / this.bpm;
     const energyLevel = clamp((this.smoothedEnergy - 0.018 / this.sensitivity) * 8 * this.sensitivity, 0, 1);
     const quietFade = lowEnergy && this.quietSince
       ? clamp(1 - (now - this.quietSince) / musicSignalGraceMs(this.bpm), 0, 1)
@@ -203,8 +209,8 @@ export class SystemMusicAnalyzer {
       bandFocus: this.bandFocus,
       hit: this.lastBeatAt ? clamp(1 - (now - this.lastBeatAt) / 180, 0, 1) : 0,
       beat: this.lastBeatAt ? clamp(1 - (now - this.lastBeatAt) / 180, 0, 1) : 0,
-      phase: this.lastBeatAt ? (Math.max(0, now - this.lastBeatAt) % beatDuration) / beatDuration : 0,
-      beatIndex: Math.max(0, this.beatIndex),
+      phase: danceBeats - Math.floor(danceBeats),
+      beatIndex: Math.floor(danceBeats),
       tempoReady: this.beatTimes.length >= 2,
       fresh: !lowEnergy,
       bpm: this.bpm,
