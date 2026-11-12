@@ -29,7 +29,7 @@ contextBridge.exposeInMainWorld('petDesktop', Object.freeze({
   openWorkshop: () => ipcRenderer.invoke('workshop:open'),
   hidePet: () => ipcRenderer.invoke('pet:hide'),
   quit: () => ipcRenderer.invoke('pet:quit'),
-  startDrag: () => ipcRenderer.invoke('pet:drag-start'),
+  startDrag: (pointer) => ipcRenderer.invoke('pet:drag-start', pointer),
   endDrag: () => ipcRenderer.invoke('pet:drag-end'),
   setClickThrough: (value) => ipcRenderer.invoke('pet:click-through', value),
   setScale: (value) => ipcRenderer.invoke('pet:scale', value),

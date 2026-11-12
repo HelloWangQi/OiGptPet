@@ -46,14 +46,14 @@ export async function checkPetBodyDrag(desktop, page) {
     });
   };
   let point = await findBodyPixel();
-  const start = await desktop.evaluate(({ BrowserWindow, screen }) => {
+  const start = await desktop.evaluate(({ BrowserWindow, screen }, point) => {
     const win = BrowserWindow.getAllWindows().find(w => !w.isResizable());
     const bounds = win.getBounds();
     globalThis.__dragOriginalCursor = screen.getCursorScreenPoint;
-    globalThis.__dragCursor = { x: bounds.x + 150, y: bounds.y + 200 };
+    globalThis.__dragCursor = { x: bounds.x + point.x, y: bounds.y + point.y };
     screen.getCursorScreenPoint = () => globalThis.__dragCursor;
     return bounds;
-  });
+  }, point);
   const dx = start.x > 50 ? -30 : 30;
   const dy = start.y > 50 ? -20 : 20;
   let hitSample;

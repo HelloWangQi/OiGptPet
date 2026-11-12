@@ -207,9 +207,10 @@ function handlers() {
     if (owner !== workshop) throw new Error('Only the workshop can export diagnostics');
     return saveDiagnostics(owner);
   });
-  ipcMain.handle('pet:drag-start', event => {
+  ipcMain.handle('pet:drag-start', (event, pointer) => {
     if (trusted(event) !== pet) throw new Error('Only the pet can start dragging');
-    return !quitting && petDrag.start();
+    if (petToolsLayout) setPetToolsOpen(false);
+    return !quitting && petDrag.start(pointer);
   });
   ipcMain.handle('pet:drag-end', event => {
     if (trusted(event) !== pet) throw new Error('Only the pet can end dragging');

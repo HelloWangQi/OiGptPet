@@ -32,7 +32,7 @@ interface Window {
     openWorkshop(): Promise<void>;
     hidePet(): Promise<void>;
     quit(): Promise<void>;
-    startDrag(): Promise<boolean>;
+    startDrag(pointer?: { x: number; y: number }): Promise<boolean>;
     endDrag(): Promise<void>;
     setClickThrough(value: boolean): Promise<void>;
     setScale(value: number): Promise<void>;

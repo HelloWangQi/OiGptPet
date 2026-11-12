@@ -1410,6 +1410,7 @@ async function bootstrap() {
   resizeStage = resize;
   new ResizeObserver(resize).observe(canvasHost);
   resize();
+  let bodyDrag: { pointerId: number; x: number; y: number; target: HTMLElement; moved: boolean } | undefined;
   const frame = (now: number) => {
     if (closed) return;
     const context = renderContext(now); renderMonitor.setContext(context, now);
@@ -1440,8 +1441,10 @@ async function bootstrap() {
       if (!paused) animationTime += delta;
       if (transientUntil && now > transientUntil) { transientUntil = 0; changeState('idle'); }
       const started = performance.now();
-      stage.render(state, animationTime, paused ? 0 : delta, now - lastPointer < 1800 ? look : undefined, stateRevision);
-      renderMonitor.record(performance.now() - started);
+      if (!bodyDrag) {
+        stage.render(state, animationTime, paused ? 0 : delta, now - lastPointer < 1800 ? look : undefined, stateRevision);
+        renderMonitor.record(performance.now() - started);
+      }
     }
     if (!petMode && externalMotionClips.length && now - lastExternalMotionUiUpdate >= 100) {
       lastExternalMotionUiUpdate = now;
@@ -1450,7 +1453,6 @@ async function bootstrap() {
     requestAnimationFrame(frame);
   };
   requestAnimationFrame(frame);
-  let bodyDrag: { pointerId: number; x: number; y: number; target: HTMLElement; moved: boolean } | undefined;
   let suppressBodyClick = false;
   const trackDrag = (event: PointerEvent) => {
     if (bodyDrag && event.pointerId === bodyDrag.pointerId
@@ -1459,6 +1461,7 @@ async function bootstrap() {
   const finishBodyDrag = () => {
     if (!bodyDrag) return;
     const previous = bodyDrag; bodyDrag = undefined;
+    framePacer.reset();
     suppressBodyClick = previous.moved;
     document.body.classList.remove('pet-body-dragging');
     if (previous.target.hasPointerCapture(previous.pointerId)) previous.target.releasePointerCapture(previous.pointerId);
@@ -1486,7 +1489,7 @@ async function bootstrap() {
       target.setPointerCapture(event.pointerId);
       document.body.classList.add('pet-body-dragging');
       ignoringMouse = false;
-      void desktop!.startDrag().then(started => { if (!started) finishBodyDrag(); }).catch(error => { finishBodyDrag(); console.error(error); });
+      void desktop!.startDrag({ x: event.screenX, y: event.screenY }).then(started => { if (!started) finishBodyDrag(); }).catch(error => { finishBodyDrag(); console.error(error); });
       event.preventDefault();
     });
     window.addEventListener('pointerup', event => { if (event.pointerId === bodyDrag?.pointerId) { trackDrag(event); finishBodyDrag(); } });
@@ -1504,6 +1507,8 @@ async function bootstrap() {
     if (bodyDrag) {
       trackDrag(event);
       if (event.buttons === 0) finishBodyDrag();
+      lastInteraction = performance.now();
+      return;
     }
     const bounds = canvasHost.getBoundingClientRect();
     look = pointerLook(event.clientX, event.clientY, bounds);
