@@ -2,9 +2,11 @@
 
 源码分支 `codex/desktop-prototype`。0.12.0 GitHub Release 已发布：[下载页](https://github.com/HelloWangQi/OiGptPet/releases/tag/v0.12.0)。0.13.0 引入“怦然心动风格”和“猫步轻悄风格”实验性八拍舞步、舞步试听，以及 4/8/16/21 帧精灵图 SVG 模板下载；音乐试听不采集系统音频，用户导入 VRMA 时使用 VRMA 动作。具体行为见 [MUSIC_DANCE.md](MUSIC_DANCE.md) 和 [SPRITE_DANCE.md](SPRITE_DANCE.md)。
 
-**当前本地源码检查点待提交**：为回应“效果与 `vrm-dance-pet` 仍差距很大”，补齐科目三参考动作的驱动链：读取标准化静止姿势四元数并按 21/s 平滑插值；实际驱动髋、脊柱、胸、上胸、颈、头、肩、上臂、前臂、手腕、髋腿、膝、脚；加入参考工程默认 0.65 倍动作速度、能量缩放、屈膝换重心、身体侧倾/弹跳；跳舞时暂时关闭 VRM 自动视线，结束/换模型时恢复。试听时长随 0.65× 速度延长，保证完整播完八拍动作句。AOA 副歌舞步仍是实验改编，未逐段核对官方练习视频，不能称为原编舞。尚未用同一个 AvatarSample_B 同时渲染并目视比较参考程序和本项目，用户也尚未确认本轮达到目标，不要记作视觉验收通过。参考工程的 GIF、VRM 和程序没有打进安装包。
+**2026-11-12 本轮进展**：从 `306716d` 继续改善桌宠实际舞蹈表现。桌宠 VRM 单独使用透视取景、补光、表情和地面影；进入程序舞步时去掉多余的整身淡入；透明工具栏区域重新参与鼠标穿透唤醒。新增低/中/高频系统混音能量和“频段律动混合”舞步：取最近约 2.5 秒频谱，在四拍边界决定主舞步，低频选科目三、中频选 AOA 实验改编、高频选猫步，并以高主权重保留完整动作形状；旧信号回退科目三。新增频谱只在本地内存分析，不存盘、不上传。默认仍保留用户原先选择。AOA 副歌舞步仍是实验改编，尚未逐段核对官方练习视频，不宣称复刻原编舞。
 
-最新 EXE：[OiGptPet.exe](../release/v0.13.0-1794391038409/OiGptPet-win32-x64/OiGptPet.exe)。`npm run verify:desktop` 的 TypeScript、Vite 和打包通过；第二次打包的保留脚本因仍运行的旧版 `OiGptPet.exe` 锁住 `release/v0.13.0-1794388789054/OiGptPet-win32-x64/debug.log` 而报 `EBUSY`，所以该次命令没有进入冒烟。随后直接运行现有 EXE 冒烟，止于 `external-motion-smoke-steps.mjs:58`（浏览器页关闭，等待导出结果失败），产物在 `artifacts/release-smoke/run-1794391134352/`；native log 记为“Ctrl+Alt+P unavailable; restore interactivity from the tray menu”。前一包 `run-1794390616096` 则在聊天朗读按钮断言处失败。整套桌面验收仍未通过，不能把新动作记作视觉验收通过。`release/` 暂有四个版本目录，保留策略因旧进程占用未能完成自动清理；不要强关占用中的应用或手删包。接续时先确认旧窗口已关闭，再从当前提交重跑 `npm run verify:desktop`，随后用同一个 AvatarSample_B 对比舞姿。`npm test` 未运行；实际麦克风、系统朗读仍待人工验收。
+`npm run build` 通过。最终 `npm run verify:desktop` 已编译、打包并运行真实 EXE 冒烟，但未整体通过：检查在 `scripts/chat-smoke-steps.mjs:60` 因完整回复朗读按钮断言 `true !== false` 结束；同轮先前一次运行则在 `external-motion-smoke-steps.mjs:131` 因 2× 时间读数为 0 结束，均未指向本轮舞蹈代码。`npm test` 未运行。当前 EXE：[OiGptPet.exe](../release/v0.13.0-1794452157681/OiGptPet-win32-x64/OiGptPet.exe)，舞蹈逐帧截图见 `artifacts/dance-visual-compare/oipet-auto-mix-00.png` 至 `oipet-auto-mix-20.png`，与参考程序使用相同 `AvatarSample_B.vrm`（SHA-256 `ffbd8c92a9e67c0a948f69c7a2eec91e5c282c9ae70e9184309fc164d74cbc27`）。目前只是开发者的同模型画面检查，用户尚未确认达到或超过 Qoder；桌面上真实系统音乐、麦克风和系统朗读仍待人工体验。
+
+打包保留策略正常，`release/` 仅保留 `1794452157681`、`1794451779490`、`1794451358547` 三个最新目录。无远端推送或 Release 操作。接续时先请用户看新 EXE 的“频段律动混合”和默认“科目三”完整动作句，再按实际反馈调节姿态；在宣称优于 Qoder 前需用户确认。
 
 ## 尚待处理
 

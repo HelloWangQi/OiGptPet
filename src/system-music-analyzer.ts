@@ -1,4 +1,5 @@
 import { MUSIC_SILENCE_RESET_MS, musicSignalGraceMs, type MusicDanceSignal } from '../packages/character-core/music-dance';
+import { musicDancePlaybackRate } from '../packages/character-core/music-choreography';
 
 function clamp(value: number, min: number, max: number) { return Math.min(max, Math.max(min, value)); }
 
@@ -22,6 +23,12 @@ export class SystemMusicAnalyzer {
   private bins?: Uint8Array<ArrayBuffer>;
   private previousEnergy = 0;
   private smoothedEnergy = 0;
+  private smoothedBass = 0;
+  private smoothedMid = 0;
+  private smoothedTreble = 0;
+  private bandHistory: Array<{ at: number; bass: number; mid: number; treble: number }> = [];
+  private bandFocus: NonNullable<MusicDanceSignal['bandFocus']> = 'bass';
+  private lastBandFocusBeat = -1;
   private baseline = 0;
   private quietSince = 0;
   private lastBeatAt = 0;
@@ -85,6 +92,12 @@ export class SystemMusicAnalyzer {
       this.bins = bins;
       this.previousEnergy = 0;
       this.smoothedEnergy = 0;
+      this.smoothedBass = 0;
+      this.smoothedMid = 0;
+      this.smoothedTreble = 0;
+      this.bandHistory = [];
+      this.bandFocus = 'bass';
+      this.lastBandFocusBeat = -1;
       this.baseline = 0;
       this.quietSince = 0;
       this.lastBeatAt = 0;
@@ -109,6 +122,20 @@ export class SystemMusicAnalyzer {
     const lowEnd = this.averageBins(bins, 2, 12);
     const lowMid = this.averageBins(bins, 13, 42);
     const energy = lowEnd * 0.72 + lowMid * 0.28;
+    const hzPerBin = (this.context?.sampleRate ?? 48_000) / analyser.fftSize;
+    const band = (lowHz: number, highHz: number) => this.averageBins(
+      bins,
+      Math.max(1, Math.floor(lowHz / hzPerBin)),
+      Math.min(bins.length - 1, Math.ceil(highHz / hzPerBin)),
+    );
+    const bass = clamp(band(20, 160) * this.sensitivity, 0, 1);
+    const mid = clamp(band(160, 2_000) * this.sensitivity, 0, 1);
+    const treble = clamp(band(2_000, 8_000) * this.sensitivity, 0, 1);
+    this.smoothedBass += (bass - this.smoothedBass) * (bass > this.smoothedBass ? 0.45 : 0.18);
+    this.smoothedMid += (mid - this.smoothedMid) * (mid > this.smoothedMid ? 0.45 : 0.18);
+    this.smoothedTreble += (treble - this.smoothedTreble) * (treble > this.smoothedTreble ? 0.45 : 0.18);
+    this.bandHistory.push({ at: now, bass: this.smoothedBass, mid: this.smoothedMid, treble: this.smoothedTreble });
+    while (this.bandHistory[0] && now - this.bandHistory[0].at > 2_500) this.bandHistory.shift();
     const onset = energy - this.previousEnergy;
     this.smoothedEnergy += (energy - this.smoothedEnergy) * (energy > this.smoothedEnergy ? 0.45 : 0.18);
     if (energy < 0.022 / this.sensitivity) this.quietSince ||= now;
@@ -122,6 +149,9 @@ export class SystemMusicAnalyzer {
       this.beatIndex = -1;
       this.lastBeatLevel = 0;
       this.bpm = 100;
+      this.bandFocus = 'bass';
+      this.lastBandFocusBeat = -1;
+      this.bandHistory = [];
     }
 
     if (energy > 0.035 / this.sensitivity && onset > Math.max(0.012 / this.sensitivity, this.baseline * 0.2) && now - this.lastBeatAt >= 240) {
@@ -140,6 +170,21 @@ export class SystemMusicAnalyzer {
 
     const lowEnergy = this.smoothedEnergy < 0.02 / this.sensitivity
       || (this.quietSince && now - this.quietSince >= 300 && this.smoothedEnergy < 0.055 / this.sensitivity);
+    const focusBeat = Math.floor(Math.max(0, this.beatIndex) * musicDancePlaybackRate('auto-mix'));
+    if (this.lastBeatAt && focusBeat % 4 === 0 && this.lastBandFocusBeat !== focusBeat && this.bandHistory.length) {
+      const averages = { bass: 0, mid: 0, treble: 0 };
+      for (const sample of this.bandHistory) {
+        averages.bass += sample.bass;
+        averages.mid += sample.mid;
+        averages.treble += sample.treble;
+      }
+      const count = this.bandHistory.length;
+      averages.bass /= count; averages.mid /= count; averages.treble /= count;
+      const strongest = (Object.keys(averages) as Array<keyof typeof averages>)
+        .reduce((best, bandName) => averages[bandName] > averages[best] ? bandName : best, 'bass');
+      if (strongest === this.bandFocus || averages[strongest] > averages[this.bandFocus] * 1.08) this.bandFocus = strongest;
+      this.lastBandFocusBeat = focusBeat;
+    }
     if (lowEnergy) {
       const quietFor = this.quietSince ? now - this.quietSince : 0;
       const grace = musicSignalGraceMs(this.bpm);
@@ -152,6 +197,11 @@ export class SystemMusicAnalyzer {
       : 1;
     return {
       level: lowEnergy ? Math.max(energyLevel, this.lastBeatLevel * quietFade) : energyLevel,
+      bass: this.smoothedBass,
+      mid: this.smoothedMid,
+      treble: this.smoothedTreble,
+      bandFocus: this.bandFocus,
+      hit: this.lastBeatAt ? clamp(1 - (now - this.lastBeatAt) / 180, 0, 1) : 0,
       beat: this.lastBeatAt ? clamp(1 - (now - this.lastBeatAt) / 180, 0, 1) : 0,
       phase: this.lastBeatAt ? (Math.max(0, now - this.lastBeatAt) % beatDuration) / beatDuration : 0,
       beatIndex: Math.max(0, this.beatIndex),

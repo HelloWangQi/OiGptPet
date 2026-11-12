@@ -39,7 +39,7 @@ const MUSIC_DANCE_BONES: VRMHumanBoneName[] = [
 export class VrmStage {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
-  readonly camera = new THREE.OrthographicCamera(-1.4, 1.4, 2.45, -0.25, 0.1, 30);
+  readonly camera: THREE.OrthographicCamera | THREE.PerspectiveCamera;
   readonly root = new THREE.Group();
   private vrm?: VRM;
   private lookAtProxy?: VRMLookAtQuaternionProxy;
@@ -61,6 +61,9 @@ export class VrmStage {
   private musicDancePoseActive = false;
   private musicDancePreviousLookAtAutoUpdate?: boolean;
   private musicDanceRestPose = new Map<VRMHumanBoneName, THREE.Quaternion>();
+  private petGroundShadow?: THREE.Mesh<THREE.PlaneGeometry, THREE.MeshBasicMaterial>;
+  private readonly petBounds = new THREE.Vector3(0.95, 1.85, 0.2);
+  private petCenterY = 0.925;
   private musicDanceEuler = new THREE.Euler(0, 0, 0, 'XYZ');
   private musicDanceTarget = new THREE.Quaternion();
   private musicDanceScratch = new THREE.Quaternion();
@@ -75,20 +78,60 @@ export class VrmStage {
     expressions: Array<{ name: string; from: number }>;
   };
 
-  constructor(readonly canvas: HTMLCanvasElement, preserveDrawingBuffer = false) {
+  constructor(readonly canvas: HTMLCanvasElement, preserveDrawingBuffer = false, private readonly petPresentation = false) {
     this.renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, preserveDrawingBuffer });
     this.renderer.setClearColor(0, 0);
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.camera.position.set(0, 1.1, 5);
-    this.camera.lookAt(0, 1.1, 0);
-    // Orthographic bounds are relative to the camera center.
-    this.camera.top = 1.35;
-    this.camera.bottom = -1.35;
+    if (petPresentation) {
+      this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      this.renderer.toneMappingExposure = 1.15;
+    }
+    this.camera = petPresentation
+      ? new THREE.PerspectiveCamera(28, 1, 0.05, 100)
+      : new THREE.OrthographicCamera(-1.4, 1.4, 2.45, -0.25, 0.1, 30);
+    this.camera.position.set(0, petPresentation ? 1.4 : 1.1, petPresentation ? 4.6 : 5);
+    this.camera.lookAt(0, petPresentation ? 1 : 1.1, 0);
+    if (this.camera instanceof THREE.OrthographicCamera) {
+      // Orthographic bounds are relative to the camera center.
+      this.camera.top = 1.35;
+      this.camera.bottom = -1.35;
+    }
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0xc6c4d6, 2.2));
     const key = new THREE.DirectionalLight(0xfff5ec, 2.2);
     key.position.set(-2, 4, 5);
     this.scene.add(key, this.root, this.lookTarget);
+    if (petPresentation) {
+      const fill = new THREE.DirectionalLight(0xbcd8ff, 0.62);
+      fill.position.set(2, 2.4, -2.2);
+      const rim = new THREE.DirectionalLight(0xd6b7ff, 0.34);
+      rim.position.set(0, 2.8, -3.2);
+      this.scene.add(fill, rim);
+      this.createPetGroundShadow();
+    }
+  }
+
+  private createPetGroundShadow() {
+    const textureCanvas = document.createElement('canvas');
+    textureCanvas.width = 256; textureCanvas.height = 256;
+    const context = textureCanvas.getContext('2d');
+    if (!context) return;
+    const gradient = context.createRadialGradient(128, 128, 3, 128, 128, 124);
+    gradient.addColorStop(0, 'rgba(255,255,255,0.34)');
+    gradient.addColorStop(0.55, 'rgba(255,255,255,0.13)');
+    gradient.addColorStop(1, 'rgba(255,255,255,0)');
+    context.fillStyle = gradient; context.fillRect(0, 0, 256, 256);
+    const texture = new THREE.CanvasTexture(textureCanvas);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    const material = new THREE.MeshBasicMaterial({
+      color: 0x1c1236, map: texture, transparent: true, depthWrite: false, toneMapped: false, opacity: 0.82,
+    });
+    const shadow = new THREE.Mesh(new THREE.PlaneGeometry(1, 0.42), material);
+    shadow.rotation.x = -Math.PI / 2;
+    shadow.position.set(0, 0.006, 0.04);
+    shadow.renderOrder = 1;
+    this.scene.add(shadow);
+    this.petGroundShadow = shadow;
   }
 
   async load(buffer: ArrayBuffer): Promise<ModelInfo> {
@@ -137,6 +180,15 @@ export class VrmStage {
     candidate.scene.scale.setScalar(scale);
     candidate.scene.position.set(-(bounds.min.x + bounds.max.x) / 2 * scale, -bounds.min.y * scale, 0);
     candidate.scene.updateMatrixWorld(true);
+    if (this.petPresentation) {
+      const fitted = new THREE.Box3().setFromObject(candidate.scene);
+      fitted.getSize(this.petBounds);
+      this.petCenterY = fitted.getCenter(new THREE.Vector3()).y;
+      if (this.petGroundShadow) {
+        const width = Math.max(this.petBounds.x * 1.9, this.petBounds.y * 0.55);
+        this.petGroundShadow.scale.set(width, 1, 1);
+      }
+    }
     this.applyPose('idle', 0);
     candidate.update(0);
     // The loader initialized springs before our final scale and neutral pose.
@@ -154,9 +206,29 @@ export class VrmStage {
     if (pixelRatio !== undefined) this.renderer.setPixelRatio(pixelRatio);
     this.renderer.setSize(width, height, false);
     const aspect = width / Math.max(height, 1);
-    this.camera.left = -1.35 * aspect;
-    this.camera.right = 1.35 * aspect;
-    this.camera.updateProjectionMatrix();
+    if (this.camera instanceof THREE.PerspectiveCamera) {
+      // Portrait pet windows need extra horizontal action room for VRM arms,
+      // sleeves, hair, and the authored side steps without shrinking the body.
+      const fitAspect = this.petPresentation ? Math.max(aspect, 0.96) : aspect;
+      this.camera.aspect = fitAspect;
+      if (this.petPresentation) {
+        const tanY = Math.tan(THREE.MathUtils.degToRad(this.camera.fov) / 2);
+        const tanX = tanY * fitAspect;
+        const heightDistance = this.petBounds.y * 1.04 / (2 * tanY * 0.9);
+        const widthDistance = this.petBounds.x * 1.25 / (2 * tanX * 0.83);
+        const distance = Math.max(heightDistance, widthDistance, 3.4);
+        this.camera.position.set(0, this.petCenterY + 0.3, distance);
+        this.camera.lookAt(0, this.petCenterY, 0);
+      }
+      this.camera.updateProjectionMatrix();
+    } else {
+      const halfWidth = 1.35 * aspect;
+      this.camera.left = -halfWidth;
+      this.camera.right = halfWidth;
+      this.camera.top = 1.35;
+      this.camera.bottom = -1.35;
+      this.camera.updateProjectionMatrix();
+    }
   }
 
   setSpeechMouthOpen(amount: number) {
@@ -430,6 +502,8 @@ export class VrmStage {
       set('rightLowerLeg', pose.rightKnee, 0, 0, legStrength);
       set('leftFoot', pose.leftFootPitch, 0, pose.leftFootRoll, legStrength);
       set('rightFoot', pose.rightFootPitch, 0, pose.rightFootRoll, legStrength);
+      const happy = vrm.expressionManager?.getExpression('happy');
+      if (happy) vrm.expressionManager?.setValue('happy', 0.35 + energy * 0.4);
       const sizeScale = 1.85 / 1.6;
       const hitPulse = -0.012 * Math.abs(Math.sin(beatPosition * Math.PI)) * (0.4 + energy);
       const x = pose.bodySway * sizeScale;
@@ -444,6 +518,11 @@ export class VrmStage {
         pose.rootYaw,
         pose.bodyTilt - pose.bodySway * 1.8,
       );
+      if (this.petGroundShadow) {
+        const hit = THREE.MathUtils.clamp(signal.hit ?? signal.beat, 0, 1);
+        this.petGroundShadow.position.x = this.root.position.x;
+        this.petGroundShadow.material.opacity = 0.82 - hit * 0.22;
+      }
       return;
     }
     const beatPhase = beatPosition * Math.PI * 2;
@@ -487,9 +566,10 @@ export class VrmStage {
     const dancing = state === 'idle' ? this.musicDanceSignal : undefined;
     const authoredDance = !externalMotion && Boolean(dancing) && this.musicDanceStyle !== 'groove';
     const danceModeChanged = authoredDance !== this.musicDancePoseActive;
+    const enteringAuthoredDance = authoredDance && !this.musicDancePoseActive;
     this.setMusicDanceLookAtPaused(authoredDance);
     const restarted = stateRevision !== undefined && this.lastStateRevision !== undefined && stateRevision !== this.lastStateRevision;
-    if (this.lastState !== undefined && (this.lastState !== state || restarted || danceModeChanged) && this.vrm) {
+    if (this.lastState !== undefined && (this.lastState !== state || restarted || danceModeChanged) && this.vrm && !enteringAuthoredDance) {
       const nodes = new Set(Object.values(this.vrm.humanoid.normalizedHumanBones).map(bone => bone.node));
       const bones = [...nodes].map(node => ({ node, from: node.quaternion.clone(), to: new THREE.Quaternion() }));
       const expressions = ['blink', 'blinkLeft', 'blinkRight', 'happy', 'sad', 'relaxed']
@@ -503,6 +583,10 @@ export class VrmStage {
         lookPosition: this.lookTarget.position.clone(),
         expressions,
       };
+    } else if (enteringAuthoredDance) {
+      // The dance bones already slerp toward the authored pose at 21/s; a
+      // second whole-body fade on entry makes the first beat look delayed.
+      this.poseTransition = undefined;
     }
     this.lastState = state;
     this.lastStateRevision = stateRevision;
@@ -618,6 +702,13 @@ export class VrmStage {
     this.disposed = true;
     ++this.generation;
     this.releaseModel();
+    if (this.petGroundShadow) {
+      this.scene.remove(this.petGroundShadow);
+      this.petGroundShadow.geometry.dispose();
+      this.petGroundShadow.material.map?.dispose();
+      this.petGroundShadow.material.dispose();
+      this.petGroundShadow = undefined;
+    }
     this.renderer.dispose();
     this.renderer.forceContextLoss();
   }

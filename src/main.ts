@@ -81,6 +81,7 @@ app.innerHTML = petMode ? `
             <option value="idol-pop">怦然心动·副歌实验改编</option>
             <option value="catwalk">猫步轻悄风格</option>
             <option value="douyin-mix">科目三·短视频舞步改编</option>
+            <option value="auto-mix">频段律动混合</option>
           </select>
           <select id="pet-music-sensitivity" aria-label="音乐节拍检测灵敏度" title="音乐节拍检测灵敏度" hidden>
             <option value="0.7">灵敏度低</option><option value="1" selected>灵敏度中</option><option value="1.35">灵敏度高</option>
@@ -237,14 +238,15 @@ let petDanceSpriteImportRevision = 0;
 let petDanceSpriteReady = false;
 let petDancePreviewStartedAt = 0;
 let selectedMusicDanceStyle: MusicDanceStyle = 'douyin-mix';
-const PET_DANCE_PREVIEW_BPM: Record<MusicDanceStyle, number> = { groove: 100, 'idol-pop': 124, catwalk: 116, 'douyin-mix': 140 };
+const PET_DANCE_PREVIEW_BPM: Record<MusicDanceStyle, number> = { groove: 100, 'idol-pop': 124, catwalk: 116, 'douyin-mix': 140, 'auto-mix': 128 };
 const PET_DANCE_PREVIEW_DEFAULT_BEATS = 8;
+function petDancePreviewPhraseBeats() { return selectedMusicDanceStyle === 'auto-mix' ? 12 : PET_DANCE_PREVIEW_DEFAULT_BEATS; }
 function petDancePreviewTempo() { return PET_DANCE_PREVIEW_BPM[selectedMusicDanceStyle]; }
 function petDancePreviewPlaybackRate() {
   return stage?.sourceKind === 'vrm' ? musicDancePlaybackRate(selectedMusicDanceStyle) : 1;
 }
 function petDancePreviewBeatCount() {
-  return PET_DANCE_PREVIEW_DEFAULT_BEATS / petDancePreviewPlaybackRate();
+  return petDancePreviewPhraseBeats() / petDancePreviewPlaybackRate();
 }
 function petDancePreviewDescription() {
   const rate = petDancePreviewPlaybackRate();
@@ -320,6 +322,11 @@ function samplePetDancePreview(now: number) {
   const beatIndex = Math.floor(elapsed / beatDuration);
   return {
     level: 0.78,
+    bass: 0.42 + 0.48 * Math.max(0, 1 - beatPosition / 0.24),
+    mid: 0.36 + 0.18 * Math.abs(Math.sin(beatIndex * Math.PI / 4)),
+    treble: 0.3 + 0.28 * Math.abs(Math.sin((beatIndex + beatPosition) * Math.PI / 2)),
+    bandFocus: (['bass', 'mid', 'treble'] as const)[Math.floor(((beatIndex + beatPosition) * musicDancePlaybackRate(selectedMusicDanceStyle)) / 4) % 3],
+    hit: Math.max(0, 1 - beatPosition / 0.18),
     beat: Math.max(0, 1 - beatPosition / 0.22),
     phase: beatPosition,
     beatIndex,
@@ -1386,7 +1393,7 @@ async function bootstrap() {
     $<HTMLSelectElement>('#performance-mode').disabled = false;
     if (!desktop) $<HTMLSelectElement>('#pet-scale').title = '桌宠大小需要桌面应用。';
   }
-  stage = new CompanionStage($<HTMLCanvasElement>('#character-canvas'));
+  stage = new CompanionStage($<HTMLCanvasElement>('#character-canvas'), petMode);
   const musicDanceStyle = readMusicDanceStylePreference();
   selectedMusicDanceStyle = musicDanceStyle;
   stage.setMusicDanceStyle(musicDanceStyle);
@@ -1490,7 +1497,14 @@ async function bootstrap() {
     lastPointer = performance.now();
     lastInteraction = lastPointer;
     if (petMode && !forcedInteractive && !bodyDrag) {
-      const interactive = (event.target as HTMLElement)?.closest('[data-interactive]') || stage.hitTest(event.clientX, event.clientY);
+      const overInteractiveRegion = [...document.querySelectorAll<HTMLElement>('[data-interactive]')].some(element => {
+        if (element.hidden || element.closest('[hidden]') || getComputedStyle(element).display === 'none') return false;
+        const rect = element.getBoundingClientRect();
+        return event.clientX >= rect.left && event.clientX <= rect.right
+          && event.clientY >= rect.top && event.clientY <= rect.bottom;
+      });
+      const interactive = (event.target as HTMLElement)?.closest('[data-interactive]')
+        || overInteractiveRegion || stage.hitTest(event.clientX, event.clientY);
       const next = !interactive;
       if (next !== ignoringMouse) { ignoringMouse = next; void desktop!.setClickThrough(next); }
     }
@@ -1618,7 +1632,7 @@ if (petMode) {
     selectedMusicDanceStyle = style;
     stage.setMusicDanceStyle(style);
     const saved = writeMusicDanceStylePreference(style);
-    const names: Record<MusicDanceStyle, string> = { groove: '基础律动', 'idol-pop': '怦然心动·副歌实验改编', catwalk: '猫步轻悄风格', 'douyin-mix': '科目三·短视频舞步改编' };
+    const names: Record<MusicDanceStyle, string> = { groove: '基础律动', 'idol-pop': '怦然心动·副歌实验改编', catwalk: '猫步轻悄风格', 'douyin-mix': '科目三·短视频舞步改编', 'auto-mix': '频段律动混合' };
     $<HTMLButtonElement>('#pet-dance-preview').title = `以 ${petDancePreviewTempo()} BPM 试听完整舞句（${petDancePreviewDescription()}）；不采集系统音频`;
     if (previewWasActive) petDancePreviewStartedAt = performance.now();
     status(`已切换到「${names[style]}」${saved ? '，已记住本机选择' : '，本次关闭桌宠后会恢复默认'}；导入 VRMA 后将播放文件中的动作。`);

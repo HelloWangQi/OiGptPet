@@ -1,10 +1,10 @@
 import type { MusicDanceSignal } from './music-dance';
 
-export type MusicDanceStyle = 'groove' | 'idol-pop' | 'catwalk' | 'douyin-mix';
+export type MusicDanceStyle = 'groove' | 'idol-pop' | 'catwalk' | 'douyin-mix' | 'auto-mix';
 
 /** Preserve the reference dance's deliberate, slower movement rate. */
 export function musicDancePlaybackRate(style: MusicDanceStyle): number {
-  return style === 'douyin-mix' ? 0.65 : 1;
+  return style === 'douyin-mix' ? 0.65 : style === 'auto-mix' ? 0.82 : 1;
 }
 
 /** Pose channels for the authored, fixed-count single-avatar dance phrases. */
@@ -116,6 +116,47 @@ const channels: (keyof MusicDancePose)[] = [
 
 /** Sample an experimental eight-count phrase. Existing groove mode remains unchanged. */
 export function sampleMusicDancePose(style: Exclude<MusicDanceStyle, 'groove'>, signal: MusicDanceSignal): MusicDancePose {
+  if (style === 'auto-mix') {
+    const beatCount = (signal.beatIndex ?? 0) + (Number.isFinite(signal.phase) ? Math.max(0, Math.min(0.999, signal.phase!)) : 0);
+    const targetBeats = beatCount * musicDancePlaybackRate('auto-mix');
+    const sampleAtRate = (baseStyle: Exclude<MusicDanceStyle, 'groove' | 'auto-mix'>) => {
+      const sourceBeat = targetBeats / musicDancePlaybackRate(baseStyle);
+      const remapped = { ...signal, beatIndex: Math.floor(sourceBeat), phase: sourceBeat - Math.floor(sourceBeat) };
+      return sampleMusicDancePose(baseStyle, remapped);
+    };
+    const bass = clampDanceSignal(signal.bass ?? signal.level);
+    const mid = clampDanceSignal(signal.mid ?? signal.level);
+    const treble = clampDanceSignal(signal.treble ?? signal.level);
+    const layers = [
+      { style: 'douyin-mix' as const, pose: sampleAtRate('douyin-mix'), weight: 0 },
+      { style: 'idol-pop' as const, pose: sampleAtRate('idol-pop'), weight: 0 },
+      { style: 'catwalk' as const, pose: sampleAtRate('catwalk'), weight: 0 },
+    ];
+    const strongest = Math.max(bass, mid, treble);
+    const weakest = Math.min(bass, mid, treble);
+    const dominantStyle = signal.bandFocus === 'mid' ? 'idol-pop'
+      : signal.bandFocus === 'treble' ? 'catwalk'
+        : signal.bandFocus === 'bass' ? 'douyin-mix'
+          : strongest - weakest < 0.1 ? 'douyin-mix'
+            : bass >= mid && bass >= treble ? 'douyin-mix'
+              : mid >= treble ? 'idol-pop' : 'catwalk';
+    const dominantWeight = 0.82 + (strongest - weakest) * 0.12;
+    for (const layer of layers) {
+      layer.weight = layer.style === dominantStyle ? dominantWeight : (1 - dominantWeight) / 2;
+    }
+    const mixed = Object.fromEntries(Object.keys(layers[0]!.pose).map(key => [
+      key,
+      layers.reduce((sum, layer) => sum + (layer.pose[key as keyof MusicDancePose] ?? 0) * layer.weight, 0),
+    ])) as unknown as MusicDancePose;
+    const transfer = Math.sin(targetBeats * TAU);
+    const handFlourish = Math.sin(targetBeats * TAU * 1.5);
+    mixed.hipYaw += degrees((bass - 0.3) * 5 * transfer);
+    mixed.chestRoll += degrees((mid - 0.3) * 3 * transfer);
+    mixed.leftWrist += degrees((treble - 0.25) * 10 * handFlourish);
+    mixed.rightWrist -= degrees((treble - 0.25) * 10 * handFlourish);
+    mixed.bounce += 0.008 * bass + 0.018 * clampDanceSignal(signal.hit ?? signal.beat);
+    return mixed;
+  }
   const frames = style === 'idol-pop' ? idolPop : style === 'douyin-mix' ? douyinMix : catwalk;
   const detectedBeats = (signal.beatIndex ?? 0) + (Number.isFinite(signal.phase) ? Math.max(0, Math.min(0.999, signal.phase!)) : 0);
   // Match the reference app's default 0.65 motion rate while keeping the
@@ -223,3 +264,5 @@ export function sampleMusicDancePose(style: Exclude<MusicDanceStyle, 'groove'>, 
   }
   return pose;
 }
+
+function clampDanceSignal(value: number) { return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0)); }
