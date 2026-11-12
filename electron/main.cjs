@@ -6,6 +6,7 @@ const fs = require('node:fs/promises');
 const { createWindowRecovery } = require('./window-recovery.cjs');
 const { createWindowStateStore } = require('./window-state.cjs');
 const { createPetDrag } = require('./pet-drag.cjs');
+const { createSelectedDanceStore } = require('./selected-dance.cjs');
 const { expandedToolsLayout } = require('./pet-tools-layout.cjs');
 const { createPreferencesStore } = require('./preferences.cjs');
 const { createCharacterPackageSaver } = require('./character-package-save.cjs');
@@ -21,6 +22,7 @@ if (process.env.OIGPTPET_TEST === '1' && process.env.OIGPTPET_TEST_USER_DATA) {
   app.setPath('userData', path.resolve(process.env.OIGPTPET_TEST_USER_DATA));
 } else if (!app.isPackaged) app.setPath('userData', path.join(root, '.cache', 'electron-user-data'));
 const clientRoot = !app.isPackaged && process.env.OIGPTPET_SMOKE_DEMO === '1' ? path.join(root, '.cache', 'demo-dist') : path.join(root, 'dist');
+const usePackagedDefaults = app.isPackaged && (process.env.OIGPTPET_TEST !== '1' || process.env.OIGPTPET_TEST_DEFAULTS === '1');
 let workshop;
 let pet;
 let petToolsLayout;
@@ -39,6 +41,7 @@ const chat = createChatService({ file: path.join(app.getPath('userData'), 'chat-
     }
   } });
 const statePath = () => path.join(app.getPath('userData'), 'window-state.json');
+const selectedDance = createSelectedDanceStore(path.join(app.getPath('userData'), 'selected-dance.vrma'));
 const windowState = createWindowStateStore(statePath(), { onError: error => console.error('Window position could not be saved:', error.message) });
 const modelPath = () => path.join(app.getPath('userData'), 'current.vrm');
 const preferences = createPreferencesStore(path.join(app.getPath('userData'), 'preferences.json'));
@@ -219,6 +222,26 @@ function handlers() {
   ipcMain.handle('character-package:save', (event, bytes, sha256, operationId) => characterPackageSaver.save(trusted(event), bytes, sha256, operationId));
   ipcMain.handle('character-package:cancel', (event, operationId) => characterPackageSaver.cancel(trusted(event), operationId));
   ipcMain.handle('model:get', (event) => { trusted(event); return modelBytes; });
+  ipcMain.handle('defaults:get', async (event, kind) => {
+    trusted(event);
+    if (!['model', 'dance'].includes(kind)) throw new Error('Invalid default asset');
+    if (!usePackagedDefaults) return null;
+    const name = kind === 'model' ? 'BREAK VENOM.vrm' : '不是恶魔.vrma';
+    const bytes = await fs.readFile(path.join(root, 'defaults', name));
+    if (bytes.length === 0 || bytes.length > 64 * 1024 * 1024) throw new Error('默认素材大小无效。');
+    return bytes;
+  });
+  ipcMain.handle('dance:get', event => { trusted(event); return selectedDance.get(); });
+  ipcMain.handle('dance:set', async (event, bytes) => {
+    trusted(event);
+    await selectedDance.set(bytes);
+    for (const win of [workshop, pet]) if (win && !win.isDestroyed() && win.webContents !== event.sender) win.webContents.send('dance:changed');
+  });
+  ipcMain.handle('dance:clear', async event => {
+    trusted(event);
+    await selectedDance.clear();
+    for (const win of [workshop, pet]) if (win && !win.isDestroyed() && win.webContents !== event.sender) win.webContents.send('dance:changed');
+  });
   ipcMain.handle('model:set', async (event, bytes) => {
     trusted(event);
     if (!(bytes instanceof Uint8Array) || bytes.length < 28 || bytes.length > 64 * 1024 * 1024 || Buffer.from(bytes.subarray(0, 4)).toString() !== 'glTF') throw new Error('Invalid VRM bytes');
@@ -279,7 +302,7 @@ function handlers() {
 
 if (!app.requestSingleInstanceLock()) app.quit();
 else {
-  app.on('second-instance', openWorkshop);
+  app.on('second-instance', () => { if (usePackagedDefaults && windowRecovery) recoverPet(); else openWorkshop(); });
   app.whenReady().then(async () => {
     protocol.handle('oipet', (request) => {
       try {
@@ -335,7 +358,7 @@ else {
     tray.on('double-click', openWorkshop);
     const registered = globalShortcut.register('CommandOrControl+Alt+P', recoverPet);
     if (!registered) console.warn('Ctrl+Alt+P unavailable; restore interactivity from the tray menu.');
-    openWorkshop();
+    if (usePackagedDefaults) openPet(); else openWorkshop();
   }).catch((error) => { console.error(error); app.exit(1); });
   app.on('window-all-closed', () => { if (quitting) app.quit(); });
   app.on('before-quit', event => {

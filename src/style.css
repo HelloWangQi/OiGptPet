@@ -152,6 +152,8 @@
 .pet-tools-section output { color:#668056; font:10px monospace; }
 .pet-tools-section progress { width:100%; margin:0; }
 .pet-tools-section #pet-dance-clip { flex:1 1 100%; }
+.workshop-dance-import { width:100%; margin-top:8px; background:#eff3e9; border:1px solid #d6dfcf; color:#516a4d; }
+.workshop-dance-import:hover:not(:disabled) { background:#e3eadb; }
 #pet-chat-composer { left:14px; right:58px; bottom:14px; }
 #pet-message { left:16px; right:58px; }
 @media(max-width:360px) {

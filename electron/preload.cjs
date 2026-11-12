@@ -24,6 +24,15 @@ contextBridge.exposeInMainWorld('petDesktop', Object.freeze({
     return () => ipcRenderer.removeListener('window:visibility', listener);
   },
   getModel: () => ipcRenderer.invoke('model:get'),
+  getDefaultAsset: (kind) => ipcRenderer.invoke('defaults:get', kind),
+  getSelectedDance: () => ipcRenderer.invoke('dance:get'),
+  setSelectedDance: (bytes) => ipcRenderer.invoke('dance:set', bytes),
+  clearSelectedDance: () => ipcRenderer.invoke('dance:clear'),
+  onSelectedDanceChanged: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on('dance:changed', listener);
+    return () => ipcRenderer.removeListener('dance:changed', listener);
+  },
   setModel: (bytes) => ipcRenderer.invoke('model:set', bytes),
   openPet: () => ipcRenderer.invoke('pet:open'),
   openWorkshop: () => ipcRenderer.invoke('workshop:open'),

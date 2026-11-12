@@ -140,7 +140,7 @@ app.innerHTML = petMode ? `
             <div id="external-motion-export" hidden><label class="field-label" for="external-motion-export-state">选择目标动作行</label><div class="external-motion-actions"><select id="external-motion-export-state"><option value="">选择要替换的动作行</option>${ANIMATION_ROWS.map(row => `<option value="${row.state}">${row.label}</option>`).join('')}</select><button id="external-motion-assign" class="text-button" type="button">添加 / 更新此行</button></div><div id="external-motion-assignments" class="external-motion-assignment-list" hidden aria-label="待导出的 VRMA 动作行"></div><p class="helper">可从多个文件中选择动作片段并分配给多行动作；未加入清单的行保留内置动作。保存前请检查动作语义、循环和裁切。</p></div>
             <div id="external-motion-sample-preview" class="external-motion-sample-preview" hidden><label class="field-label" for="external-motion-sample-frame">预览目标行的导出采样帧</label><div class="external-motion-actions"><select id="external-motion-sample-frame" aria-label="选择导出采样帧"></select><button id="external-motion-sample-jump" class="text-button" type="button">定位此帧</button></div><p id="external-motion-sample-description" class="helper"></p></div>
             <p id="external-motion-status" class="helper" role="status" aria-live="polite"></p>
-            <p class="helper">动作文件仅暂存在工坊。可将多个文件中的片段分配给多行动作行；单文件不超过 64 MiB，动作库总量不超过 256 MiB，不会修改角色库或备份包。</p>
+            <p class="helper">在右侧“导入舞步”选择的动作会保存到本机并同步桌宠；此处添加的其他动作仅暂存工坊，可分配给导出动作行。</p>
             <p class="helper">导入结果会对照当前角色检查动作轨道名称；匹配不代表动作绑定或视觉效果合格。</p>
           </section>
         </div>
@@ -151,6 +151,8 @@ app.innerHTML = petMode ? `
           <button class="character-card" id="load-demo" ${__WITH_DEMO__ ? '' : 'hidden'}><div class="avatar-monogram">S<span>✦</span></div><div><strong>官方示例角色</strong><span>pixiv · VRM 1.0</span></div><span class="card-arrow">↗</span></button>
           <button class="import-zone" id="import-button" disabled>${icon.plus}<strong>导入我的角色</strong><span>VRM 0.0 / 1.0 ≤64 MiB · PNG / WebP ≤20 MiB</span></button>
           <input type="file" id="model-file" accept=".vrm,.png,.webp,image/png,image/webp" hidden />
+          <button class="button workshop-dance-import" id="workshop-dance-import" type="button">${icon.plus} 导入舞步 · VRMA</button>
+          <input type="file" id="workshop-dance-file" accept=".vrma,model/gltf-binary" hidden />
           <label class="field-label" for="sprite-profile">导入精灵图规格</label>
           <select id="sprite-profile"><option value="v2">v2 · 含 16 方向视线</option><option value="v1">v1 · 仅动作</option></select>
           <button class="text-button" id="cancel-load" hidden>取消加载</button>
@@ -235,6 +237,7 @@ let petMusicDanceStartRevision = 0;
 let petDanceClips: VrmMotionClipInfo[] = [];
 let petDanceClipIndex = 0;
 let petDanceImportRevision = 0;
+let pendingSelectedDanceSync = false;
 let petDanceSpriteImportRevision = 0;
 let petDanceSpriteReady = false;
 let petDancePreviewStartedAt = 0;
@@ -511,7 +514,7 @@ function syncPetDanceMotion(signal: ReturnType<SystemMusicAnalyzer['sample']>, n
   stage.setMotionPlaybackRate(petDancePlaybackRate);
   petDanceLastRateUpdate = now;
 }
-async function importPetDance(file?: File) {
+async function importPetDance(file?: File, persist = false) {
   if (!file || !petMode || !stage.loaded || stage.sourceKind !== 'vrm') return;
   if (!file.name.toLowerCase().endsWith('.vrma')) { status('请选择 .vrma 舞蹈文件。', true); return; }
   if (file.size === 0 || file.size > MAX_MODEL_BYTES) { status('舞蹈文件不能为空且不能超过 64 MiB。', true); return; }
@@ -538,12 +541,28 @@ async function importPetDance(file?: File) {
     targetStage.setMotionLoopMode('repeat'); targetStage.setMotionPlaybackRate(1);
     if (targetStage.motionIsPlaying()) targetStage.toggleMotion();
     targetStage.setMusicDanceMotionMode(true); targetStage.setMusicDanceMotionPlaying(false);
+    if (persist && desktop) {
+      try { await desktop.setSelectedDance(new Uint8Array(buffer)); }
+      catch (error) { status(`舞步已在本次载入，但保存失败：${error instanceof Error ? error.message : '请重试。'}`, true); return; }
+    }
     status(`已加载「${file.name}」的 ${clips.length} 段舞步。${describeExternalMotionCompatibility(clips[0])} 开始音乐舞动后会按节拍循环。`);
   } catch (error) {
     if (revision === petDanceImportRevision) status(error instanceof Error ? error.message : '舞步加载失败。', true);
   } finally {
     if (revision === petDanceImportRevision) button.disabled = false;
   }
+}
+async function syncPetDanceFromSelection() {
+  if (!petMode || !desktop || !stage?.loaded || stage.sourceKind !== 'vrm') return;
+  const targetStage = stage;
+  const revision = ++petDanceImportRevision;
+  try {
+    const selected = await desktop.getSelectedDance();
+    const bytes = selected ?? await desktop.getDefaultAsset('dance');
+    if (bytes && revision === petDanceImportRevision && targetStage === stage && !closed) {
+      await importPetDance(new File([new Uint8Array(bytes).buffer], selected ? '上次导入的舞步.vrma' : '不是恶魔.vrma', { type: 'model/gltf-binary' }));
+    }
+  } catch (error) { if (revision === petDanceImportRevision) status(`舞步读取失败：${error instanceof Error ? error.message : '请重新导入。'}`, true); }
 }
 async function importPetSpriteDance(file?: File) {
   if (!file || !petMode || !desktop || !stage.loaded || stage.sourceKind !== 'sprite') return;
@@ -806,6 +825,7 @@ async function load(input: CompanionInput, persist: boolean, origin: 'local-impo
     showCharacter(summary, info, input);
     if (persist) notifyLibrary();
     if (!petMode) status('角色已就绪 · 点击动作试试看。');
+    if (petMode && input.kind === 'vrm' && desktop) await syncPetDanceFromSelection();
     return true;
   } catch (error) {
     status(controller.signal.aborted ? '加载已取消，保留原角色。' : `${error instanceof Error ? error.message : '角色加载失败。'}${stage.loaded ? ' 已保留原角色。' : ''}`, true);
@@ -822,6 +842,7 @@ async function load(input: CompanionInput, persist: boolean, origin: 'local-impo
     updatePackageControls();
     try { await refreshLibrary(); } catch { status('角色库读取失败，请重试。', true); }
     if (syncRequested && !packageJob) { syncRequested = false; void syncLibrary(); }
+    if (pendingSelectedDanceSync && petMode) { pendingSelectedDanceSync = false; void syncPetDanceFromSelection(); }
   }
 }
 
@@ -1161,7 +1182,7 @@ async function activateExternalMotionSource(sourceId: string) {
   }
 }
 
-async function importExternalMotion(file?: File) {
+async function importExternalMotion(file?: File, syncPet = false) {
   if (!file || !stage || loading || packageJob || petMode) return;
   if (!file.name.toLowerCase().endsWith('.vrma')) { $('#external-motion-status').textContent = '请选择 .vrma 动作文件。'; return; }
   if (file.size === 0 || file.size > MAX_MODEL_BYTES) { $('#external-motion-status').textContent = '动作文件不能为空且不能超过 64 MiB。'; return; }
@@ -1211,8 +1232,18 @@ async function importExternalMotion(file?: File) {
     updateExternalMotionTime();
     updateExternalMotionSamplePreview();
     $('#external-motion-status').textContent = `${file.name} · ${clips.length} 段动作，当前动作库 ${externalMotionSources.length} 个文件，正在预览第 1 段。${describeExternalMotionCompatibility(clips[0])}`;
+    if (syncPet && desktop) {
+      try {
+        await desktop.setSelectedDance(new Uint8Array(buffer));
+        status(`已导入「${file.name}」，工坊正在预览，桌宠正在同步舞步。`);
+      } catch (error) { status(`工坊已预览，但舞步保存失败：${error instanceof Error ? error.message : '请重试。'}`, true); }
+    } else if (syncPet) status('工坊已预览；同步桌宠需要桌面版。');
   } catch (error) {
-    if (importRevision === externalMotionImportRevision) $('#external-motion-status').textContent = error instanceof Error ? error.message : '动作加载失败。';
+    if (importRevision === externalMotionImportRevision) {
+      const message = error instanceof Error ? error.message : '动作加载失败。';
+      $('#external-motion-status').textContent = message;
+      if (syncPet) status(message, true);
+    }
   } finally {
     if (importRevision === externalMotionImportRevision) {
       button.disabled = false;
@@ -1395,6 +1426,10 @@ async function bootstrap() {
     if (!desktop) $<HTMLSelectElement>('#pet-scale').title = '桌宠大小需要桌面应用。';
   }
   stage = new CompanionStage($<HTMLCanvasElement>('#character-canvas'), petMode);
+  if (petMode && desktop) desktop.onSelectedDanceChanged(() => {
+    if (loading) pendingSelectedDanceSync = true;
+    else void syncPetDanceFromSelection();
+  });
   const musicDanceStyle = readMusicDanceStylePreference();
   selectedMusicDanceStyle = musicDanceStyle;
   stage.setMusicDanceStyle(musicDanceStyle);
@@ -1538,9 +1573,24 @@ async function bootstrap() {
       const saved = await getSavedModel();
       if (saved) { await library.migrateLegacyVrm(saved); active = await library.getActive(); }
     }
-    if (active) await load(assetInput(active), false, 'local-import', active.summary);
-    else if (__WITH_DEMO__) await demo(false);
-    else status('导入本机的 VRM 0.0 / 1.0 角色或精灵图，开始陪伴。');
+    let defaultLoaded = false;
+    let defaultLoadError = '';
+    if (petMode && desktop && !localStorage.getItem('oigptpet.default-break-venom.v1')) {
+      try {
+        const bytes = await desktop.getDefaultAsset('model');
+        if (bytes) {
+          defaultLoaded = await load({ kind: 'vrm', blob: new Blob([new Uint8Array(bytes).buffer], { type: 'model/gltf-binary' }) }, true, 'local-import', undefined, { name: 'BREAK VENOM' });
+          if (defaultLoaded) localStorage.setItem('oigptpet.default-break-venom.v1', '1');
+          else defaultLoadError = '默认角色加载失败，请打开工坊重试。';
+        }
+      } catch (error) { defaultLoadError = `默认角色读取失败：${error instanceof Error ? error.message : '请重试。'}`; }
+    }
+    if (!defaultLoaded) {
+      if (active) await load(assetInput(active), false, 'local-import', active.summary);
+      else if (__WITH_DEMO__) await demo(false);
+      else status('导入本机的 VRM 0.0 / 1.0 角色或精灵图，开始陪伴。');
+    }
+    if (defaultLoadError) status(`${defaultLoadError} 已保留原角色。`, true);
     await refreshLibrary();
   } catch (error) { status(`本地角色读取或迁移失败，原数据已保留：${error instanceof Error ? error.message : '请重试。'}`, true); }
   updatePackageControls();
@@ -1671,7 +1721,7 @@ if (petMode) {
   };
   $<HTMLInputElement>('#pet-dance-file').onchange = event => {
     const input = event.currentTarget as HTMLInputElement;
-    void importPetDance(input.files?.[0]); input.value = '';
+    void importPetDance(input.files?.[0], true); input.value = '';
   };
   $('#pet-dance-sprite-import').onclick = () => {
     if (!desktop) { status('精灵图舞蹈只支持 Electron 独立桌面版。', true); return; }
@@ -1707,7 +1757,9 @@ if (petMode) {
       $<HTMLButtonElement>('#pet-dance-sprite-import').textContent = '舞蹈帧 PNG';
       status('已清除本次桌宠会话的舞蹈帧。');
     } else {
-      clearPetDanceMotion(); status('已清除 VRMA 舞步，音乐舞动会使用程序化动作。');
+      clearPetDanceMotion();
+      void desktop!.clearSelectedDance().then(() => status('本次已清除舞步；下次启动会恢复默认舞步。'))
+        .catch(error => status(`舞步已从本次移除，但保存的选择清除失败：${error instanceof Error ? error.message : '请重试。'}`, true));
     }
   };
   $('#click-through').onclick = () => {
@@ -1730,6 +1782,15 @@ if (petMode) {
   $('#pet-scale').onchange = () => void changePreferences();
   $('#performance-mode').onchange = () => void changePreferences();
   $('#import-button').onclick = () => $<HTMLInputElement>('#model-file').click();
+  $('#workshop-dance-import').onclick = () => {
+    if (!stage?.loaded || stage.sourceKind !== 'vrm') { status('请先加载 VRM 角色，再导入舞步。', true); return; }
+    if (loading || packageJob || externalMotionBusy) { status('请等待当前操作完成后再导入舞步。', true); return; }
+    $<HTMLInputElement>('#workshop-dance-file').click();
+  };
+  $<HTMLInputElement>('#workshop-dance-file').onchange = event => {
+    const input = event.currentTarget as HTMLInputElement;
+    void importExternalMotion(input.files?.[0], true); input.value = '';
+  };
   $<HTMLInputElement>('#model-file').onchange = (event) => {
     const input = event.target as HTMLInputElement;
     void importFile(input.files?.[0]); input.value = '';

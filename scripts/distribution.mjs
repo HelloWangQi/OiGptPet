@@ -26,7 +26,7 @@ export async function assertClientDistribution(root) {
 export async function assertAppDistribution(root) {
   const entries = await files(root);
   for (const name of entries) {
-    if (['package.json', 'THIRD_PARTY_MODEL_NOTICE.md'].includes(name)) continue;
+    if (['package.json', 'THIRD_PARTY_MODEL_NOTICE.md', 'defaults/BREAK VENOM.vrm', 'defaults/不是恶魔.vrma'].includes(name)) continue;
     if (/^electron\/[^/]+\.cjs$/.test(name) || name.startsWith('dist/')) continue;
     throw new Error(`Unexpected app distribution file: ${name}`);
   }

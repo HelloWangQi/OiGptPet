@@ -12,7 +12,7 @@ function pose(look: { yaw: number; pitch: number }) {
   const target = new THREE.Object3D();
   const stage = Object.create(VrmStage.prototype) as VrmStage;
   Object.assign(stage, {
-    vrm: { humanoid: { resetNormalizedPose() {}, getNormalizedBoneNode: (name: string) => name === 'head' ? head : undefined }, update: vi.fn() },
+    vrm: { meta: { metaVersion: '1' }, humanoid: { resetNormalizedPose() {}, getNormalizedBoneNode: (name: string) => name === 'head' ? head : undefined }, update: vi.fn() },
     root: new THREE.Group(), lookTarget: target,
     renderer: { render: vi.fn() }, scene: new THREE.Scene(), camera: new THREE.OrthographicCamera(),
   });
