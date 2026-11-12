@@ -212,8 +212,9 @@ export function sampleMusicDancePose(style: Exclude<MusicDanceStyle, 'groove'>, 
     const liftR = Math.max(0, transfer);
     const sink = 0.5 + 0.5 * Math.cos(totalBeats * TAU);
     const kneeBase = 16 + 12 * sink;
-    const kneeL = kneeBase + 22 * Math.max(0, -transfer);
-    const kneeR = kneeBase + 22 * Math.max(0, transfer);
+    // Bend the supporting knee as the weight lands, while the other leg lifts.
+    const kneeL = kneeBase + 35 * liftL + 14 * liftR;
+    const kneeR = kneeBase + 35 * liftR + 14 * liftL;
     const sideTilt = -0.065 * transfer;
     const cosine = Math.cos(totalBeats * TAU);
     const torsoRoll = -9 * transfer - 5 * cosine;
@@ -250,7 +251,7 @@ export function sampleMusicDancePose(style: Exclude<MusicDanceStyle, 'groove'>, 
     pose.rightFootPitch = pose.leftFootPitch;
     pose.leftFootRoll = degrees(9 * transfer);
     pose.rightFootRoll = pose.leftFootRoll;
-    pose.bounce = -0.04 - 0.018 * sink + 0.018 * Math.abs(transfer);
+    pose.bounce = -0.035 - 0.034 * Math.abs(transfer);
     const wristSpin = 0.7 * Math.sin(totalBeats * TAU * 0.75);
     pose.leftWrist += wristSpin;
     pose.rightWrist -= wristSpin;
@@ -282,8 +283,8 @@ export function sampleMusicDancePose(style: Exclude<MusicDanceStyle, 'groove'>, 
     pose.chestYaw = degrees(-8 * transfer * drive);
     pose.bodySway = 0.07 * transfer * drive;
     pose.bodyTilt = -0.05 * transfer;
-    const kneeL = 14 + 12 * sink + 26 * liftL * drive;
-    const kneeR = 14 + 12 * sink + 26 * liftR * drive;
+    const kneeL = 14 + 8 * sink + (36 * liftL + 14 * liftR) * drive;
+    const kneeR = 14 + 8 * sink + (36 * liftR + 14 * liftL) * drive;
     pose.leftKnee = degrees(kneeL);
     pose.rightKnee = degrees(kneeR);
     pose.leftStep = degrees(-kneeL * 0.48 - 12 * liftL * drive);
@@ -294,7 +295,7 @@ export function sampleMusicDancePose(style: Exclude<MusicDanceStyle, 'groove'>, 
     pose.rightFootPitch = degrees(-5 - 10 * liftR);
     pose.leftFootRoll = degrees(5 * transfer);
     pose.rightFootRoll = degrees(5 * transfer);
-    pose.bounce = -0.04 - 0.018 * sink + 0.018 * Math.abs(transfer);
+    pose.bounce = -0.035 - 0.034 * Math.abs(transfer);
   }
   if (style !== 'idol-pop' && style !== 'douyin-mix') {
     const microSway = Math.sin(raw * Math.PI * 2) * 0.025;
