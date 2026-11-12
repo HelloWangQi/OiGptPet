@@ -63,7 +63,7 @@ export async function checkChat(desktop, page, pet) {
     await pet.locator('#pet-tools-toggle').evaluate(button => {
       if (button.getAttribute('aria-expanded') !== 'true') button.click();
     });
-    assert.equal(await pet.locator('#pet-read-aloud').isHidden(), false);
+    await pet.locator('#pet-read-aloud').waitFor({ state: 'visible' });
     await assert.rejects(pet.evaluate(() => window.petDesktop.sendChat('越权')), /Only the workshop/);
     await page.locator('#pet-scale').selectOption('0.8');
     await pet.waitForFunction(() => document.querySelector('.pet-shell').getBoundingClientRect().width < 300);
