@@ -15,9 +15,16 @@ export async function checkDefaultStartup(executablePath, root) {
   let app;
   async function launch() {
     app = await electron.launch({ executablePath, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'], cwd: root, env, timeout: 60000 });
-    const pet = await app.firstWindow();
+    await app.firstWindow();
+    const deadline = Date.now() + 15000;
+    let pet;
+    while (Date.now() < deadline && !pet) {
+      pet = app.windows().find(window => window.url().includes('mode=pet'));
+      if (!pet) await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    if (!pet) throw new Error('Pet window was not found');
     await pet.waitForFunction(() => document.body.dataset.characterKind === 'vrm'
-      && !document.querySelector('#pet-dance-clear')?.hidden, null, { timeout: 90000 });
+      && document.querySelector('#pet-dance-clear')?.hidden === false, null, { timeout: 90000 });
     return pet;
   }
   async function workshop(pet) {
@@ -37,6 +44,17 @@ export async function checkDefaultStartup(executablePath, root) {
     assert.ok(states.some(w => !w.resizable && w.visible && !w.minimized), 'Pet should be visible');
     assert.ok(states.some(w => w.resizable && w.minimized), 'Workshop should start minimized');
     assert.equal(await pet.locator('#pet-dance-style').evaluate(element => element.hidden), true);
+    assert.equal(await pet.locator('#pet-dance-toggle').textContent(), '暂停舞步');
+    const frameBefore = await pet.locator('#character-canvas').screenshot();
+    await pet.waitForTimeout(700);
+    const frameAfter = await pet.locator('#character-canvas').screenshot();
+    assert.notDeepEqual(frameAfter, frameBefore, 'Default VRMA should animate without waiting for system audio');
+    await pet.locator('#pet-tools-toggle').evaluate(button => button.click());
+    await pet.locator('#pet-dance-toggle').click();
+    assert.equal(await pet.locator('#pet-dance-toggle').textContent(), '继续舞步');
+    await pet.locator('#pet-dance-toggle').click();
+    assert.equal(await pet.locator('#pet-dance-toggle').textContent(), '暂停舞步');
+    await pet.locator('#pet-tools-toggle').evaluate(button => button.click());
     const page = await workshop(pet);
     await page.waitForFunction(() => document.querySelector('#character-name')?.textContent === 'BREAK VENOM', null, { timeout: 90000 });
     assert.equal(await page.locator('#format-badge').innerText(), 'VRM 0.0');
@@ -63,7 +81,7 @@ export async function checkDefaultStartup(executablePath, root) {
     pet = await launch();
     assert.equal(await pet.evaluate(() => document.body.dataset.characterId), chosenId, 'Restart should retain a later user-selected model');
     assert.equal(await readDanceHash(pet), selectedHash, 'Restart should retain the selected dance');
-    return { launchesAsPet: true, workshopStartsMinimized: true, defaultModel: true, defaultVrmaLoaded: true, workshopAvailable: true,
+    return { launchesAsPet: true, workshopStartsMinimized: true, defaultModel: true, defaultVrmaLoaded: true, defaultDancePlaying: true, dancePauseResume: true, workshopAvailable: true,
       workshopDanceSync: true, invalidDancePreserved: true, laterChoicePreserved: true, selectedDanceRestored: true };
   } finally { if (app) await app.close(); }
 }

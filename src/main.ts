@@ -94,6 +94,7 @@ app.innerHTML = petMode ? `
             <button id="pet-dance-preview" title="试听当前舞句；不采集系统音频" hidden>试听舞步</button>
             <button id="pet-dance-import" title="选择本机 VRMA 舞蹈动作" hidden>导入 VRMA</button>
             <button id="pet-dance-sprite-import" title="载入本机 PNG 舞蹈帧条带" hidden>舞蹈帧 PNG</button>
+            <button id="pet-dance-toggle" title="暂停或继续已加载的 VRMA 舞步" hidden>暂停舞步</button>
             <button id="pet-dance-clear" title="移除已加载的舞步动作" hidden>清除舞步</button>
           </div>
           <div class="pet-tools-actions">
@@ -238,6 +239,7 @@ let petDanceClips: VrmMotionClipInfo[] = [];
 let petDanceClipIndex = 0;
 let petDanceImportRevision = 0;
 let pendingSelectedDanceSync = false;
+let petDanceManuallyPaused = false;
 let petDanceSpriteImportRevision = 0;
 let petDanceSpriteReady = false;
 let petDancePreviewStartedAt = 0;
@@ -431,8 +433,11 @@ function stopMusicDance(message?: string) {
   stopPetDancePreview();
   musicDance?.stop();
   stage?.setMusicDanceSignal(undefined);
-  if (petMode && petDanceClips.length && stage?.motionIsPlaying()) stage.toggleMotion();
-  stage?.setMusicDanceMotionPlaying(false);
+  if (petMode && petDanceClips.length && !petDanceManuallyPaused && stage) {
+    if (!stage.motionIsPlaying()) stage.toggleMotion();
+    stage.setMotionPlaybackRate(1);
+    stage.setMusicDanceMotionPlaying(true);
+  } else stage?.setMusicDanceMotionPlaying(false);
   petDanceLastMusicAt = 0; petDancePendingSince = 0; petDancePlaybackRate = 1; petDanceLastBpm = 100; petDanceTempoReady = false; petDanceRestartOnNextStart = hadSession && petDanceClips.length > 0; petDanceLastRateUpdate = 0; petDanceLastUiUpdate = 0;
   if (button) {
     button.dataset.active = 'false'; button.setAttribute('aria-pressed', 'false');
@@ -457,11 +462,13 @@ function clearPetDanceMotion() {
   stage?.setMusicDanceMotionMode(false);
   stage?.setMusicDanceMotionPlaying(false);
   petDanceClips = []; petDanceClipIndex = 0; petDancePlaybackRate = 1; petDanceLastBpm = 100; petDanceTempoReady = false; petDanceLastMusicAt = 0; petDancePendingSince = 0; petDanceRestartOnNextStart = false; petDanceSpriteReady = false; petDanceLastRateUpdate = 0;
+  petDanceManuallyPaused = false;
   stopPetDancePreview();
   if (!petMode) return;
   const select = $<HTMLSelectElement>('#pet-dance-clip');
   select.replaceChildren(); select.hidden = true;
   $<HTMLButtonElement>('#pet-dance-clear').hidden = true;
+  $<HTMLButtonElement>('#pet-dance-toggle').hidden = true;
   $<HTMLSelectElement>('#pet-dance-style').hidden = !desktop || stage?.sourceKind !== 'vrm';
   $<HTMLButtonElement>('#pet-dance-preview').hidden = !canPreviewPetDance();
   $<HTMLInputElement>('#pet-dance-file').value = '';
@@ -472,6 +479,11 @@ function clearPetDanceMotion() {
 }
 function syncPetDanceMotion(signal: ReturnType<SystemMusicAnalyzer['sample']>, now: number) {
   if (!petDanceClips.length) return;
+  if (petDanceManuallyPaused) {
+    if (stage.motionIsPlaying()) stage.toggleMotion();
+    stage.setMusicDanceMotionPlaying(false);
+    return;
+  }
   const longGap = petDanceLastMusicAt > 0 && now - petDanceLastMusicAt >= MUSIC_SILENCE_RESET_MS;
   if (longGap) petDanceRestartOnNextStart = true;
   if (signal) {
@@ -536,16 +548,19 @@ async function importPetDance(file?: File, persist = false) {
     }));
     select.value = String(petDanceClipIndex); select.hidden = clips.length < 2;
     $<HTMLButtonElement>('#pet-dance-clear').hidden = false;
+    const toggleDance = $<HTMLButtonElement>('#pet-dance-toggle');
+    toggleDance.hidden = false; toggleDance.textContent = '暂停舞步'; petDanceManuallyPaused = false;
     $<HTMLSelectElement>('#pet-dance-style').hidden = true;
     $<HTMLButtonElement>('#pet-dance-preview').hidden = true;
     targetStage.setMotionLoopMode('repeat'); targetStage.setMotionPlaybackRate(1);
-    if (targetStage.motionIsPlaying()) targetStage.toggleMotion();
-    targetStage.setMusicDanceMotionMode(true); targetStage.setMusicDanceMotionPlaying(false);
+    const autoPlay = !musicDance?.active;
+    if (!autoPlay && targetStage.motionIsPlaying()) targetStage.toggleMotion();
+    targetStage.setMusicDanceMotionMode(true); targetStage.setMusicDanceMotionPlaying(autoPlay);
     if (persist && desktop) {
       try { await desktop.setSelectedDance(new Uint8Array(buffer)); }
       catch (error) { status(`舞步已在本次载入，但保存失败：${error instanceof Error ? error.message : '请重试。'}`, true); return; }
     }
-    status(`已加载「${file.name}」的 ${clips.length} 段舞步。${describeExternalMotionCompatibility(clips[0])} 开始音乐舞动后会按节拍循环。`);
+    status(`已加载「${file.name}」的 ${clips.length} 段舞步。${describeExternalMotionCompatibility(clips[0])}点击“舞”可开启音乐同步。`);
   } catch (error) {
     if (revision === petDanceImportRevision) status(error instanceof Error ? error.message : '舞步加载失败。', true);
   } finally {
@@ -1738,12 +1753,22 @@ if (petMode) {
     if (!petDanceClips.some(clip => clip.index === index)) return;
     try {
       stage.playMotion(index); stage.setMotionLoopMode('repeat'); stage.setMotionPlaybackRate(1);
-      if (stage.motionIsPlaying()) stage.toggleMotion();
-      stage.setMusicDanceMotionPlaying(false);
+      const autoPlay = !musicDance?.active && !petDanceManuallyPaused;
+      if (!autoPlay && stage.motionIsPlaying()) stage.toggleMotion();
+      stage.setMusicDanceMotionPlaying(autoPlay);
       petDanceClipIndex = index; petDancePlaybackRate = 1; petDanceLastMusicAt = 0; petDancePendingSince = 0; petDanceRestartOnNextStart = false; petDanceLastRateUpdate = 0;
       const clip = petDanceClips.find(item => item.index === index);
       status(`已选择「${clip?.name ?? '舞步'}」；音乐播放时自动同步速度。${clip ? describeExternalMotionCompatibility(clip) : ''}`);
     } catch (error) { status(error instanceof Error ? error.message : '舞步切换失败。', true); }
+  };
+  $('#pet-dance-toggle').onclick = () => {
+    if (!petDanceClips.length) return;
+    petDanceManuallyPaused = !petDanceManuallyPaused;
+    if (petDanceManuallyPaused && stage.motionIsPlaying()) stage.toggleMotion();
+    if (!petDanceManuallyPaused && !musicDance?.active && !stage.motionIsPlaying()) stage.toggleMotion();
+    stage.setMusicDanceMotionPlaying(!petDanceManuallyPaused && !musicDance?.active);
+    $<HTMLButtonElement>('#pet-dance-toggle').textContent = petDanceManuallyPaused ? '继续舞步' : '暂停舞步';
+    status(petDanceManuallyPaused ? '舞步已暂停。' : '舞步已继续。');
   };
   $('#pet-dance-clear').onclick = () => {
     if (stage.sourceKind === 'sprite') {
