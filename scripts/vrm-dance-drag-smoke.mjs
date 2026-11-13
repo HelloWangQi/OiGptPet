@@ -12,8 +12,14 @@ export async function checkDancingVrmDrag(app, pet) {
     return bounds;
   });
   let found = false;
+  let hitPoint;
   try {
-    await pet.evaluate(() => window.petDesktop.setClickThrough(false));
+    await pet.evaluate(() => {
+      window.__vrmBodyClicks = 0;
+      window.__vrmBodyListener = event => { if (event.target.id === 'character-canvas') window.__vrmBodyClicks++; };
+      document.querySelector('.pet-shell').addEventListener('click', window.__vrmBodyListener);
+      return window.petDesktop.setClickThrough(false);
+    });
     const canvas = await pet.locator('#character-canvas').boundingBox();
     assert.ok(canvas);
     for (const y of [0.48, 0.4, 0.56, 0.32, 0.64]) {
@@ -26,13 +32,15 @@ export async function checkDancingVrmDrag(app, pet) {
         }, point);
         await pet.mouse.move(point.x, point.y);
         await pet.mouse.down();
-        if (await pet.evaluate(() => document.body.classList.contains('pet-body-dragging'))) { found = true; break; }
+        if (await pet.evaluate(() => document.body.classList.contains('pet-body-dragging'))) { found = true; hitPoint = point; break; }
         await pet.mouse.up();
       }
       if (found) break;
     }
     assert.ok(found, 'A visible animated VRM body should be draggable');
+    await pet.evaluate(() => { window.__vrmBodyClicks = 0; });
     await new Promise(resolve => setTimeout(resolve, 100));
+    await pet.mouse.move(hitPoint.x + 8, hitPoint.y + 8);
     const before = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(win => !win.isResizable()).getBounds());
     await app.evaluate(() => { globalThis.__vrmDragCursor.x -= 24; globalThis.__vrmDragCursor.y -= 16; });
     const deadline = Date.now() + 3000;
@@ -53,12 +61,14 @@ export async function checkDancingVrmDrag(app, pet) {
       return { before, after: win.getBounds() };
     });
     assert.deepEqual(stopped.after, stopped.before, 'Releasing the body stops native window movement');
+    assert.equal(await pet.evaluate(() => window.__vrmBodyClicks), 0, 'Dragging must not trigger a body click');
     const frame = await pet.locator('#character-canvas').screenshot();
     await pet.waitForTimeout(700);
     assert.notDeepEqual(await pet.locator('#character-canvas').screenshot(), frame, 'Dance resumes after the drag');
     return { vrmBodyHit: true, movedDuringDance: true, released: true, danceResumed: true };
   } finally {
     await pet.mouse.up().catch(() => {});
+    await pet.evaluate(() => { document.querySelector('.pet-shell')?.removeEventListener('click', window.__vrmBodyListener); delete window.__vrmBodyListener; delete window.__vrmBodyClicks; }).catch(() => {});
     await app.evaluate(({ screen }) => { screen.getCursorScreenPoint = globalThis.__vrmDragOriginalCursor; delete globalThis.__vrmDragOriginalCursor; delete globalThis.__vrmDragCursor; });
   }
 }
