@@ -201,6 +201,21 @@ describe('system music analyzer', () => {
     expect(FakeAudioContext.instances).toHaveLength(0);
   });
 
+  it('keeps the newer capture when an older permission grant arrives later', async () => {
+    const olderGrant = deferred<MediaStream>();
+    getDisplayMedia.mockImplementationOnce(() => olderGrant.promise);
+    const older = analyzer.start();
+    await analyzer.start();
+    expect(analyzer.active).toBe(true);
+    const newerTrack = audioTracks[0]!;
+    olderGrant.resolve(captureStream());
+    await older;
+    expect(analyzer.active).toBe(true);
+    expect(newerTrack.stopped).toBe(false);
+    expect(audioTracks[1]!.stopped).toBe(true);
+    expect(videoTracks[1]!.stopped).toBe(true);
+  });
+
   it('closes a capture whose audio context finishes resuming after cancellation', async () => {
     const gate = deferred<void>();
     FakeAudioContext.resumeGate = gate.promise;
