@@ -55,6 +55,17 @@ export async function checkDefaultStartup(executablePath, root) {
     await pet.locator('#pet-dance-toggle').click();
     assert.equal(await pet.locator('#pet-dance-toggle').textContent(), '暂停舞步');
     await pet.locator('#pet-tools-toggle').evaluate(button => button.click());
+    await pet.evaluate(() => {
+      window.__originalCapture = navigator.mediaDevices.getDisplayMedia;
+      navigator.mediaDevices.getDisplayMedia = () => new Promise(resolve => { window.__resolveCapture = resolve; });
+    });
+    await pet.locator('#pet-music-dance').evaluate(button => button.click());
+    await pet.waitForFunction(() => document.querySelector('#pet-music-dance')?.getAttribute('aria-busy') === 'true');
+    await pet.locator('#pet-music-dance').evaluate(button => button.click());
+    await pet.waitForFunction(() => document.querySelector('#pet-music-dance')?.getAttribute('aria-busy') === 'false');
+    await pet.evaluate(() => { window.__resolveCapture(new MediaStream()); navigator.mediaDevices.getDisplayMedia = window.__originalCapture; });
+    await pet.waitForTimeout(100);
+    assert.equal(await pet.locator('#pet-music-dance').getAttribute('aria-pressed'), 'false', 'Late capture must not restart after cancellation');
     const page = await workshop(pet);
     await page.waitForFunction(() => document.querySelector('#character-name')?.textContent === 'BREAK VENOM', null, { timeout: 90000 });
     assert.equal(await page.locator('#format-badge').innerText(), 'VRM 0.0');

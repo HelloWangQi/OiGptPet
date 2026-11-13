@@ -1721,6 +1721,7 @@ if (petMode) {
   };
   $('#pet-music-dance').onclick = async () => {
     const button = $<HTMLButtonElement>('#pet-music-dance');
+    if (button.getAttribute('aria-busy') === 'true') { stopMusicDance('已取消连接系统音频，点击“舞”可重试。'); return; }
     if (musicDance?.active) { stopMusicDance('音乐舞动已停止。'); return; }
     if (!desktop) { status('音乐舞动仅支持 Electron 独立桌面版。', true); return; }
     if (!stage.loaded || (stage.sourceKind !== 'vrm' && !(stage.sourceKind === 'sprite' && petDanceSpriteReady))) {
@@ -1728,10 +1729,9 @@ if (petMode) {
     }
     stopPetDancePreview();
     const requestRevision = ++petMusicDanceStartRevision;
-    button.disabled = true;
     button.setAttribute('aria-busy', 'true');
-    button.textContent = '舞'; button.title = '正在连接系统音频…';
-    status('等待系统音频共享授权；通过后只在本机分析音频，不保存或上传。');
+    button.textContent = '舞'; button.title = '正在连接系统音频，点击可取消';
+    status('等待系统音频共享授权；再次点击“舞”可取消。音频只在本机分析，不保存或上传。');
     try {
       await musicDance?.start();
       if (requestRevision !== petMusicDanceStartRevision) return;
