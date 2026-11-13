@@ -1858,7 +1858,23 @@ if (petMode) {
   $('#performance-mode').onchange = () => void changePreferences();
   $('#import-button').onclick = () => $<HTMLInputElement>('#model-file').click();
   void refreshDanceLibrary();
-  desktop?.onSelectedDanceChanged(() => { void refreshDanceLibrary(); });
+  let workshopDanceSyncRevision = 0;
+  desktop?.onSelectedDanceChanged(() => {
+    const revision = ++workshopDanceSyncRevision;
+    void (async () => {
+      await refreshDanceLibrary();
+      const bytes = await desktop.getSelectedDance();
+      if (!bytes) return;
+      const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(bytes));
+      const id = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+      if (revision !== workshopDanceSyncRevision) return;
+      const select = $<HTMLSelectElement>('#dance-library-select');
+      if ([...select.options].some(option => option.value === id)) {
+        select.value = id;
+        status(`桌宠已切换到「${select.selectedOptions[0]?.textContent || '收藏舞步'}」；点击预览并使用可在工坊查看。`);
+      }
+    })().catch(error => status(error instanceof Error ? error.message : '舞步状态同步失败。', true));
+  });
   $('#dance-library-play').onclick = async () => {
     if (!desktop || !stage?.loaded || stage.sourceKind !== 'vrm' || loading || packageJob || externalMotionBusy) { status('请先加载 VRM 角色并等待当前操作完成。', true); return; }
     const select = $<HTMLSelectElement>('#dance-library-select');
