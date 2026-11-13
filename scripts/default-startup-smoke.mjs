@@ -42,7 +42,13 @@ export async function checkDefaultStartup(executablePath, root) {
   try {
     let pet = await launch();
     assert.equal(await pet.evaluate(() => document.body.dataset.characterId), expectedId);
-    const states = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map(w => ({ resizable: w.isResizable(), visible: w.isVisible(), minimized: w.isMinimized() })));
+    const minimizeDeadline = Date.now() + 5000;
+    let states = [];
+    do {
+      states = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().map(w => ({ resizable: w.isResizable(), visible: w.isVisible(), minimized: w.isMinimized() })));
+      if (states.some(w => w.resizable && w.minimized)) break;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    } while (Date.now() < minimizeDeadline);
     assert.ok(states.some(w => !w.resizable && w.visible && !w.minimized), 'Pet should be visible');
     assert.ok(states.some(w => w.resizable && w.minimized), 'Workshop should start minimized');
     assert.equal(await pet.locator('#pet-dance-style').evaluate(element => element.hidden), true);
@@ -80,12 +86,18 @@ export async function checkDefaultStartup(executablePath, root) {
       const hash = await crypto.subtle.digest('SHA-256', bytes);
       return [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, '0')).join('');
     });
+    await pet.evaluate(() => {
+      const message = document.querySelector('#pet-message');
+      window.__danceStatusHistory = [];
+      new MutationObserver(() => window.__danceStatusHistory.push(message.textContent))
+        .observe(message, { childList: true, characterData: true, subtree: true });
+    });
     await page.locator('#workshop-dance-file').setInputFiles({ name: 'chosen.vrma', mimeType: 'model/gltf-binary', buffer: selectedDance });
     await page.waitForFunction(() => document.querySelector('#status')?.textContent.includes('桌宠正在同步'), null, { timeout: 90000 });
-    await pet.waitForFunction(() => document.querySelector('#pet-message')?.textContent.includes('正在本机读取 VRMA 舞步'), null, { timeout: 90000 });
     await pet.waitForFunction(async expected => {
       const bytes = await window.petDesktop.getSelectedDance();
-      if (!bytes || document.querySelector('#pet-dance-clear')?.hidden !== false || document.querySelector('#pet-message')?.textContent !== '') return false;
+      const observedLoad = window.__danceStatusHistory?.includes('正在本机读取 VRMA 舞步…');
+      if (!observedLoad || !bytes || document.querySelector('#pet-dance-clear')?.hidden !== false || document.querySelector('#pet-message')?.textContent !== '') return false;
       const hash = await crypto.subtle.digest('SHA-256', bytes);
       return [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, '0')).join('') === expected;
     }, selectedHash, { timeout: 90000 });
