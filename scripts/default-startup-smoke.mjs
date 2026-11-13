@@ -132,6 +132,9 @@ export async function checkDefaultStartup(executablePath, root) {
         if (data.byteLength === size && !window.__delayedDanceDigest) {
           window.__delayedDanceDigest = true;
           await new Promise(resolve => { window.__releaseDanceDigest = resolve; });
+          const result = await original(algorithm, data);
+          window.__delayedDanceDigestComplete = true;
+          return result;
         }
         return original(algorithm, data);
       };
@@ -140,7 +143,7 @@ export async function checkDefaultStartup(executablePath, root) {
     await reopened.waitForFunction(() => window.__delayedDanceDigest && document.querySelector('#dance-library-select')?.options.length >= 2, null, { timeout: 90000 });
     await reopened.locator('#dance-library-select').selectOption({ label: 'another.vrma' });
     await reopened.evaluate(() => window.__releaseDanceDigest());
-    await reopened.waitForTimeout(300);
+    await reopened.waitForFunction(() => window.__delayedDanceDigestComplete, null, { timeout: 30000 });
     assert.equal(await reopened.locator('#dance-library-select').evaluate(element => element.selectedOptions[0]?.textContent), 'another.vrma', 'Late startup selection must not overwrite the user choice');
     return { launchesAsPet: true, workshopStartsMinimized: true, defaultModel: true, defaultVrmaLoaded: true, defaultDancePlaying: true, dancingDrag, dancePauseResume: true, workshopAvailable: true,
       workshopDanceSync: true, invalidDancePreserved: true, laterChoicePreserved: true, selectedDanceRestored: true };
