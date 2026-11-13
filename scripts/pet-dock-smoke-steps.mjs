@@ -59,6 +59,12 @@ export async function checkPetDock(desktop, page, pet) {
       return original.call(this, ignore, ...rest);
     };
   });
+  // Opening the workshop collapses and repositions the native pet window. Move the
+  // physical pointer to the restored dock before testing the next real click.
+  const restoredDock = await pet.locator('#pet-controls').boundingBox();
+  assert.ok(restoredDock, 'Restored dock has bounds');
+  await pet.mouse.move(restoredDock.x + restoredDock.width / 2, restoredDock.y + restoredDock.height / 2);
+  await pet.locator('#pet-controls').waitFor({ state: 'visible' });
   await pet.locator('#pet-tools-toggle').click();
   await pet.locator('#click-through').click();
   await pet.waitForFunction(() => window.__dockClicks.includes('click-through'));

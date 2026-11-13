@@ -1491,16 +1491,19 @@ async function bootstrap() {
         const previewActive = !captureActive && isPetDancePreviewActive(now);
         tempo.hidden = !captureActive && !previewActive;
         let text = previewActive ? `试听 · ${petDancePreviewTempo()} BPM${petDancePreviewPlaybackRate() === 1 ? '' : ` · ${petDancePreviewPlaybackRate().toFixed(2)}×`}` : '等待节拍';
-        if (signal && captureActive) text = signal.tempoReady === false
-          ? '检测节拍中'
-          : `${Math.round(signal.bpm)} BPM${petDanceClips.length ? ` · ${petDancePlaybackRate.toFixed(2)}×` : ''}`;
+        if (captureActive) text = !signal
+          ? '等待系统声音'
+          : signal.tempoReady === false
+            ? '检测节拍中'
+            : `${Math.round(signal.bpm)} BPM${petDanceClips.length ? ` · ${petDancePlaybackRate.toFixed(2)}×` : ''}`;
+        tempo.title = captureActive && !signal ? '未检测到系统声音，请检查播放器和 Windows 输出设备。' : '';
         if (tempo.textContent !== text) tempo.textContent = text;
         const energy = $<HTMLProgressElement>('#pet-dance-energy');
         energy.hidden = !captureActive; energy.value = captureActive ? signal?.level ?? 0 : 0;
         petDanceLastUiUpdate = now;
       }
       if (!captureActive && $<HTMLButtonElement>('#pet-music-dance').dataset.active === 'true') {
-        stopMusicDance('系统音频采集已结束，音乐舞动已停止。');
+        stopMusicDance('系统音频采集已结束；请检查输出设备，点击“舞”可重新连接。');
       }
     }
     const delta = framePacer.tick(now, context.targetFps, context.activity === 'hidden');
@@ -2074,3 +2077,4 @@ window.addEventListener('beforeunload', () => {
   loadController?.abort(); libraryChannel.close(); library.close(); exportSession.reset(); stage?.dispose(); if (exportUrl) URL.revokeObjectURL(exportUrl);
 });
 void bootstrap();
+
