@@ -90,7 +90,7 @@ export async function checkDefaultStartup(executablePath, root) {
     const secondDance = Buffer.from(selectedDance);
     secondDance.writeFloatLE(1.5, secondDance.length - 8);
     await page.locator('#workshop-dance-file').setInputFiles({ name: 'another.vrma', mimeType: 'model/gltf-binary', buffer: secondDance });
-    await page.waitForFunction(() => [...document.querySelectorAll('#dance-library-select option')].some(option => option.textContent === 'another.vrma'), null, { timeout: 30000 });
+    await page.waitForFunction(() => document.querySelector('#dance-library-select')?.selectedOptions[0]?.textContent === 'another.vrma', null, { timeout: 30000 });
     const secondHash = createHash('sha256').update(secondDance).digest('hex');
     assert.equal(await readDanceHash(pet), secondHash);
     await pet.locator('#pet-tools-toggle').evaluate(button => button.click());

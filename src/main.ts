@@ -1298,8 +1298,14 @@ async function importExternalMotion(file?: File, syncPet = false) {
     $('#external-motion-status').textContent = `${file.name} · ${clips.length} 段动作，当前动作库 ${externalMotionSources.length} 个文件，正在预览第 1 段。${describeExternalMotionCompatibility(clips[0])}`;
     if (syncPet && desktop) {
       try {
+        const librarySelect = $<HTMLSelectElement>('#dance-library-select');
+        const priorSelection = librarySelect.value;
+        const digest = await crypto.subtle.digest('SHA-256', buffer);
+        if (importRevision !== externalMotionImportRevision || targetStage !== stage || loading || packageJob) return;
+        const id = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
         await desktop.setSelectedDance(new Uint8Array(buffer), file.name);
         await refreshDanceLibrary();
+        if (librarySelect.value === priorSelection || !priorSelection) librarySelect.value = id;
         status(`已导入「${file.name}」，工坊正在预览，桌宠正在同步舞步。`);
       } catch (error) { status(`工坊已预览，但舞步保存失败：${error instanceof Error ? error.message : '请重试。'}`, true); }
     } else if (syncPet) status('工坊已预览；同步桌宠需要桌面版。');
