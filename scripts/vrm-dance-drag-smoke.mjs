@@ -90,7 +90,25 @@ export async function checkDancingVrmDrag(app, pet) {
       } while (Date.now() < restoreDeadline && (restored.width !== sizeBefore.width || restored.height !== sizeBefore.height));
       assert.equal(restored.width, sizeBefore.width); assert.equal(restored.height, sizeBefore.height);
     }
-    return { vrmBodyHit: true, movedDuringDance: true, released: true, danceResumed: true, scaleDuringDance: true };
+    await pet.evaluate(() => window.petDesktop.hidePet());
+    const visibilityDeadline = Date.now() + 5000;
+    let visible = true;
+    do {
+      visible = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(win => !win.isResizable()).isVisible());
+      if (visible) await new Promise(resolve => setTimeout(resolve, 50));
+    } while (visible && Date.now() < visibilityDeadline);
+    assert.equal(visible, false, 'Pet window is hidden');
+    await pet.evaluate(() => window.petDesktop.openPet());
+    const showDeadline = Date.now() + 5000;
+    do {
+      visible = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(win => !win.isResizable()).isVisible());
+      if (!visible) await new Promise(resolve => setTimeout(resolve, 50));
+    } while (!visible && Date.now() < showDeadline);
+    assert.equal(visible, true, 'Pet window is restored');
+    const restoredFrame = await pet.locator('#character-canvas').screenshot();
+    await pet.waitForTimeout(700);
+    assert.notDeepEqual(await pet.locator('#character-canvas').screenshot(), restoredFrame, 'Dance resumes after restoring the pet');
+    return { vrmBodyHit: true, movedDuringDance: true, released: true, danceResumed: true, scaleDuringDance: true, hideAndRestore: true };
   } finally {
     await pet.mouse.up().catch(() => {});
     await pet.evaluate(() => { document.querySelector('.pet-shell')?.removeEventListener('click', window.__vrmBodyListener); delete window.__vrmBodyListener; delete window.__vrmBodyClicks; }).catch(() => {});
