@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 export async function checkChat(desktop, page, pet) {
+  const clickPetChat = async () => {
+    const dock = await pet.locator('#pet-controls').boundingBox();
+    assert.ok(dock, 'Pet dock has bounds');
+    await pet.mouse.move(dock.x + dock.width / 2, dock.y + dock.height / 2);
+    await pet.locator('#pet-controls').waitFor({ state: 'visible' });
+    await pet.locator('#pet-chat-toggle').click();
+  };
   const file = await desktop.evaluate(({ app }) => {
     globalThis.__chatOriginalFetch = globalThis.fetch;
     globalThis.__chatRequestCount = 0;
@@ -91,18 +98,18 @@ export async function checkChat(desktop, page, pet) {
     await pet.waitForFunction(() => document.querySelector('.pet-shell').getBoundingClientRect().width > 300);
     await pet.locator('#pet-controls').evaluate(element => { element.scrollLeft = 0; });
     await desktop.evaluate(() => { globalThis.fetch = async () => new Response(JSON.stringify({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: '桌宠直接回复成功' }] }] })); });
-    await pet.locator('#pet-chat-toggle').click();
+    await clickPetChat();
     await pet.locator('#pet-chat-input').fill('桌宠直接发消息');
     await pet.locator('#pet-chat-input').press('Enter');
     await page.waitForFunction(() => document.querySelector('#chat-log').textContent.includes('桌宠直接发消息') && document.querySelector('#chat-log').textContent.includes('桌宠直接回复成功'));
     await pet.waitForFunction(() => document.querySelector('#pet-message').textContent === '桌宠直接回复成功');
     assert.equal(await page.locator('#chat-log p').count(), 4, 'Pet message and reply must sync into workshop history');
     await desktop.evaluate(() => { globalThis.fetch = () => new Promise(resolve => { globalThis.__petCancelReply = resolve; }); });
-    await pet.locator('#pet-chat-toggle').click();
+    await clickPetChat();
     await pet.locator('#pet-chat-input').fill('桌宠待取消消息');
     await pet.locator('#pet-chat-input').press('Enter');
     await pet.locator('#pet-chat-cancel').waitFor({ state: 'visible' });
-    await pet.locator('#pet-chat-toggle').click();
+    await clickPetChat();
     await pet.locator('#pet-chat-input').fill('取消期间新写的草稿');
     await pet.locator('#pet-chat-cancel').click();
     await pet.waitForFunction(() => document.querySelector('#pet-message').textContent.includes('取消期间新写的草稿'));
@@ -112,7 +119,7 @@ export async function checkChat(desktop, page, pet) {
     await pet.locator('#pet-chat-input').fill('无更新时取消需恢复原草稿');
     await pet.locator('#pet-chat-input').press('Enter');
     await pet.locator('#pet-chat-cancel').waitFor({ state: 'visible' });
-    await pet.locator('#pet-chat-toggle').click();
+    await clickPetChat();
     await pet.locator('#pet-chat-cancel').click();
     await pet.waitForFunction(() => document.querySelector('#pet-message').textContent.includes('无更新时取消需恢复原草稿'));
     assert.equal(await pet.locator('#pet-chat-input').inputValue(), '无更新时取消需恢复原草稿', 'Cancel must restore the sent draft when no newer draft exists');
