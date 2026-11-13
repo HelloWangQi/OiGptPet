@@ -88,6 +88,7 @@ export async function checkDefaultStartup(executablePath, root) {
       const digest = await crypto.subtle.digest('SHA-256', bytes);
       return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('') === expected;
     }, selectedHash, { timeout: 30000 });
+    await page.waitForFunction(() => document.querySelector('#dance-library-select')?.selectedOptions[0]?.textContent === '收藏舞步', null, { timeout: 30000 });
     await pet.locator('#pet-tools-toggle').evaluate(button => button.click());
 
     await page.locator('#workshop-dance-file').setInputFiles({ name: 'bad.vrma', mimeType: 'model/gltf-binary', buffer: Buffer.from('invalid') });
