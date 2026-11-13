@@ -181,9 +181,9 @@ app.innerHTML = petMode ? `
         </section>
         <section class="detail-section desktop-settings"><div class="section-heading"><div><span class="section-number">04</span><h2>陪伴设置</h2></div></div>
           <label class="field-label" for="pet-scale">桌宠大小</label>
-          <select id="pet-scale" disabled><option value="0.8">小 · 80%</option><option value="1" selected>标准 · 100%</option><option value="1.2">大 · 120%</option></select>
+          <select id="pet-scale" disabled><option value="0.8" selected>小 · 80%</option><option value="1">标准 · 100%</option><option value="1.2">大 · 120%</option></select>
           <label class="field-label" for="performance-mode">动画性能</label>
-          <select id="performance-mode" disabled><option value="quality">画质优先 · 最高 60 帧</option><option value="balanced" selected>均衡 · 最高 30 帧</option><option value="battery">省电 · 最高 15 帧</option></select>
+          <select id="performance-mode" disabled><option value="quality" selected>画质优先 · 最高 60 帧</option><option value="balanced">均衡 · 最高 30 帧</option><option value="battery">省电 · 最高 15 帧</option></select>
           <p class="helper">闲置 10 秒自动降低绘制频率，隐藏时停止绘制。设置在本机保存。</p>
           <p class="helper" id="render-performance">本窗口：正在准备采样…</p>
           <p class="helper">每两秒更新绘制调用采样；不等同于屏幕呈现帧率或 GPU 耗时。桌面诊断分别记录工坊和桌宠。</p>

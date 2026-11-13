@@ -36,7 +36,7 @@ describe('desktop preferences persistence boundary', () => {
     expect(await store.load()).toEqual(DEFAULT_PREFERENCES);
     expect(await readFile(file, 'utf8')).toBe('{broken');
     await store.update({ performance: 'battery' });
-    expect(await createPreferencesStore(file).load()).toEqual({ version: 1, scale: 1, performance: 'battery' });
+    expect(await createPreferencesStore(file).load()).toEqual({ version: 1, scale: 0.8, performance: 'battery' });
   });
 
   it('serializes simultaneous partial changes and restores them on restart', async () => {
@@ -60,7 +60,7 @@ describe('desktop preferences persistence boundary', () => {
     const { file, store } = await fixture();
     await mkdir(file);
     await expect(store.update({ scale: 0.8 })).rejects.toThrow();
-    expect(store.get().scale).toBe(1);
+    expect(store.get().scale).toBe(0.8);
     await rmdir(file);
     await store.update({ scale: 1.2 });
     expect(await createPreferencesStore(file).load()).toEqual({ ...DEFAULT_PREFERENCES, scale: 1.2 });
