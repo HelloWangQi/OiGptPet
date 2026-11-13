@@ -600,7 +600,7 @@ async function importPetDance(file?: File, persist = false) {
     }
     const librarySelect = $<HTMLSelectElement>('#pet-dance-library');
     librarySelect.value = ''; librarySelect.dataset.loadedId = '';
-    status(`已加载「${file.name}」的 ${clips.length} 段舞步。${describeExternalMotionCompatibility(clips[0])}点击“舞”可开启音乐同步。`);
+    restorePetChat();
     return true;
   } catch (error) {
     if (revision === petDanceImportRevision) status(error instanceof Error ? error.message : '舞步加载失败。', true);
@@ -627,14 +627,14 @@ async function importPetSpriteDance(file?: File) {
   const button = $<HTMLButtonElement>('#pet-dance-sprite-import');
   button.disabled = true; status('正在检查舞蹈帧 PNG…');
   try {
-    const info = await targetStage.loadSpriteDanceStrip(file);
+    await targetStage.loadSpriteDanceStrip(file);
     if (revision !== petDanceSpriteImportRevision || targetStage !== stage) return;
     petDanceSpriteReady = true;
     button.textContent = '更换舞蹈帧';
     $<HTMLButtonElement>('#pet-music-dance').hidden = false;
     $<HTMLButtonElement>('#pet-dance-clear').hidden = false;
     $<HTMLButtonElement>('#pet-dance-preview').hidden = false;
-    status(`已载入 ${info.frameCount} 帧舞蹈条带；节拍会用 4 拍循环播放。文件仅保留在本次桌宠会话中。`);
+    restorePetChat();
   } catch (error) {
     if (revision === petDanceSpriteImportRevision) status(error instanceof Error ? error.message : '舞蹈帧加载失败。', true);
   } finally {
@@ -650,7 +650,7 @@ function downloadPetSpriteDanceTemplate() {
   link.href = url; link.download = `oigptpet-dance-${frames}-frames.svg`;
   document.body.append(link); link.click(); link.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
-  status(`已下载 ${frames} 帧 SVG 模板。用绘图软件打开，在 drawing-layer 作画；导出透明 PNG 前隐藏 template-guides。`);
+  restorePetChat();
 }
 function restorePetChat() {
   const view = petChat.current(performance.now());

@@ -25,7 +25,8 @@ export async function checkDefaultStartup(executablePath, root) {
     }
     if (!pet) throw new Error('Pet window was not found');
     await pet.waitForFunction(() => document.body.dataset.characterKind === 'vrm'
-      && document.querySelector('#pet-dance-clear')?.hidden === false, null, { timeout: 90000 });
+      && document.querySelector('#pet-dance-clear')?.hidden === false
+      && document.querySelector('#pet-message')?.textContent === '', null, { timeout: 90000 });
     return pet;
   }
   async function workshop(pet) {
@@ -81,7 +82,13 @@ export async function checkDefaultStartup(executablePath, root) {
     });
     await page.locator('#workshop-dance-file').setInputFiles({ name: 'chosen.vrma', mimeType: 'model/gltf-binary', buffer: selectedDance });
     await page.waitForFunction(() => document.querySelector('#status')?.textContent.includes('桌宠正在同步'), null, { timeout: 90000 });
-    await pet.waitForFunction(() => document.querySelector('#pet-message')?.textContent.includes('上次导入的舞步.vrma'), null, { timeout: 90000 });
+    await pet.waitForFunction(() => document.querySelector('#pet-message')?.textContent.includes('正在本机读取 VRMA 舞步'), null, { timeout: 90000 });
+    await pet.waitForFunction(async expected => {
+      const bytes = await window.petDesktop.getSelectedDance();
+      if (!bytes || document.querySelector('#pet-dance-clear')?.hidden !== false || document.querySelector('#pet-message')?.textContent !== '') return false;
+      const hash = await crypto.subtle.digest('SHA-256', bytes);
+      return [...new Uint8Array(hash)].map(byte => byte.toString(16).padStart(2, '0')).join('') === expected;
+    }, selectedHash, { timeout: 90000 });
     assert.equal(await readDanceHash(pet), selectedHash, 'Workshop dance must be saved for the pet');
     await page.waitForFunction(() => [...document.querySelectorAll('#dance-library-select option')].some(option => option.textContent === 'chosen.vrma'), null, { timeout: 30000 });
     await page.locator('#dance-library-name').fill('收藏舞步');
