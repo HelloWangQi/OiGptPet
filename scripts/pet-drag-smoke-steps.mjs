@@ -154,6 +154,12 @@ export async function checkPetBodyDrag(desktop, page) {
       return { before, after: win.getBounds() };
     });
     assert.deepEqual(stopped.after, stopped.before, 'release stops native movement');
+    // The release check moved the injected cursor away from the window; put it
+    // back at the upcoming click so the next drag session sees a stationary cursor.
+    await desktop.evaluate(({ BrowserWindow }, point) => {
+      const bounds = BrowserWindow.getAllWindows().find(w => !w.isResizable()).getBounds();
+      globalThis.__dragCursor = { x: Math.round(bounds.x + point.x), y: Math.round(bounds.y + point.y) };
+    }, point);
     await page.mouse.click(point.x, point.y);
     assert.equal(await page.evaluate(() => window.__bodyClickCount), 1, 'ordinary body clicks still work');
     await page.locator('#pet-wave').click();
