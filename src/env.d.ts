@@ -34,6 +34,7 @@ interface Window {
     getDance(id: string): Promise<Uint8Array>;
     renameDance(id: string, name: string): Promise<void>;
     removeDance(id: string): Promise<void>;
+    onDanceLibraryChanged(callback: () => void): () => void;
     clearSelectedDance(): Promise<void>;
     onSelectedDanceChanged(callback: () => void): () => void;
     setModel(bytes: Uint8Array): Promise<boolean>;

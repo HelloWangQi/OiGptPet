@@ -256,8 +256,11 @@ function handlers() {
   });
   ipcMain.handle('dance-library:list', async event => { trusted(event); await ensureDanceMigration(); return danceLibrary.list(); });
   ipcMain.handle('dance-library:get', (event, id) => { trusted(event); return danceLibrary.get(id); });
-  ipcMain.handle('dance-library:rename', (event, id, name) => { trusted(event); return danceLibrary.rename(id, name); });
-  ipcMain.handle('dance-library:remove', (event, id) => { trusted(event); return danceLibrary.remove(id); });
+  const notifyDanceLibrary = event => {
+    for (const win of [workshop, pet]) if (win && !win.isDestroyed() && win.webContents !== event.sender) win.webContents.send('dance-library:changed');
+  };
+  ipcMain.handle('dance-library:rename', async (event, id, name) => { trusted(event); await danceLibrary.rename(id, name); notifyDanceLibrary(event); });
+  ipcMain.handle('dance-library:remove', async (event, id) => { trusted(event); await danceLibrary.remove(id); notifyDanceLibrary(event); });
   ipcMain.handle('dance:clear', async event => {
     trusted(event);
     await selectedDance.clear();

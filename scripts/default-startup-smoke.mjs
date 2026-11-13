@@ -74,9 +74,21 @@ export async function checkDefaultStartup(executablePath, root) {
     await page.locator('#dance-library-name').fill('收藏舞步');
     await page.locator('#dance-library-rename').click();
     await page.waitForFunction(() => [...document.querySelectorAll('#dance-library-select option')].some(option => option.textContent === '收藏舞步'), null, { timeout: 30000 });
-    await page.locator('#dance-library-play').click();
-    await page.waitForFunction(() => document.querySelector('#status')?.textContent.includes('桌宠正在同步'), null, { timeout: 30000 });
-    assert.equal(await readDanceHash(pet), selectedHash);
+    const secondDance = Buffer.from(selectedDance);
+    secondDance.writeFloatLE(1.5, secondDance.length - 8);
+    await page.locator('#workshop-dance-file').setInputFiles({ name: 'another.vrma', mimeType: 'model/gltf-binary', buffer: secondDance });
+    await page.waitForFunction(() => [...document.querySelectorAll('#dance-library-select option')].some(option => option.textContent === 'another.vrma'), null, { timeout: 30000 });
+    const secondHash = createHash('sha256').update(secondDance).digest('hex');
+    assert.equal(await readDanceHash(pet), secondHash);
+    await pet.locator('#pet-tools-toggle').evaluate(button => button.click());
+    await pet.locator('#pet-dance-library').selectOption({ label: '收藏舞步' });
+    await pet.waitForFunction(async expected => {
+      const bytes = await window.petDesktop.getSelectedDance();
+      if (!bytes) return false;
+      const digest = await crypto.subtle.digest('SHA-256', bytes);
+      return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('') === expected;
+    }, selectedHash, { timeout: 30000 });
+    await pet.locator('#pet-tools-toggle').evaluate(button => button.click());
 
     await page.locator('#workshop-dance-file').setInputFiles({ name: 'bad.vrma', mimeType: 'model/gltf-binary', buffer: Buffer.from('invalid') });
     await page.waitForFunction(() => document.querySelector('#status')?.classList.contains('error'), null, { timeout: 30000 });

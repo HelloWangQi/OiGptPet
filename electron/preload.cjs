@@ -31,6 +31,7 @@ contextBridge.exposeInMainWorld('petDesktop', Object.freeze({
   getDance: id => ipcRenderer.invoke('dance-library:get', id),
   renameDance: (id, name) => ipcRenderer.invoke('dance-library:rename', id, name),
   removeDance: id => ipcRenderer.invoke('dance-library:remove', id),
+  onDanceLibraryChanged: callback => { const listener = () => callback(); ipcRenderer.on('dance-library:changed', listener); return () => ipcRenderer.removeListener('dance-library:changed', listener); },
   clearSelectedDance: () => ipcRenderer.invoke('dance:clear'),
   onSelectedDanceChanged: (callback) => {
     const listener = () => callback();

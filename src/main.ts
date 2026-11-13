@@ -87,6 +87,7 @@ app.innerHTML = petMode ? `
           <select id="pet-music-sensitivity" aria-label="音乐节拍检测灵敏度" title="音乐节拍检测灵敏度" hidden>
             <option value="0.7">灵敏度低</option><option value="1" selected>灵敏度中</option><option value="1.35">灵敏度高</option>
           </select>
+          <select id="pet-dance-library" aria-label="从舞步库选择" title="选择本机舞步" hidden></select>
           <select id="pet-dance-clip" aria-label="选择舞步动作片段" hidden></select>
           <output id="pet-dance-tempo" hidden aria-live="off" aria-label="当前节拍和舞步速度">等待节拍</output>
           <progress id="pet-dance-energy" max="1" value="0" hidden aria-label="当前系统输出混音能量"></progress>
@@ -531,6 +532,18 @@ function syncPetDanceMotion(signal: ReturnType<SystemMusicAnalyzer['sample']>, n
   stage.setMotionPlaybackRate(petDancePlaybackRate);
   petDanceLastRateUpdate = now;
 }
+async function refreshPetDanceLibrary() {
+  if (!petMode || !desktop) return;
+  const select = $<HTMLSelectElement>('#pet-dance-library');
+  try {
+    const items = await desktop.listDances();
+    const previous = select.value;
+    const placeholder = document.createElement('option'); placeholder.value = ''; placeholder.textContent = '选择收藏舞步…';
+    select.replaceChildren(placeholder, ...items.map(item => { const option = document.createElement('option'); option.value = item.id; option.textContent = item.name; return option; }));
+    if (items.some(item => item.id === previous)) select.value = previous;
+    select.hidden = stage?.sourceKind !== 'vrm' || !items.length;
+  } catch (error) { status(error instanceof Error ? error.message : '舞步库读取失败。', true); }
+}
 async function importPetDance(file?: File, persist = false) {
   if (!file || !petMode || !stage.loaded || stage.sourceKind !== 'vrm') return;
   if (!file.name.toLowerCase().endsWith('.vrma')) { status('请选择 .vrma 舞蹈文件。', true); return; }
@@ -562,7 +575,7 @@ async function importPetDance(file?: File, persist = false) {
     if (!autoPlay && targetStage.motionIsPlaying()) targetStage.toggleMotion();
     targetStage.setMusicDanceMotionMode(true); targetStage.setMusicDanceMotionPlaying(autoPlay);
     if (persist && desktop) {
-      try { await desktop.setSelectedDance(new Uint8Array(buffer), file.name); }
+      try { await desktop.setSelectedDance(new Uint8Array(buffer), file.name); await refreshPetDanceLibrary(); }
       catch (error) { status(`舞步已在本次载入，但保存失败：${error instanceof Error ? error.message : '请重试。'}`, true); return; }
     }
     status(`已加载「${file.name}」的 ${clips.length} 段舞步。${describeExternalMotionCompatibility(clips[0])}点击“舞”可开启音乐同步。`);
@@ -862,6 +875,7 @@ async function load(input: CompanionInput, persist: boolean, origin: 'local-impo
     updatePackageControls();
     try { await refreshLibrary(); } catch { status('角色库读取失败，请重试。', true); }
     if (syncRequested && !packageJob) { syncRequested = false; void syncLibrary(); }
+    if (petMode) void refreshPetDanceLibrary();
     if (pendingSelectedDanceSync && petMode) { pendingSelectedDanceSync = false; void syncPetDanceFromSelection(); }
   }
 }
@@ -1458,7 +1472,9 @@ async function bootstrap() {
     if (!desktop) $<HTMLSelectElement>('#pet-scale').title = '桌宠大小需要桌面应用。';
   }
   stage = new CompanionStage($<HTMLCanvasElement>('#character-canvas'), petMode);
+  if (petMode && desktop) desktop.onDanceLibraryChanged(() => { void refreshPetDanceLibrary(); });
   if (petMode && desktop) desktop.onSelectedDanceChanged(() => {
+    void refreshPetDanceLibrary();
     if (loading) pendingSelectedDanceSync = true;
     else void syncPetDanceFromSelection();
   });
@@ -1748,6 +1764,20 @@ if (petMode) {
     $<HTMLButtonElement>('#pet-dance-preview').title = `以 ${petDancePreviewTempo()} BPM 试听完整舞句（${petDancePreviewDescription()}）；不采集系统音频`;
     if (previewWasActive) petDancePreviewStartedAt = performance.now();
     status(`已切换到「${names[style]}」${saved ? '，已记住本机选择' : '，本次关闭桌宠后会恢复默认'}；导入 VRMA 后将播放文件中的动作。`);
+  };
+  $<HTMLSelectElement>('#pet-dance-library').onchange = async event => {
+    const select = event.currentTarget as HTMLSelectElement;
+    if (!desktop || !select.value || !stage?.loaded || stage.sourceKind !== 'vrm') return;
+    const id = select.value; const name = select.selectedOptions[0]?.textContent || '舞步';
+    const revision = ++petDanceImportRevision; const targetStage = stage;
+    select.disabled = true;
+    try {
+      const bytes = await desktop.getDance(id);
+      if (revision !== petDanceImportRevision || targetStage !== stage || loading) return;
+      await importPetDance(new File([new Uint8Array(bytes).buffer], `${name}.vrma`), true);
+      select.value = id;
+    } catch (error) { status(error instanceof Error ? error.message : '读取舞步失败。', true); }
+    finally { select.disabled = false; }
   };
   $('#pet-dance-import').onclick = () => {
     if (!desktop) { status('音乐 VRMA 舞步仅支持 Electron 独立桌面版。', true); return; }
@@ -2077,4 +2107,3 @@ window.addEventListener('beforeunload', () => {
   loadController?.abort(); libraryChannel.close(); library.close(); exportSession.reset(); stage?.dispose(); if (exportUrl) URL.revokeObjectURL(exportUrl);
 });
 void bootstrap();
-
