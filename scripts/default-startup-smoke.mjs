@@ -117,6 +117,24 @@ export async function checkDefaultStartup(executablePath, root) {
     assert.equal(await readDanceHash(pet), selectedHash, 'Restart should retain the selected dance');
     const reopened = await workshop(pet);
     await reopened.waitForFunction(() => document.querySelector('#dance-library-select')?.selectedOptions[0]?.textContent === '收藏舞步', null, { timeout: 30000 });
+    // Delay the saved-selection digest while a user picks a different item.
+    // Once released, the stale startup result must not overwrite that choice.
+    await reopened.addInitScript(size => {
+      const original = crypto.subtle.digest.bind(crypto.subtle);
+      crypto.subtle.digest = async (algorithm, data) => {
+        if (data.byteLength === size && !window.__delayedDanceDigest) {
+          window.__delayedDanceDigest = true;
+          await new Promise(resolve => { window.__releaseDanceDigest = resolve; });
+        }
+        return original(algorithm, data);
+      };
+    }, selectedDance.length);
+    await reopened.reload();
+    await reopened.waitForFunction(() => window.__delayedDanceDigest && document.querySelector('#dance-library-select')?.options.length >= 2, null, { timeout: 90000 });
+    await reopened.locator('#dance-library-select').selectOption({ label: 'another.vrma' });
+    await reopened.evaluate(() => window.__releaseDanceDigest());
+    await reopened.waitForTimeout(300);
+    assert.equal(await reopened.locator('#dance-library-select').evaluate(element => element.selectedOptions[0]?.textContent), 'another.vrma', 'Late startup selection must not overwrite the user choice');
     return { launchesAsPet: true, workshopStartsMinimized: true, defaultModel: true, defaultVrmaLoaded: true, defaultDancePlaying: true, dancingDrag, dancePauseResume: true, workshopAvailable: true,
       workshopDanceSync: true, invalidDancePreserved: true, laterChoicePreserved: true, selectedDanceRestored: true };
   } finally { if (app) await app.close(); }
