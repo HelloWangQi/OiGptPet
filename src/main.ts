@@ -250,6 +250,7 @@ let petDanceClips: VrmMotionClipInfo[] = [];
 let petDanceClipIndex = 0;
 let petDanceImportRevision = 0;
 let pendingSelectedDanceSync = false;
+let workshopDanceSyncRevision = 0;
 let petDanceManuallyPaused = false;
 let petDanceSpriteImportRevision = 0;
 let petDanceSpriteReady = false;
@@ -1248,6 +1249,7 @@ async function refreshDanceLibrary() {
 
 async function importExternalMotion(file?: File, syncPet = false) {
   if (!file || !stage || loading || packageJob || petMode) return;
+  if (syncPet) workshopDanceSyncRevision += 1;
   if (!file.name.toLowerCase().endsWith('.vrma')) { $('#external-motion-status').textContent = '请选择 .vrma 动作文件。'; return; }
   if (file.size === 0 || file.size > MAX_MODEL_BYTES) { $('#external-motion-status').textContent = '动作文件不能为空且不能超过 64 MiB。'; return; }
   const storedBytes = externalMotionSources.reduce((total, item) => total + item.buffer.byteLength, 0);
@@ -1882,7 +1884,6 @@ if (petMode) {
   $('#pet-scale').onchange = () => void changePreferences();
   $('#performance-mode').onchange = () => void changePreferences();
   $('#import-button').onclick = () => $<HTMLInputElement>('#model-file').click();
-  let workshopDanceSyncRevision = 0;
   $<HTMLSelectElement>('#dance-library-select').addEventListener('change', () => { workshopDanceSyncRevision += 1; });
   void (async () => {
     const revision = workshopDanceSyncRevision;
