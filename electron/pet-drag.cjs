@@ -21,12 +21,18 @@ function createPetDrag({ getWindow, getCursor }) {
     return moved;
   }
   return {
-    start() {
+    start(pointer) {
       stop(false);
       const win = getWindow();
       if (!win || win.isDestroyed() || !win.isVisible()) return false;
       win.setIgnoreMouseEvents(false);
-      session = { win, cursor: { ...getCursor() }, bounds: win.getBounds(), moved: false };
+      const bounds = win.getBounds();
+      const cursor = pointer && Number.isFinite(pointer.x) && Number.isFinite(pointer.y)
+        && pointer.x >= bounds.x - 2 && pointer.x <= bounds.x + bounds.width + 2
+        && pointer.y >= bounds.y - 2 && pointer.y <= bounds.y + bounds.height + 2
+        ? { x: pointer.x, y: pointer.y } : { ...getCursor() };
+      session = { win, cursor, bounds, moved: false };
+      update();
       timer = setInterval(update, 16); timer.unref?.();
       return true;
     },

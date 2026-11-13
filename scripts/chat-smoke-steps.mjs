@@ -1,6 +1,13 @@
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 export async function checkChat(desktop, page, pet) {
+  const clickPetChat = async () => {
+    const dock = await pet.locator('#pet-controls').boundingBox();
+    assert.ok(dock, 'Pet dock has bounds');
+    await pet.mouse.move(dock.x + dock.width / 2, dock.y + dock.height / 2);
+    await pet.locator('#pet-controls').waitFor({ state: 'visible' });
+    await pet.locator('#pet-chat-toggle').click();
+  };
   const file = await desktop.evaluate(({ app }) => {
     globalThis.__chatOriginalFetch = globalThis.fetch;
     globalThis.__chatRequestCount = 0;
@@ -46,7 +53,7 @@ export async function checkChat(desktop, page, pet) {
     await page.waitForFunction(() => document.querySelector('#chat-log [data-reply-state="partial"]')?.textContent.includes('你好，'));
     assert.equal(await page.locator('#chat-send').isDisabled(), true);
     await pet.waitForFunction(() => document.querySelector('#pet-message').textContent === '你好，', undefined, { polling: 100 });
-    assert.equal(await pet.locator('#pet-read-aloud').isHidden(), true, 'Partial text must not be offered for speech');
+    assert.equal(await pet.locator('#pet-read-aloud').evaluate(button => button.hidden), true, 'Partial text must not be offered for speech');
     await desktop.evaluate(() => {
       const response = { status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: '你好，桌宠！<img src=x>' }] }] };
       globalThis.__chatStream.enqueue(new TextEncoder().encode('data: ' + JSON.stringify({ type: 'response.completed', response }) + '\n\n'));
@@ -57,10 +64,26 @@ export async function checkChat(desktop, page, pet) {
     assert.equal(await page.locator('#chat-log p').count(), 2);
     assert.equal(await page.locator('#chat-log img').count(), 0);
     await pet.waitForFunction(() => document.querySelector('#pet-message').textContent.includes('你好，桌宠！'), undefined, { polling: 100 });
-    assert.equal(await pet.locator('#pet-read-aloud').isHidden(), false, 'A complete reply should be available to read aloud');
+    assert.equal(await pet.locator('#pet-read-aloud').evaluate(button => button.hidden), false, 'A complete reply should be available to read aloud');
+    // Speech now lives inside the collapsible tools panel. Verify its own state
+    // first, then open the panel before checking visibility and button hit areas.
+    await pet.locator('#pet-tools-toggle').evaluate(button => {
+      if (button.getAttribute('aria-expanded') !== 'true') button.click();
+    });
+    await pet.locator('#pet-read-aloud').waitFor({ state: 'visible' });
     await assert.rejects(pet.evaluate(() => window.petDesktop.sendChat('越权')), /Only the workshop/);
     await page.locator('#pet-scale').selectOption('0.8');
     await pet.waitForFunction(() => document.querySelector('.pet-shell').getBoundingClientRect().width < 300);
+    await pet.locator('#pet-tools-toggle').evaluate(button => {
+      if (button.getAttribute('aria-expanded') !== 'true') button.click();
+    });
+    await pet.locator('#pet-tools-panel').waitFor({ state: 'visible' });
+    const separateTools = await pet.evaluate(() => {
+      const model = document.querySelector('#character-canvas').getBoundingClientRect();
+      const tools = document.querySelector('#pet-tools-panel').getBoundingClientRect();
+      return tools.right <= model.left || tools.left >= model.right;
+    });
+    assert.equal(separateTools, true, 'Tools must occupy space outside the model canvas');
     for (const id of ['workshop-button', 'pet-chat-toggle', 'pet-voice-input', 'pet-wave', 'pet-read-aloud', 'click-through', 'hide-pet']) {
       const button = pet.locator(`#${id}`);
       await button.evaluate(element => element.scrollIntoView({ inline: 'nearest', block: 'nearest' }));
@@ -75,18 +98,18 @@ export async function checkChat(desktop, page, pet) {
     await pet.waitForFunction(() => document.querySelector('.pet-shell').getBoundingClientRect().width > 300);
     await pet.locator('#pet-controls').evaluate(element => { element.scrollLeft = 0; });
     await desktop.evaluate(() => { globalThis.fetch = async () => new Response(JSON.stringify({ status: 'completed', output: [{ type: 'message', content: [{ type: 'output_text', text: '桌宠直接回复成功' }] }] })); });
-    await pet.locator('#pet-chat-toggle').click();
+    await clickPetChat();
     await pet.locator('#pet-chat-input').fill('桌宠直接发消息');
     await pet.locator('#pet-chat-input').press('Enter');
     await page.waitForFunction(() => document.querySelector('#chat-log').textContent.includes('桌宠直接发消息') && document.querySelector('#chat-log').textContent.includes('桌宠直接回复成功'));
     await pet.waitForFunction(() => document.querySelector('#pet-message').textContent === '桌宠直接回复成功');
     assert.equal(await page.locator('#chat-log p').count(), 4, 'Pet message and reply must sync into workshop history');
     await desktop.evaluate(() => { globalThis.fetch = () => new Promise(resolve => { globalThis.__petCancelReply = resolve; }); });
-    await pet.locator('#pet-chat-toggle').click();
+    await clickPetChat();
     await pet.locator('#pet-chat-input').fill('桌宠待取消消息');
     await pet.locator('#pet-chat-input').press('Enter');
     await pet.locator('#pet-chat-cancel').waitFor({ state: 'visible' });
-    await pet.locator('#pet-chat-toggle').click();
+    await clickPetChat();
     await pet.locator('#pet-chat-input').fill('取消期间新写的草稿');
     await pet.locator('#pet-chat-cancel').click();
     await pet.waitForFunction(() => document.querySelector('#pet-message').textContent.includes('取消期间新写的草稿'));
@@ -96,7 +119,7 @@ export async function checkChat(desktop, page, pet) {
     await pet.locator('#pet-chat-input').fill('无更新时取消需恢复原草稿');
     await pet.locator('#pet-chat-input').press('Enter');
     await pet.locator('#pet-chat-cancel').waitFor({ state: 'visible' });
-    await pet.locator('#pet-chat-toggle').click();
+    await clickPetChat();
     await pet.locator('#pet-chat-cancel').click();
     await pet.waitForFunction(() => document.querySelector('#pet-message').textContent.includes('无更新时取消需恢复原草稿'));
     assert.equal(await pet.locator('#pet-chat-input').inputValue(), '无更新时取消需恢复原草稿', 'Cancel must restore the sent draft when no newer draft exists');

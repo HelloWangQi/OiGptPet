@@ -1,14 +1,72 @@
-# 当前接续点：0.12.0 音乐舞步
+# 当前接续点：0.13.0 桌宠舞步与工具栏
 
-源码功能提交 `861a4d1`（前置修复 `7484733`），0.12.0 发布说明提交 `f539df0`，分支 `codex/desktop-prototype`。0.12.0 GitHub Release 已发布：[下载页](https://github.com/HelloWangQi/OiGptPet/releases/tag/v0.12.0)。基础律动保持默认；新增“怦然心动风格”和“猫步轻悄风格”原创八拍舞步、固定 100 BPM/8 拍试听，以及 4/8/16/21 帧精灵图 SVG 模板下载。试听不采集系统音频；用户导入 VRMA 时使用 VRMA 动作。具体行为见 [MUSIC_DANCE.md](MUSIC_DANCE.md) 和 [SPRITE_DANCE.md](SPRITE_DANCE.md)。
+## 阶段检查点：舞步库、音乐采集和桌宠舞动回归（2026-11-13）
 
-`npm run build` 和 `npm run verify:desktop` 均通过。当前 EXE：[OiGptPet.exe](../release/v0.12.0-1794361875817/OiGptPet-win32-x64/OiGptPet.exe)，冒烟报告：`artifacts/release-smoke/run-1794361880031/result.json`，结果 `ok=true`、`rendererErrors=[]`。本次发布包基于功能提交 `861a4d1` 构建；后续 `f297776`、`f539df0` 仅更新交接及发布文档。完整记录见 [0.12.0 版本说明](releases/v0.12.0.md)。`npm test` 未运行。
+分支 `codex/desktop-prototype`，当前预计提交 `725e3e5`。阶段开发包括：本机舞步库（去重、命名、预览、删除副本、与桌宠切换同步）；旧版选中舞步迁移；启动时恢复工坊选择；失败或损坏舞步保持旧舞步；异步选择竞争保护。音乐采集补充静音/授权提示、取消、旧采集清理和乱序授权返回资源测试。打包增加默认素材缺失汇总及 GLB 头/尺寸预检。打包冒烟覆盖默认舞步循环、暂停、跳舞时拖动/缩放、松手后舞步继续、隐藏恢复、收藏切换和恢复。
+
+`npm test`：42 个测试文件、450 项通过。最近 `npm run verify:desktop` 完整通过，结果 `artifacts/release-smoke/run-1794545718658`；EXE 为 `release/v0.13.0-1794545713680/OiGptPet-win32-x64/OiGptPet.exe`。源码应用实现提交 `6bc5239`，其后变更为回归脚本和交接文档；专项延迟选择测试用上述 EXE 通过。当前模型与舞步仍是本机忽略文件，没有加入 Git；原始模型再分发许可未确认，舞步许可亦需核实。
+
+尚待人工检查：真实 Windows 系统音频授权与输出设备切换、真实麦克风和系统朗读、多屏/DPI/拔插与休眠、真实 GPU/耗电/长时运行，以及其它 VRM/VRMA 的动作观感。自动测试模拟音频和全局鼠标坐标，不代替这些实机项目。没有推送或发布。
+
+
+## 最新：默认素材预检与 VRM 舞蹈窗口回归（2026-11-13）
+
+本地提交 `0378a97`：打包前一次列出缺失的两份默认素材，并检查 GLB 头和大小；素材内容和许可不作修改。实际 EXE 冒烟新增默认 VRM 循环跳舞时的身体拖动、窗口移动、松手停止、避免误触、动作恢复及缩放恢复；鼠标全局坐标由测试注入，不能替代真实鼠标、真实多屏和 DPI 体验。
+
+`npm test` 为 42 文件、449 项通过；`npm run verify:desktop` 通过，结果 `artifacts/release-smoke/run-1794543474059`，源码提交 `0378a97` 的 EXE 为 `release/v0.13.0-1794543469006/OiGptPet-win32-x64/OiGptPet.exe`。真实系统音乐、物理显示器和长时间运行仍待检查；不推送或发布。
+
+
+## 2026-11-13：舞步库与音乐采集
+
+本地分支 `codex/desktop-prototype`。已完成本地舞步库、工坊和桌宠选择同步、旧选择迁移；音乐采集增加静音提示、资源清理及等待授权时取消。静音提示不会覆盖其它桌宠消息。原始模型和舞步不在 Git 中，默认素材的分发权限仍需确认。
+
+`npm test` 41 文件 / 447 项通过；源码提交 `31c8360` 的 `npm run verify:desktop` 全部通过，结果 `artifacts/release-smoke/run-1794542172824`，EXE 为 `release/v0.13.0-1794542168532/OiGptPet-win32-x64/OiGptPet.exe`。旧舞步迁移和删除后重启专项亦已通过。音频测试使用模拟输入；真实 Windows 输出设备、麦克风、系统朗读、多屏和长时间运行尚待实机检查。后续先继续检查跳舞时拖动、缩放、停靠及窗口恢复，并按实际问题修复。推送和发布由用户另行安排。
+
+
+## 最新：桌面侧栏快速退出与点击流畅度
+
+常驻桌面侧栏新增红色“×”快速退出按钮，调用受限桌宠 IPC 走正常 `app.quit()` 生命周期，保留窗口位置保存与退出前清理。鼠标移动时不再逐次查询交互 DOM 布局；交互区矩形仅在尺寸/显隐/样式改变时刷新。VRM 拾取复用 Raycaster 与 NDC 向量，桌面栏/工具面板移除透明窗口上的 backdrop blur，缩短按钮 hover 过渡。
+
+新增发布 EXE 桌面流程冒烟：挥手、聊天开合、工具面板展开/还原、工坊入口、鼠标穿透后重新进入、隐藏/恢复、按钮不触发拖动和退出码 0。`npm test` 为 39 个文件、432 项通过；`npm run build` 通过。完整 `npm run verify:desktop` 已从 `a709e49` 打包，但本次在既有 VRMA 外部动作速度断言处停止（0.5× 读数 250ms、2× 读数 33ms/各 400ms），未到新增桌面步骤；同提交应用代码的前一包完整 `test:release` 曾通过，报告 `artifacts/release-smoke/run-1794456887043/result.json`。当前最新 EXE 又单独通过桌面侧栏及退出专项检查：`E:\GitWorkSpace\OiGptPet\release\v0.13.0-1794457147257\OiGptPet-win32-x64\OiGptPet.exe`。项目分支 `codex/desktop-prototype`；尚未推送。
+
+## 最新：工具菜单不遮挡模型
+
+工具面板改在模型画布之外展开，临时扩展原生桌宠窗口但保留原模型画布尺寸；优先向右，靠右边缘时选择左侧外部空间。收起恢复原窗口，保存位置时剔除菜单占用的宽度与偏移；缩放和屏幕恢复会先收起菜单。新增 IPC 仅允许桌宠调用。界面按原生返回的布局放置面板，避免在小窗口内覆盖角色。
+
+左右屏幕边缘的 2 项几何检查通过。实际 EXE 检查通过左侧外置、右侧展开、画布尺寸保持、收起恢复窗口尺寸及工坊 IPC 拒绝；截图为 `artifacts/dance-visual-compare/menu-beside-pet.png` 和 `menu-right-of-pet.png`，角色仍为 320×420。当前新包：`E:\GitWorkSpace\OiGptPet\release\v0.13.0-1794454477739\OiGptPet-win32-x64\OiGptPet.exe`。整套验收首次止于 VRMA 0.5× 速度读数为 0，同包复验止于精灵图动作计时超时，整体未通过；菜单专项实际 EXE 检查已通过。
+
+## 最新：腰胯与腿部强化
+
+按用户反馈加大四种程序舞步的下半身表现：髋部扭转约 30°，胸腰反向转动；增大交替屈膝、抬腿、脚尖补偿和身体横移。重心改为每个舞步拍换向一次，减少高频小幅抖动；降低根节点侧倾，让腰胯和腿承担动作。程序舞步动作均已包含这些变化，外部 VRMA 仍按文件播放。
+
+两份舞蹈回归文件共 9 项通过，最终 `npm run verify:desktop` 全部通过，报告 `artifacts/release-smoke/run-1794453898842/result.json`。新 EXE：`E:\GitWorkSpace\OiGptPet\release\v0.13.0-1794453889290\OiGptPet-win32-x64\OiGptPet.exe`。同模型实际 EXE 录帧见 `artifacts/dance-visual-compare/oipet-auto-mix-00.png` 至 `oipet-auto-mix-18.png`；修复前帧在 `before-hip-fix/`。已目视检查交替屈膝、抬脚和腰胯转动；用户实际观感待反馈。本轮仅本地提交。
+
+## 最新：舞步坐标与桌宠比例修复
+
+本轮统一 AOA/猫步的手臂编排坐标与 VRM 标准化 T 姿势，纠正左右屈肘符号，并将原有前伸通道映射到实际使用的上臂 Y 轴。补齐颈部与腿部侧摆默认通道。科目三数据保持原坐标；自动混合使用修复后的姿态。相机恢复与画布一致的宽高比，避免角色被横向压瘦。普通动作暂停时冻结已绘制姿态，恢复后才处理动作切换，导出/显式采样仍可零时间定位。
+
+舞步方向与节拍时钟两份回归文件共 5 项通过；最终 `npm run verify:desktop` 全部通过，实际 EXE 报告为 `artifacts/release-smoke/run-1794453456937/result.json`。修正了旧聊天冒烟未展开工具面板就断言朗读可见的错误；布局冒烟等待原生尺寸与渲染窗口同步。同 AvatarSample_B 的实际 EXE 录帧已检查收臂、单侧手势和比例，结果在 `artifacts/dance-visual-compare/`，修复前帧保留于其 `before-arm-fix/`。AOA 仍为实验编排，未认定复刻官方原舞，也未认定整体效果超过 Qoder。
+
+最新 EXE：`E:\GitWorkSpace\OiGptPet\release\v0.13.0-1794453452491\OiGptPet-win32-x64\OiGptPet.exe`。本轮只在本地提交。下方为先前轮次记录，其 EXE 可能已被三包保留策略清理。
+
+## 先前记录
+
+本轮为音乐舞动增加连续节拍时钟：漏拍时舞句继续前进，BPM 更新不会使动作位置回退，鼓点仍用于重拍反馈；长时间静音会重置。自动混合按连续舞步时间选择舞段。真实音乐与舞姿观感仍需体验，不能据此认定已超过参考程序。
+
+源码分支 `codex/desktop-prototype`。0.12.0 GitHub Release 已发布：[下载页](https://github.com/HelloWangQi/OiGptPet/releases/tag/v0.12.0)。0.13.0 引入“怦然心动风格”和“猫步轻悄风格”实验性八拍舞步、舞步试听，以及 4/8/16/21 帧精灵图 SVG 模板下载；音乐试听不采集系统音频，用户导入 VRMA 时使用 VRMA 动作。具体行为见 [MUSIC_DANCE.md](MUSIC_DANCE.md) 和 [SPRITE_DANCE.md](SPRITE_DANCE.md)。
+
+**2026-11-12 本轮进展**：从 `306716d` 继续改善桌宠实际舞蹈表现。桌宠 VRM 单独使用透视取景、补光、表情和地面影；进入程序舞步时去掉多余的整身淡入；透明工具栏区域重新参与鼠标穿透唤醒。新增低/中/高频系统混音能量和“频段律动混合”舞步：取最近约 2.5 秒频谱，在四拍边界决定主舞步，低频选科目三、中频选 AOA 实验改编、高频选猫步，并以高主权重保留完整动作形状；旧信号回退科目三。新增频谱只在本地内存分析，不存盘、不上传。默认仍保留用户原先选择。AOA 副歌舞步仍是实验改编，尚未逐段核对官方练习视频，不宣称复刻原编舞。
+
+`npm run build` 通过。最终 `npm run verify:desktop` 已编译、打包并运行真实 EXE 冒烟，但未整体通过：检查在 `scripts/chat-smoke-steps.mjs:60` 因完整回复朗读按钮断言 `true !== false` 结束；同轮先前一次运行则在 `external-motion-smoke-steps.mjs:131` 因 2× 时间读数为 0 结束，均未指向本轮舞蹈代码。`npm test` 未运行。当前 EXE：[OiGptPet.exe](../release/v0.13.0-1794452157681/OiGptPet-win32-x64/OiGptPet.exe)，舞蹈逐帧截图见 `artifacts/dance-visual-compare/oipet-auto-mix-00.png` 至 `oipet-auto-mix-20.png`，与参考程序使用相同 `AvatarSample_B.vrm`（SHA-256 `ffbd8c92a9e67c0a948f69c7a2eec91e5c282c9ae70e9184309fc164d74cbc27`）。目前只是开发者的同模型画面检查，用户尚未确认达到或超过 Qoder；桌面上真实系统音乐、麦克风和系统朗读仍待人工体验。
+
+打包保留策略正常，`release/` 仅保留 `1794452157681`、`1794451779490`、`1794451358547` 三个最新目录。无远端推送或 Release 操作。接续时先请用户看新 EXE 的“频段律动混合”和默认“科目三”完整动作句，再按实际反馈调节姿态；在宣称优于 Qoder 前需用户确认。
 
 ## 尚待处理
 
 - 用户用自己的目标 VRM 试听三种舞步，确认手臂左右方向、步幅、八拍接缝、发丝/衣物遮挡后反馈需调的角色；试听按钮便于先不启用系统音频比较动作。
 - 真实音乐回环、系统输出设备切换、精灵图 SVG 模板在绘图软件里的图层行为与 PNG 导出、透明区域拖动，以及麦克风/系统朗读仍需目标 Windows 人工体验。
 - 多 VRM 的 VRMA 动作语义仍需要真实模型视觉检查。Live2D 接入要等 SDK 授权与分发路径确认；ChatGPT 状态联动需先有受支持的官方接口。当前代码范围内已知可独立完成的音乐舞步和模板开发已交付，其他项目事项依赖上述人工验收或外部前置条件。
+- 动作重定向暂无实现输入：仓库演示资源只有 pixiv `demo.vrm`，`public/models` 与现有忽略产物中都没有 VRMA。取得一组获准用于开发的源 VRM、目标 VRM 和 VRMA 后，先记录实际骨骼/动作差异，再决定是否增加变换规则；不要用合成片段推断真实模型行为。
 
 ## v0.11.0 交接记录
 

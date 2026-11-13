@@ -24,14 +24,35 @@ contextBridge.exposeInMainWorld('petDesktop', Object.freeze({
     return () => ipcRenderer.removeListener('window:visibility', listener);
   },
   getModel: () => ipcRenderer.invoke('model:get'),
+  getDefaultAsset: (kind) => ipcRenderer.invoke('defaults:get', kind),
+  getSelectedDance: () => ipcRenderer.invoke('dance:get'),
+  setSelectedDance: (bytes, name) => ipcRenderer.invoke('dance:set', bytes, name),
+  listDances: () => ipcRenderer.invoke('dance-library:list'),
+  getDance: id => ipcRenderer.invoke('dance-library:get', id),
+  renameDance: (id, name) => ipcRenderer.invoke('dance-library:rename', id, name),
+  removeDance: id => ipcRenderer.invoke('dance-library:remove', id),
+  onDanceLibraryChanged: callback => { const listener = () => callback(); ipcRenderer.on('dance-library:changed', listener); return () => ipcRenderer.removeListener('dance-library:changed', listener); },
+  clearSelectedDance: () => ipcRenderer.invoke('dance:clear'),
+  onSelectedDanceChanged: (callback) => {
+    const listener = () => callback();
+    ipcRenderer.on('dance:changed', listener);
+    return () => ipcRenderer.removeListener('dance:changed', listener);
+  },
   setModel: (bytes) => ipcRenderer.invoke('model:set', bytes),
   openPet: () => ipcRenderer.invoke('pet:open'),
   openWorkshop: () => ipcRenderer.invoke('workshop:open'),
   hidePet: () => ipcRenderer.invoke('pet:hide'),
-  startDrag: () => ipcRenderer.invoke('pet:drag-start'),
+  quit: () => ipcRenderer.invoke('pet:quit'),
+  startDrag: (pointer) => ipcRenderer.invoke('pet:drag-start', pointer),
   endDrag: () => ipcRenderer.invoke('pet:drag-end'),
   setClickThrough: (value) => ipcRenderer.invoke('pet:click-through', value),
   setScale: (value) => ipcRenderer.invoke('pet:scale', value),
+  setToolsOpen: (value) => ipcRenderer.invoke('pet:tools-open', value),
+  onToolsLayout: (callback) => {
+    const listener = (_event, layout) => callback(layout);
+    ipcRenderer.on('pet:tools-layout', listener);
+    return () => ipcRenderer.removeListener('pet:tools-layout', listener);
+  },
   getPreferences: () => ipcRenderer.invoke('preferences:get'),
   setPreferences: (patch) => ipcRenderer.invoke('preferences:set', patch),
   onPreferencesChanged: (callback) => {

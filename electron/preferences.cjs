@@ -1,7 +1,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 
-const DEFAULT_PREFERENCES = Object.freeze({ version: 1, scale: 1, performance: 'balanced' });
+const DEFAULT_PREFERENCES = Object.freeze({ version: 1, scale: 0.8, performance: 'quality' });
 const scales = [0.8, 1, 1.2];
 const modes = ['quality', 'balanced', 'battery'];
 

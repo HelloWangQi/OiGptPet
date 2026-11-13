@@ -38,6 +38,13 @@ describe('dragging the pet body', () => {
     expect(f.drag.stop()).toBe(true); expect(f.win.getBounds().x).toBe(-580);
     expect(f.drag.active).toBe(false);
   });
+  it('anchors to the press position even when the cursor moves before IPC starts', () => {
+    const f = fixture();
+    f.cursor({ x: -470, y: 180 });
+    f.drag.start({ x: -500, y: 200 });
+    vi.advanceTimersByTime(16);
+    expect(f.win.getBounds()).toEqual({ x: -570, y: 80, width: 320, height: 420 });
+  });
   it.each(['hide', 'destroy', 'replace'])('stops polling when the pet is no longer usable: %s', action => {
     const f = fixture(); f.drag.start(); f[action](); vi.advanceTimersByTime(16);
     expect(f.drag.active).toBe(false); expect(f.win.setPosition).not.toHaveBeenCalled();

@@ -14,9 +14,14 @@ function glb(document: unknown): ArrayBuffer {
   return buffer;
 }
 const document = { extensions: { VRMC_vrm: { specVersion: '1.0', meta: { name: '<script>not HTML</script>', authors: ['Artist'] } } } };
+const legacyDocument = { extensions: { VRM: { specVersion: '0.0', meta: { title: '旧角色', author: '作者', allowedUserName: 'OnlyAuthor', licenseName: 'Redistribution_Prohibited' }, blendShapeMaster: { blendShapeGroups: [{ presetName: 'blink' }, { presetName: 'unknown' }] } } } };
 
 describe('local model boundary', () => {
   it('retains literal metadata without interpreting HTML', () => expect(inspectVrmFile(glb(document)).name).toBe('<script>not HTML</script>'));
+  it('reads VRM 0.0 metadata without inventing redistribution permission', () => {
+    expect(inspectVrmFile(glb(legacyDocument))).toMatchObject({ name: '旧角色', authors: ['作者'], version: '0.0', expressions: ['blink'], avatarPermission: 'OnlyAuthor', allowRedistribution: false });
+    expect(() => inspectVrmFile(glb({ ...legacyDocument, buffers: [{ uri: 'file:///C:/secret' }] }))).toThrow('外部');
+  });
   it('rejects network and local file references before loading', () => {
     for (const uri of ['https://example.com/image.png', 'file:///C:/secret', 'data:image/png;base64,']) {
       expect(() => inspectVrmFile(glb({ ...document, images: [{ uri }] }))).toThrow('外部');
@@ -26,7 +31,7 @@ describe('local model boundary', () => {
     expect(() => inspectVrmFile(new ArrayBuffer(4))).toThrow();
     const truncated = glb(document).slice(0, -4);
     expect(() => inspectVrmFile(truncated)).toThrow('长度');
-    expect(() => inspectVrmFile(glb({ extensions: { VRM: {} } }))).toThrow('VRM 1.0');
+    expect(() => inspectVrmFile(glb({ extensions: { VRM: {} } }))).toThrow('VRM 0.0');
   });
 });
 

@@ -28,20 +28,34 @@ export function inspectVrmFile(buffer: ArrayBuffer): ModelInfo {
   let doc;
   try { doc = JSON.parse(new TextDecoder().decode(new Uint8Array(buffer, 20, length)).trim()); }
   catch { throw new Error('无法读取模型元数据。'); }
-  const extension = doc.extensions?.VRMC_vrm;
-  if (!extension || !String(extension.specVersion).startsWith('1.')) {
-    throw new Error('首版支持 VRM 1.0，请先将旧版模型导出为 VRM 1.0。');
-  }
+  const modern = doc.extensions?.VRMC_vrm;
+  const legacy = doc.extensions?.VRM;
+  const isModern = modern && typeof modern.specVersion === 'string' && modern.specVersion.startsWith('1.');
+  const isLegacy = legacy && legacy.specVersion === '0.0';
+  if (!isModern && !isLegacy) throw new Error('请选择 VRM 0.0 或 VRM 1.0 模型。');
   if ([...(doc.buffers ?? []), ...(doc.images ?? [])].some((item) => item.uri !== undefined)) {
     throw new Error('仅接受纹理与数据全部内嵌的 VRM，模型不能引用外部文件或网络地址。');
   }
   if ((doc.nodes?.length ?? 0) > 5000) throw new Error('模型节点过多，请先简化模型。');
-  const meta = extension.meta ?? {};
+  if (!isModern) {
+    const meta = legacy.meta ?? {};
+    const groups = Array.isArray(legacy.blendShapeMaster?.blendShapeGroups) ? legacy.blendShapeMaster.blendShapeGroups : [];
+    return {
+      name: typeof meta.title === 'string' && meta.title ? meta.title : '未命名角色',
+      authors: typeof meta.author === 'string' && meta.author ? [meta.author] : [],
+      version: '0.0',
+      expressions: groups.map((group: { presetName?: unknown }) => group?.presetName).filter((name: unknown): name is string => typeof name === 'string' && name !== 'unknown'),
+      licenseUrl: typeof meta.otherLicenseUrl === 'string' ? meta.otherLicenseUrl : '',
+      avatarPermission: String(meta.allowedUserName ?? '未知'),
+      allowRedistribution: false,
+    };
+  }
+  const meta = modern.meta ?? {};
   return {
     name: typeof meta.name === 'string' ? meta.name : '未命名角色',
     authors: Array.isArray(meta.authors) ? meta.authors.filter((v: unknown) => typeof v === 'string') : [],
-    version: String(extension.specVersion),
-    expressions: Object.keys(extension.expressions?.preset ?? {}),
+    version: String(modern.specVersion),
+    expressions: Object.keys(modern.expressions?.preset ?? {}),
     licenseUrl: typeof meta.licenseUrl === 'string' ? meta.licenseUrl : '',
     avatarPermission: String(meta.avatarPermission ?? '未知'),
     allowRedistribution: meta.allowRedistribution === true,

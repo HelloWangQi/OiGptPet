@@ -1,6 +1,14 @@
 export interface MusicDanceSignal {
   /** Normalized music energy, from silence (0) to full motion (1). */
   level: number;
+  /** Smoothed spectral energy by band. Optional for older producers and tests. */
+  bass?: number;
+  mid?: number;
+  treble?: number;
+  /** Dominant spectral family held for a phrase so choreography does not flicker per frame. */
+  bandFocus?: 'bass' | 'mid' | 'treble';
+  /** Short onset envelope for accenting strong beats. */
+  hit?: number;
   /** A short beat pulse, from 0 to 1. */
   beat: number;
   /** Estimated progress through the current beat, from 0 to 1; omitted by older producers. */

@@ -1,4 +1,4 @@
-import { lstat, readdir, readFile, realpath, rm } from 'node:fs/promises';
+import { lstat, open, readdir, readFile, realpath, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -12,7 +12,18 @@ async function assertTreeInside(directory, root) {
 }
 
 // Only recognized OiGptPet distribution directories are eligible, never arbitrary folders.
-export async function retainPackages(directory, { apply = false } = {}) {
+async function executableIsInUse(app) {
+  try {
+    const handle = await open(path.join(app, 'OiGptPet.exe'), 'r+');
+    await handle.close();
+    return false;
+  } catch (error) {
+    if (['EBUSY', 'EPERM', 'EACCES'].includes(error.code)) return true;
+    throw error;
+  }
+}
+
+export async function retainPackages(directory, { apply = false, isInUse = executableIsInUse } = {}) {
   const root = path.resolve(directory);
   if ((await lstat(root)).isSymbolicLink() || await realpath(root) !== root) throw new Error('Release root must be a real directory');
   const candidates = [];
@@ -29,7 +40,7 @@ export async function retainPackages(directory, { apply = false } = {}) {
       if (error.code === 'ENOENT' || error instanceof SyntaxError) continue;
       throw error;
     }
-    candidates.push({ name: entry.name, folder, time: match ? Number(match[1]) : (await lstat(folder)).mtimeMs });
+    candidates.push({ name: entry.name, folder, app, time: match ? Number(match[1]) : (await lstat(folder)).mtimeMs });
   }
   candidates.sort((a, b) => b.time - a.time || a.name.localeCompare(b.name));
   let current;
@@ -46,8 +57,13 @@ export async function retainPackages(directory, { apply = false } = {}) {
   const removed = candidates.filter(item => !keep.has(item));
   // Validate all deletion targets before the first removal; rm never crosses a link.
   for (const item of removed) await assertTreeInside(item.folder, root);
-  if (apply) for (const item of removed) await rm(item.folder, { recursive: true, force: false });
-  return { applied: apply, kept: [...keep].map(item => item.name), removed: removed.map(item => item.name) };
+  const deleted = []; const deferred = [];
+  if (apply) for (const item of removed) {
+    if (await isInUse(item.app)) { deferred.push(item.name); continue; }
+    try { await rm(item.folder, { recursive: true, force: false }); deleted.push(item.name); }
+    catch (error) { if (error.code === 'EBUSY') deferred.push(item.name); else throw error; }
+  }
+  return { applied: apply, kept: [...keep].map(item => item.name), removed: apply ? deleted : removed.map(item => item.name), deferred };
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

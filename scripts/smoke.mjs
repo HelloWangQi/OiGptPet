@@ -83,7 +83,7 @@ try {
   await page.screenshot({ path: fileURLToPath(new URL('workshop.png', output)) });
 
   if (preferencesOnly) {
-    assert.deepEqual(await page.evaluate(() => window.petDesktop.getPreferences()), { version: 1, scale: 1, performance: 'balanced' });
+    assert.deepEqual(await page.evaluate(() => window.petDesktop.getPreferences()), { version: 1, scale: 0.8, performance: 'quality' });
     await page.locator('#performance-mode').selectOption('battery');
     await page.waitForFunction(() => document.querySelector('#performance-mode')?.disabled === false);
     await page.locator('#pet-scale').selectOption('0.8');

@@ -1,5 +1,6 @@
 declare const __WITH_DEMO__: boolean;
 declare const __APP_VERSION__: string;
+interface PetToolsLayout { open: boolean; petWidth: number; petLeft: number; toolsLeft: number; toolsWidth: number }
 interface CompanionChatState { status: string; text?: string; requestId?: string; sequence: number }
 interface ChatReadiness { ready: boolean; code: 'ready' | 'missing_model' | 'invalid_model' | 'missing_key' | 'unavailable' | 'unreadable_key' | 'busy' | 'timeout' | 'cancelled' }
 interface CompanionChatSnapshot {
@@ -26,14 +27,27 @@ interface Window {
     getWindowVisibility(): Promise<boolean>;
     onWindowVisibility(callback: (visible: boolean) => void): () => void;
     getModel(): Promise<Uint8Array | null>;
+    getDefaultAsset(kind: 'model' | 'dance'): Promise<Uint8Array | null>;
+    getSelectedDance(): Promise<Uint8Array | null>;
+    setSelectedDance(bytes: Uint8Array, name?: string): Promise<void>;
+    listDances(): Promise<{ id: string; name: string; size: number }[]>;
+    getDance(id: string): Promise<Uint8Array>;
+    renameDance(id: string, name: string): Promise<void>;
+    removeDance(id: string): Promise<void>;
+    onDanceLibraryChanged(callback: () => void): () => void;
+    clearSelectedDance(): Promise<void>;
+    onSelectedDanceChanged(callback: () => void): () => void;
     setModel(bytes: Uint8Array): Promise<boolean>;
     openPet(): Promise<void>;
     openWorkshop(): Promise<void>;
     hidePet(): Promise<void>;
-    startDrag(): Promise<boolean>;
+    quit(): Promise<void>;
+    startDrag(pointer?: { x: number; y: number }): Promise<boolean>;
     endDrag(): Promise<void>;
     setClickThrough(value: boolean): Promise<void>;
     setScale(value: number): Promise<void>;
+    setToolsOpen(value: boolean): Promise<PetToolsLayout>;
+    onToolsLayout(callback: (layout: PetToolsLayout) => void): () => void;
     getPreferences(): Promise<import('./desktop-preferences').DesktopPreferences>;
     setPreferences(patch: import('./desktop-preferences').PreferencesPatch): Promise<import('./desktop-preferences').DesktopPreferences>;
     onPreferencesChanged(callback: (preferences: import('./desktop-preferences').DesktopPreferences) => void): () => void;

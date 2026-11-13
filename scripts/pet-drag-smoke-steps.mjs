@@ -46,14 +46,14 @@ export async function checkPetBodyDrag(desktop, page) {
     });
   };
   let point = await findBodyPixel();
-  const start = await desktop.evaluate(({ BrowserWindow, screen }) => {
+  const start = await desktop.evaluate(({ BrowserWindow, screen }, point) => {
     const win = BrowserWindow.getAllWindows().find(w => !w.isResizable());
     const bounds = win.getBounds();
     globalThis.__dragOriginalCursor = screen.getCursorScreenPoint;
-    globalThis.__dragCursor = { x: bounds.x + 150, y: bounds.y + 200 };
+    globalThis.__dragCursor = { x: bounds.x + point.x, y: bounds.y + point.y };
     screen.getCursorScreenPoint = () => globalThis.__dragCursor;
     return bounds;
-  });
+  }, point);
   const dx = start.x > 50 ? -30 : 30;
   const dy = start.y > 50 ? -20 : 20;
   let hitSample;
@@ -154,6 +154,12 @@ export async function checkPetBodyDrag(desktop, page) {
       return { before, after: win.getBounds() };
     });
     assert.deepEqual(stopped.after, stopped.before, 'release stops native movement');
+    // The release check moved the injected cursor away from the window; put it
+    // back at the upcoming click so the next drag session sees a stationary cursor.
+    await desktop.evaluate(({ BrowserWindow }, point) => {
+      const bounds = BrowserWindow.getAllWindows().find(w => !w.isResizable()).getBounds();
+      globalThis.__dragCursor = { x: Math.round(bounds.x + point.x), y: Math.round(bounds.y + point.y) };
+    }, point);
     await page.mouse.click(point.x, point.y);
     assert.equal(await page.evaluate(() => window.__bodyClickCount), 1, 'ordinary body clicks still work');
     await page.locator('#pet-wave').click();

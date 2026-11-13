@@ -47,7 +47,7 @@ class VrmRenderer implements CompanionRenderer {
   readonly kind = 'vrm' as const;
   private readonly stage: VrmStage;
 
-  constructor(canvas: HTMLCanvasElement) { this.stage = new VrmStage(canvas); }
+  constructor(canvas: HTMLCanvasElement, petPresentation = false) { this.stage = new VrmStage(canvas, false, petPresentation); }
   get loaded() { return this.stage.loaded; }
 
   async load(input: CompanionInput, signal?: AbortSignal): Promise<ModelInfo | null> {
@@ -106,6 +106,6 @@ class SpriteRenderer implements CompanionRenderer {
   dispose() { this.stage.dispose(); }
 }
 
-export function createCompanionRenderer(input: CompanionInput, canvas: HTMLCanvasElement): CompanionRenderer {
-  return input.kind === 'vrm' ? new VrmRenderer(canvas) : new SpriteRenderer(canvas);
+export function createCompanionRenderer(input: CompanionInput, canvas: HTMLCanvasElement, petPresentation = false): CompanionRenderer {
+  return input.kind === 'vrm' ? new VrmRenderer(canvas, petPresentation) : new SpriteRenderer(canvas);
 }

@@ -30,7 +30,7 @@ export class CompanionStage {
   private musicDanceMotionMode = false;
   private musicDanceMotionPlaying = false;
 
-  constructor(private canvas: HTMLCanvasElement) {}
+  constructor(private canvas: HTMLCanvasElement, private readonly petPresentation = false) {}
 
   get loaded() { return Boolean(this.current?.loaded); }
 
@@ -42,7 +42,7 @@ export class CompanionStage {
     // SpriteStage writes pixel CSS sizes. A new VRM canvas must follow its host again.
     canvas.style.width = '';
     canvas.style.height = '';
-    const candidate = createCompanionRenderer(input, canvas);
+    const candidate = createCompanionRenderer(input, canvas, this.petPresentation);
     const controller = new AbortController();
     let released = false;
     let committed = false;
