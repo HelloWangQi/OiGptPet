@@ -1876,8 +1876,19 @@ if (petMode) {
   $('#pet-scale').onchange = () => void changePreferences();
   $('#performance-mode').onchange = () => void changePreferences();
   $('#import-button').onclick = () => $<HTMLInputElement>('#model-file').click();
-  void refreshDanceLibrary();
   let workshopDanceSyncRevision = 0;
+  $<HTMLSelectElement>('#dance-library-select').addEventListener('change', () => { workshopDanceSyncRevision += 1; });
+  void (async () => {
+    const revision = workshopDanceSyncRevision;
+    await refreshDanceLibrary();
+    const bytes = await desktop?.getSelectedDance();
+    if (!bytes) return;
+    const digest = await crypto.subtle.digest('SHA-256', new Uint8Array(bytes));
+    const id = [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('');
+    if (revision !== workshopDanceSyncRevision) return;
+    const select = $<HTMLSelectElement>('#dance-library-select');
+    if ([...select.options].some(option => option.value === id)) select.value = id;
+  })().catch(error => status(error instanceof Error ? error.message : '舞步状态读取失败。', true));
   desktop?.onSelectedDanceChanged(() => {
     const revision = ++workshopDanceSyncRevision;
     void (async () => {

@@ -116,7 +116,7 @@ export async function checkDefaultStartup(executablePath, root) {
     assert.equal(await pet.evaluate(() => document.body.dataset.characterId), chosenId, 'Restart should retain a later user-selected model');
     assert.equal(await readDanceHash(pet), selectedHash, 'Restart should retain the selected dance');
     const reopened = await workshop(pet);
-    await reopened.waitForFunction(() => [...document.querySelectorAll('#dance-library-select option')].some(option => option.textContent === '收藏舞步'), null, { timeout: 30000 });
+    await reopened.waitForFunction(() => document.querySelector('#dance-library-select')?.selectedOptions[0]?.textContent === '收藏舞步', null, { timeout: 30000 });
     return { launchesAsPet: true, workshopStartsMinimized: true, defaultModel: true, defaultVrmaLoaded: true, defaultDancePlaying: true, dancingDrag, dancePauseResume: true, workshopAvailable: true,
       workshopDanceSync: true, invalidDancePreserved: true, laterChoicePreserved: true, selectedDanceRestored: true };
   } finally { if (app) await app.close(); }
