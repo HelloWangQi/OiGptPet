@@ -65,7 +65,32 @@ export async function checkDancingVrmDrag(app, pet) {
     const frame = await pet.locator('#character-canvas').screenshot();
     await pet.waitForTimeout(700);
     assert.notDeepEqual(await pet.locator('#character-canvas').screenshot(), frame, 'Dance resumes after the drag');
-    return { vrmBodyHit: true, movedDuringDance: true, released: true, danceResumed: true };
+    const scaleBefore = await pet.evaluate(async () => (await window.petDesktop.getPreferences()).scale);
+    const sizeBefore = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(win => !win.isResizable()).getBounds());
+    const changedScale = scaleBefore === 0.8 ? 1.2 : 0.8;
+    try {
+      await pet.evaluate(scale => window.petDesktop.setScale(scale), changedScale);
+      const scaleDeadline = Date.now() + 5000;
+      let resized;
+      do {
+        await new Promise(resolve => setTimeout(resolve, 50));
+        resized = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(win => !win.isResizable()).getBounds());
+      } while (Date.now() < scaleDeadline && resized.width === sizeBefore.width && resized.height === sizeBefore.height);
+      assert.ok(resized.width !== sizeBefore.width || resized.height !== sizeBefore.height, 'Changing pet scale resizes the window');
+      const resizedFrame = await pet.locator('#character-canvas').screenshot();
+      await pet.waitForTimeout(700);
+      assert.notDeepEqual(await pet.locator('#character-canvas').screenshot(), resizedFrame, 'Dance continues after resizing');
+    } finally {
+      await pet.evaluate(scale => window.petDesktop.setScale(scale), scaleBefore);
+      const restoreDeadline = Date.now() + 5000;
+      let restored;
+      do {
+        await new Promise(resolve => setTimeout(resolve, 50));
+        restored = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(win => !win.isResizable()).getBounds());
+      } while (Date.now() < restoreDeadline && (restored.width !== sizeBefore.width || restored.height !== sizeBefore.height));
+      assert.equal(restored.width, sizeBefore.width); assert.equal(restored.height, sizeBefore.height);
+    }
+    return { vrmBodyHit: true, movedDuringDance: true, released: true, danceResumed: true, scaleDuringDance: true };
   } finally {
     await pet.mouse.up().catch(() => {});
     await pet.evaluate(() => { document.querySelector('.pet-shell')?.removeEventListener('click', window.__vrmBodyListener); delete window.__vrmBodyListener; delete window.__vrmBodyClicks; }).catch(() => {});
