@@ -4,18 +4,17 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { assertClientDistribution, assertAppDistribution } from './distribution.mjs';
 import { retainPackages } from './package-retention.mjs';
+import { DEFAULT_ASSETS, checkDefaultAssets } from './default-assets.mjs';
 
 const root = new URL('../', import.meta.url);
 const runId = Date.now();
 const stage = new URL(`.cache/package-${runId}/`, root);
 await assertClientDistribution(fileURLToPath(new URL('dist/', root)));
+await checkDefaultAssets(fileURLToPath(root));
 await mkdir(stage, { recursive: true });
 for (const folder of ['dist', 'electron']) await cp(new URL(`${folder}/`, root), new URL(`${folder}/`, stage), { recursive: true });
 await mkdir(new URL('defaults/', stage), { recursive: true });
-for (const [source, name] of [
-  ['artifacts/model-library/VRM/BREAK VENOM.vrm', 'BREAK VENOM.vrm'],
-  ['artifacts/model-library/VRMA/不是恶魔.vrma', '不是恶魔.vrma'],
-]) {
+for (const { source, name } of DEFAULT_ASSETS) {
   try { await cp(new URL(source, root), new URL(`defaults/${name}`, stage)); }
   catch (error) { throw new Error(`打包缺少默认素材 ${source}：${error.message}`); }
 }
