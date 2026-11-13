@@ -599,6 +599,7 @@ async function importPetDance(file?: File, persist = false) {
       catch (error) { status(`舞步已在本次载入，但保存失败：${error instanceof Error ? error.message : '请重试。'}`, true); return; }
     }
     status(`已加载「${file.name}」的 ${clips.length} 段舞步。${describeExternalMotionCompatibility(clips[0])}点击“舞”可开启音乐同步。`);
+    return true;
   } catch (error) {
     if (revision === petDanceImportRevision) status(error instanceof Error ? error.message : '舞步加载失败。', true);
   } finally {
@@ -1796,15 +1797,22 @@ if (petMode) {
     const select = event.currentTarget as HTMLSelectElement;
     if (!desktop || !select.value || !stage?.loaded || stage.sourceKind !== 'vrm') return;
     const id = select.value; const name = select.selectedOptions[0]?.textContent || '舞步';
+    const previous = select.dataset.loadedId || '';
     const revision = ++petDanceImportRevision; const targetStage = stage;
+    let loaded = false; let ownRevision = revision;
     select.disabled = true;
     try {
       const bytes = await desktop.getDance(id);
       if (revision !== petDanceImportRevision || targetStage !== stage || loading) return;
-      await importPetDance(new File([new Uint8Array(bytes).buffer], `${name}.vrma`), true);
-      select.value = id;
+      const pendingImport = importPetDance(new File([new Uint8Array(bytes).buffer], `${name}.vrma`), true);
+      ownRevision = petDanceImportRevision;
+      loaded = Boolean(await pendingImport);
+      if (loaded && ownRevision === petDanceImportRevision && targetStage === stage) { select.value = id; select.dataset.loadedId = id; }
     } catch (error) { status(error instanceof Error ? error.message : '读取舞步失败。', true); }
-    finally { select.disabled = false; }
+    finally {
+      if (!loaded && targetStage === stage && ownRevision === petDanceImportRevision) select.value = previous;
+      select.disabled = false;
+    }
   };
   $('#pet-dance-import').onclick = () => {
     if (!desktop) { status('音乐 VRMA 舞步仅支持 Electron 独立桌面版。', true); return; }

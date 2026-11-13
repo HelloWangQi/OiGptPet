@@ -1,7 +1,7 @@
 import { _electron as electron } from '@playwright/test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createSmokeVrma } from './vrma-smoke-fixture.mjs';
 import { checkDancingVrmDrag } from './vrm-dance-drag-smoke.mjs';
@@ -102,6 +102,13 @@ export async function checkDefaultStartup(executablePath, root) {
       return [...new Uint8Array(digest)].map(byte => byte.toString(16).padStart(2, '0')).join('') === expected;
     }, selectedHash, { timeout: 30000 });
     await page.waitForFunction(() => document.querySelector('#dance-library-select')?.selectedOptions[0]?.textContent === '收藏舞步', null, { timeout: 30000 });
+    const corruptId = await pet.locator('#pet-dance-library option').evaluateAll(options => options.find(option => option.textContent === 'another.vrma')?.value);
+    assert.match(corruptId, /^[a-f0-9]{64}$/);
+    await writeFile(path.join(profile, 'dance-library', `${corruptId}.vrma`), Buffer.from('corrupted'));
+    await pet.locator('#pet-dance-library').selectOption(corruptId);
+    await pet.waitForFunction(() => document.querySelector('#pet-message')?.textContent.includes('舞步文件已损坏'), null, { timeout: 30000 });
+    assert.equal(await pet.locator('#pet-dance-library').inputValue(), selectedHash, 'Failed switch restores the previous selection');
+    assert.equal(await readDanceHash(pet), selectedHash, 'Failed switch preserves the previously selected dance');
     await pet.locator('#pet-tools-toggle').evaluate(button => button.click());
 
     await page.locator('#workshop-dance-file').setInputFiles({ name: 'bad.vrma', mimeType: 'model/gltf-binary', buffer: Buffer.from('invalid') });
