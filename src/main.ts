@@ -598,6 +598,8 @@ async function importPetDance(file?: File, persist = false) {
       try { await desktop.setSelectedDance(new Uint8Array(buffer), file.name); await refreshPetDanceLibrary(); }
       catch (error) { status(`舞步已在本次载入，但保存失败：${error instanceof Error ? error.message : '请重试。'}`, true); return; }
     }
+    const librarySelect = $<HTMLSelectElement>('#pet-dance-library');
+    librarySelect.value = ''; librarySelect.dataset.loadedId = '';
     status(`已加载「${file.name}」的 ${clips.length} 段舞步。${describeExternalMotionCompatibility(clips[0])}点击“舞”可开启音乐同步。`);
     return true;
   } catch (error) {
