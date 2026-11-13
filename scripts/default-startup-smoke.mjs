@@ -70,6 +70,14 @@ export async function checkDefaultStartup(executablePath, root) {
     await page.waitForFunction(() => document.querySelector('#status')?.textContent.includes('桌宠正在同步'), null, { timeout: 90000 });
     await pet.waitForFunction(() => document.querySelector('#pet-message')?.textContent.includes('上次导入的舞步.vrma'), null, { timeout: 90000 });
     assert.equal(await readDanceHash(pet), selectedHash, 'Workshop dance must be saved for the pet');
+    await page.waitForFunction(() => [...document.querySelectorAll('#dance-library-select option')].some(option => option.textContent === 'chosen.vrma'), null, { timeout: 30000 });
+    await page.locator('#dance-library-name').fill('收藏舞步');
+    await page.locator('#dance-library-rename').click();
+    await page.waitForFunction(() => [...document.querySelectorAll('#dance-library-select option')].some(option => option.textContent === '收藏舞步'), null, { timeout: 30000 });
+    await page.locator('#dance-library-play').click();
+    await page.waitForFunction(() => document.querySelector('#status')?.textContent.includes('桌宠正在同步'), null, { timeout: 30000 });
+    assert.equal(await readDanceHash(pet), selectedHash);
+
     await page.locator('#workshop-dance-file').setInputFiles({ name: 'bad.vrma', mimeType: 'model/gltf-binary', buffer: Buffer.from('invalid') });
     await page.waitForFunction(() => document.querySelector('#status')?.classList.contains('error'), null, { timeout: 30000 });
     assert.equal(await readDanceHash(pet), selectedHash, 'Invalid replacement must preserve the selected dance');
@@ -81,6 +89,8 @@ export async function checkDefaultStartup(executablePath, root) {
     pet = await launch();
     assert.equal(await pet.evaluate(() => document.body.dataset.characterId), chosenId, 'Restart should retain a later user-selected model');
     assert.equal(await readDanceHash(pet), selectedHash, 'Restart should retain the selected dance');
+    const reopened = await workshop(pet);
+    await reopened.waitForFunction(() => [...document.querySelectorAll('#dance-library-select option')].some(option => option.textContent === '收藏舞步'), null, { timeout: 30000 });
     return { launchesAsPet: true, workshopStartsMinimized: true, defaultModel: true, defaultVrmaLoaded: true, defaultDancePlaying: true, dancePauseResume: true, workshopAvailable: true,
       workshopDanceSync: true, invalidDancePreserved: true, laterChoicePreserved: true, selectedDanceRestored: true };
   } finally { if (app) await app.close(); }

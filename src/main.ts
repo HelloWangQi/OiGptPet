@@ -154,6 +154,11 @@ app.innerHTML = petMode ? `
           <input type="file" id="model-file" accept=".vrm,.png,.webp,image/png,image/webp" hidden />
           <button class="button workshop-dance-import" id="workshop-dance-import" type="button">${icon.plus} 导入舞步 · VRMA</button>
           <input type="file" id="workshop-dance-file" accept=".vrma,model/gltf-binary" hidden />
+          <label class="field-label" for="dance-library-select">本机舞步库</label>
+          <select id="dance-library-select" aria-label="选择本机舞步"></select>
+          <div class="backup-actions"><button class="button" id="dance-library-play" type="button">预览并使用</button><button class="button" id="dance-library-rename" type="button">重命名</button><button class="button" id="dance-library-remove" type="button">删除副本</button></div>
+          <input id="dance-library-name" maxlength="80" aria-label="舞步名称" placeholder="输入新的舞步名称" />
+          <p class="helper">舞步库保存在本机，删除副本不会删除原文件或中断当前播放。</p>
           <label class="field-label" for="sprite-profile">导入精灵图规格</label>
           <select id="sprite-profile"><option value="v2">v2 · 含 16 方向视线</option><option value="v1">v1 · 仅动作</option></select>
           <button class="text-button" id="cancel-load" hidden>取消加载</button>
@@ -557,7 +562,7 @@ async function importPetDance(file?: File, persist = false) {
     if (!autoPlay && targetStage.motionIsPlaying()) targetStage.toggleMotion();
     targetStage.setMusicDanceMotionMode(true); targetStage.setMusicDanceMotionPlaying(autoPlay);
     if (persist && desktop) {
-      try { await desktop.setSelectedDance(new Uint8Array(buffer)); }
+      try { await desktop.setSelectedDance(new Uint8Array(buffer), file.name); }
       catch (error) { status(`舞步已在本次载入，但保存失败：${error instanceof Error ? error.message : '请重试。'}`, true); return; }
     }
     status(`已加载「${file.name}」的 ${clips.length} 段舞步。${describeExternalMotionCompatibility(clips[0])}点击“舞”可开启音乐同步。`);
@@ -1197,6 +1202,17 @@ async function activateExternalMotionSource(sourceId: string) {
   }
 }
 
+async function refreshDanceLibrary() {
+    if (!desktop) return;
+    try {
+      const items = await desktop.listDances();
+      const select = $<HTMLSelectElement>('#dance-library-select'); const previous = select.value;
+      select.replaceChildren(...items.map(item => { const option = document.createElement('option'); option.value = item.id; option.textContent = item.name; return option; }));
+      if (items.some(item => item.id === previous)) select.value = previous;
+      for (const selector of ['#dance-library-play', '#dance-library-rename', '#dance-library-remove']) $<HTMLButtonElement>(selector).disabled = items.length === 0;
+    } catch (error) { status(error instanceof Error ? error.message : '舞步库读取失败。', true); }
+  }
+
 async function importExternalMotion(file?: File, syncPet = false) {
   if (!file || !stage || loading || packageJob || petMode) return;
   if (!file.name.toLowerCase().endsWith('.vrma')) { $('#external-motion-status').textContent = '请选择 .vrma 动作文件。'; return; }
@@ -1249,7 +1265,8 @@ async function importExternalMotion(file?: File, syncPet = false) {
     $('#external-motion-status').textContent = `${file.name} · ${clips.length} 段动作，当前动作库 ${externalMotionSources.length} 个文件，正在预览第 1 段。${describeExternalMotionCompatibility(clips[0])}`;
     if (syncPet && desktop) {
       try {
-        await desktop.setSelectedDance(new Uint8Array(buffer));
+        await desktop.setSelectedDance(new Uint8Array(buffer), file.name);
+        await refreshDanceLibrary();
         status(`已导入「${file.name}」，工坊正在预览，桌宠正在同步舞步。`);
       } catch (error) { status(`工坊已预览，但舞步保存失败：${error instanceof Error ? error.message : '请重试。'}`, true); }
     } else if (syncPet) status('工坊已预览；同步桌宠需要桌面版。');
@@ -1807,6 +1824,38 @@ if (petMode) {
   $('#pet-scale').onchange = () => void changePreferences();
   $('#performance-mode').onchange = () => void changePreferences();
   $('#import-button').onclick = () => $<HTMLInputElement>('#model-file').click();
+  void refreshDanceLibrary();
+  desktop?.onSelectedDanceChanged(() => { void refreshDanceLibrary(); });
+  $('#dance-library-play').onclick = async () => {
+    if (!desktop || !stage?.loaded || stage.sourceKind !== 'vrm' || loading || packageJob || externalMotionBusy) { status('请先加载 VRM 角色并等待当前操作完成。', true); return; }
+    const select = $<HTMLSelectElement>('#dance-library-select');
+    try {
+      const bytes = await desktop.getDance(select.value);
+      const candidate = new Uint8Array(bytes);
+      const existing = externalMotionSources.find(source => {
+        const data = new Uint8Array(source.buffer);
+        return data.length === candidate.length && data.every((byte, index) => byte === candidate[index]);
+      });
+      if (existing) {
+        await activateExternalMotionSource(existing.id);
+        if (activeExternalMotionSourceId !== existing.id) return;
+        await desktop.setSelectedDance(candidate, existing.name);
+        status(`已选择「${select.selectedOptions[0]?.textContent || '舞步'}」，桌宠正在同步舞步。`);
+      } else {
+        await importExternalMotion(new File([candidate.buffer], `${select.selectedOptions[0]?.textContent || '舞步'}.vrma`), true);
+      }
+    } catch (error) { status(error instanceof Error ? error.message : '读取舞步失败。', true); }
+  };
+  $('#dance-library-rename').onclick = async () => {
+    if (!desktop) return;
+    try { await desktop.renameDance($<HTMLSelectElement>('#dance-library-select').value, $<HTMLInputElement>('#dance-library-name').value); await refreshDanceLibrary(); status('舞步名称已保存。'); }
+    catch (error) { status(error instanceof Error ? error.message : '重命名失败。', true); }
+  };
+  $('#dance-library-remove').onclick = async () => {
+    if (!desktop) return;
+    try { await desktop.removeDance($<HTMLSelectElement>('#dance-library-select').value); await refreshDanceLibrary(); status('已删除舞步库副本；当前播放和原文件不受影响。'); }
+    catch (error) { status(error instanceof Error ? error.message : '删除失败。', true); }
+  };
   $('#workshop-dance-import').onclick = () => {
     if (!stage?.loaded || stage.sourceKind !== 'vrm') { status('请先加载 VRM 角色，再导入舞步。', true); return; }
     if (loading || packageJob || externalMotionBusy) { status('请等待当前操作完成后再导入舞步。', true); return; }

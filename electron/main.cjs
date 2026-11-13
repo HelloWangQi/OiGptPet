@@ -7,6 +7,7 @@ const { createWindowRecovery } = require('./window-recovery.cjs');
 const { createWindowStateStore } = require('./window-state.cjs');
 const { createPetDrag } = require('./pet-drag.cjs');
 const { createSelectedDanceStore } = require('./selected-dance.cjs');
+const { createDanceLibrary } = require('./dance-library.cjs');
 const { expandedToolsLayout } = require('./pet-tools-layout.cjs');
 const { createPreferencesStore } = require('./preferences.cjs');
 const { createCharacterPackageSaver } = require('./character-package-save.cjs');
@@ -42,6 +43,19 @@ const chat = createChatService({ file: path.join(app.getPath('userData'), 'chat-
   } });
 const statePath = () => path.join(app.getPath('userData'), 'window-state.json');
 const selectedDance = createSelectedDanceStore(path.join(app.getPath('userData'), 'selected-dance.vrma'));
+const danceLibrary = createDanceLibrary(path.join(app.getPath('userData'), 'dance-library'));
+let danceMigration;
+function ensureDanceMigration() {
+  if (!danceMigration) danceMigration = (async () => {
+    const marker = path.join(app.getPath('userData'), 'dance-library', 'legacy-migrated');
+    try { await fs.access(marker); return; } catch (error) { if (error.code !== 'ENOENT') throw error; }
+    const existing = await selectedDance.get();
+    if (existing) await danceLibrary.add(existing, '此前选择的舞步');
+    await fs.mkdir(path.dirname(marker), { recursive: true });
+    await fs.writeFile(marker, '1', { flag: 'w' });
+  })().catch(error => { danceMigration = null; throw error; });
+  return danceMigration;
+}
 const windowState = createWindowStateStore(statePath(), { onError: error => console.error('Window position could not be saved:', error.message) });
 const modelPath = () => path.join(app.getPath('userData'), 'current.vrm');
 const preferences = createPreferencesStore(path.join(app.getPath('userData'), 'preferences.json'));
@@ -233,11 +247,17 @@ function handlers() {
     return bytes;
   });
   ipcMain.handle('dance:get', event => { trusted(event); return selectedDance.get(); });
-  ipcMain.handle('dance:set', async (event, bytes) => {
+  ipcMain.handle('dance:set', async (event, bytes, name) => {
     trusted(event);
+    await ensureDanceMigration();
+    await danceLibrary.add(bytes, name || '导入的舞步');
     await selectedDance.set(bytes);
     for (const win of [workshop, pet]) if (win && !win.isDestroyed() && win.webContents !== event.sender) win.webContents.send('dance:changed');
   });
+  ipcMain.handle('dance-library:list', async event => { trusted(event); await ensureDanceMigration(); return danceLibrary.list(); });
+  ipcMain.handle('dance-library:get', (event, id) => { trusted(event); return danceLibrary.get(id); });
+  ipcMain.handle('dance-library:rename', (event, id, name) => { trusted(event); return danceLibrary.rename(id, name); });
+  ipcMain.handle('dance-library:remove', (event, id) => { trusted(event); return danceLibrary.remove(id); });
   ipcMain.handle('dance:clear', async event => {
     trusted(event);
     await selectedDance.clear();

@@ -29,7 +29,11 @@ interface Window {
     getModel(): Promise<Uint8Array | null>;
     getDefaultAsset(kind: 'model' | 'dance'): Promise<Uint8Array | null>;
     getSelectedDance(): Promise<Uint8Array | null>;
-    setSelectedDance(bytes: Uint8Array): Promise<void>;
+    setSelectedDance(bytes: Uint8Array, name?: string): Promise<void>;
+    listDances(): Promise<{ id: string; name: string; size: number }[]>;
+    getDance(id: string): Promise<Uint8Array>;
+    renameDance(id: string, name: string): Promise<void>;
+    removeDance(id: string): Promise<void>;
     clearSelectedDance(): Promise<void>;
     onSelectedDanceChanged(callback: () => void): () => void;
     setModel(bytes: Uint8Array): Promise<boolean>;
