@@ -241,6 +241,11 @@ const canvasHost = $<HTMLCanvasElement>('#character-canvas').parentElement!;
 let stage: CompanionStage;
 let musicDance: SystemMusicAnalyzer | undefined;
 let petMusicDanceStartRevision = 0;
+const PET_MUSIC_RUNNING_HINT = '正在本机分析系统输出混音并跟随节拍舞动；音频不会保存或上传。';
+const PET_MUSIC_SILENCE_HINT = '暂未检测到系统声音：请确认播放器正在输出，并检查 Windows 默认输出设备。';
+const PET_MUSIC_SILENCE_HINT_MS = 3000;
+let petMusicSilentSince = 0;
+let petMusicSilenceNotified = false;
 let petDanceClips: VrmMotionClipInfo[] = [];
 let petDanceClipIndex = 0;
 let petDanceImportRevision = 0;
@@ -427,7 +432,7 @@ function status(message: string, error = false) {
   target.classList.toggle('error', error);
 }
 function describeMusicDanceStartError(error: unknown) {
-  if (error instanceof Error && error.name === 'NotAllowedError') return '未获系统音频共享授权。请允许系统提示后重试。';
+  if (error instanceof Error && error.name === 'NotAllowedError') return '本次未获准采集系统音频。请保持桌宠可见且未最小化，然后再点击“舞”重试。';
   if (error instanceof Error && error.name === 'NotFoundError') return '没有可用的系统音频源，请确认 Windows 正在播放声音。';
   if (error instanceof Error && error.name === 'AbortError') return '系统音频共享请求已取消。';
   return error instanceof Error ? error.message : '系统音频采集失败。';
@@ -436,6 +441,7 @@ function stopMusicDance(message?: string) {
   const button = petMode ? $<HTMLButtonElement>('#pet-music-dance') : undefined;
   const hadSession = Boolean(musicDance?.active || button?.dataset.active === 'true' || button?.getAttribute('aria-busy') === 'true');
   ++petMusicDanceStartRevision;
+  petMusicSilentSince = 0; petMusicSilenceNotified = false;
   stopPetDancePreview();
   musicDance?.stop();
   stage?.setMusicDanceSignal(undefined);
@@ -482,6 +488,19 @@ function clearPetDanceMotion() {
   $<HTMLSelectElement>('#pet-dance-template-frames').hidden = !desktop || stage?.sourceKind !== 'sprite';
   $<HTMLButtonElement>('#pet-dance-template').hidden = !desktop || stage?.sourceKind !== 'sprite';
   $<HTMLInputElement>('#pet-dance-sprite-file').value = '';
+}
+/** Shows one hint per silence episode; the tempo label and energy bar keep reflecting live state. */
+function updatePetMusicSilenceHint(signal: ReturnType<SystemMusicAnalyzer['sample']>, now: number) {
+  if (signal) {
+    if (petMusicSilenceNotified) status(PET_MUSIC_RUNNING_HINT);
+    petMusicSilentSince = 0; petMusicSilenceNotified = false;
+    return;
+  }
+  petMusicSilentSince ||= now;
+  if (!petMusicSilenceNotified && now - petMusicSilentSince >= PET_MUSIC_SILENCE_HINT_MS) {
+    petMusicSilenceNotified = true;
+    status(PET_MUSIC_SILENCE_HINT);
+  }
 }
 function syncPetDanceMotion(signal: ReturnType<SystemMusicAnalyzer['sample']>, now: number) {
   if (!petDanceClips.length) return;
@@ -1501,7 +1520,7 @@ async function bootstrap() {
       const captureActive = Boolean(musicDance?.active);
       const signal = captureActive ? musicDance?.sample(now) : samplePetDancePreview(now);
       stage.setMusicDanceSignal(signal);
-      if (captureActive) syncPetDanceMotion(signal, now);
+      if (captureActive) { syncPetDanceMotion(signal, now); updatePetMusicSilenceHint(signal, now); }
       if (now - petDanceLastUiUpdate >= 100) {
         const tempo = $<HTMLOutputElement>('#pet-dance-tempo');
         const previewActive = !captureActive && isPetDancePreviewActive(now);
@@ -1738,7 +1757,7 @@ if (petMode) {
       if (!musicDance?.active) throw new Error('系统音频采集没有启动。');
       button.dataset.active = 'true'; button.setAttribute('aria-pressed', 'true'); button.textContent = '舞'; button.title = '停止音乐舞动';
       $<HTMLSelectElement>('#pet-music-sensitivity').hidden = false;
-      status('正在本机分析系统输出混音并跟随节拍舞动；音频不会保存或上传。');
+      petMusicSilentSince = 0; petMusicSilenceNotified = false; status(PET_MUSIC_RUNNING_HINT);
       lastInteraction = performance.now();
     } catch (error) {
       if (requestRevision !== petMusicDanceStartRevision) return;

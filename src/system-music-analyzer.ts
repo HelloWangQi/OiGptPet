@@ -51,6 +51,8 @@ export class SystemMusicAnalyzer {
   async start() {
     if (this.active) return;
     if (!navigator.mediaDevices?.getDisplayMedia) throw new Error('当前桌面环境不支持系统播放音频采集。');
+    // Release a capture left behind by a device change or suspended context before reconnecting.
+    if (this.stream || this.context) this.stop();
     const revision = ++this.captureRevision;
 
     // This call must happen directly from the user's button gesture.
