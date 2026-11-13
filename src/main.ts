@@ -492,14 +492,14 @@ function clearPetDanceMotion() {
 /** Shows one hint per silence episode; the tempo label and energy bar keep reflecting live state. */
 function updatePetMusicSilenceHint(signal: ReturnType<SystemMusicAnalyzer['sample']>, now: number) {
   if (signal) {
-    if (petMusicSilenceNotified) status(PET_MUSIC_RUNNING_HINT);
+    if (petMusicSilenceNotified && $('#pet-message').textContent === PET_MUSIC_SILENCE_HINT) status(PET_MUSIC_RUNNING_HINT);
     petMusicSilentSince = 0; petMusicSilenceNotified = false;
     return;
   }
   petMusicSilentSince ||= now;
   if (!petMusicSilenceNotified && now - petMusicSilentSince >= PET_MUSIC_SILENCE_HINT_MS) {
     petMusicSilenceNotified = true;
-    status(PET_MUSIC_SILENCE_HINT);
+    if ($('#pet-message').textContent === PET_MUSIC_RUNNING_HINT) status(PET_MUSIC_SILENCE_HINT);
   }
 }
 function syncPetDanceMotion(signal: ReturnType<SystemMusicAnalyzer['sample']>, now: number) {
