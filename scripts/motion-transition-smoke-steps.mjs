@@ -141,12 +141,20 @@ export async function checkSpriteTransitions(page) {
   };
 
   try {
-    await page.locator('[data-state="waving"]').click();
+    await page.evaluate(() => {
+      const button = document.querySelector('[data-state="waving"]');
+      button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      button.click();
+    });
     const changed = await waitForPair([0], [3 * 208]);
 
     await page.waitForTimeout(260);
     await page.evaluate(() => { window.__spriteTransitionProbe.log.length = 0; });
-    await page.locator('[data-state="waving"]').click();
+    await page.evaluate(() => {
+      const button = document.querySelector('[data-state="waving"]');
+      button.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      button.click();
+    });
     const replay = await waitForPair([3 * 208], [3 * 208], true);
 
     await page.waitForTimeout(260);
