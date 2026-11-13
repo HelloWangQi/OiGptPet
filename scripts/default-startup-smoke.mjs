@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createSmokeVrma } from './vrma-smoke-fixture.mjs';
+import { checkDancingVrmDrag } from './vrm-dance-drag-smoke.mjs';
 
 // Exercise the production startup path with an isolated user profile.
 export async function checkDefaultStartup(executablePath, root) {
@@ -49,6 +50,7 @@ export async function checkDefaultStartup(executablePath, root) {
     await pet.waitForTimeout(700);
     const frameAfter = await pet.locator('#character-canvas').screenshot();
     assert.notDeepEqual(frameAfter, frameBefore, 'Default VRMA should animate without waiting for system audio');
+    const dancingDrag = await checkDancingVrmDrag(app, pet);
     await pet.locator('#pet-tools-toggle').evaluate(button => button.click());
     await pet.locator('#pet-dance-toggle').click();
     assert.equal(await pet.locator('#pet-dance-toggle').textContent(), '继续舞步');
@@ -115,7 +117,7 @@ export async function checkDefaultStartup(executablePath, root) {
     assert.equal(await readDanceHash(pet), selectedHash, 'Restart should retain the selected dance');
     const reopened = await workshop(pet);
     await reopened.waitForFunction(() => [...document.querySelectorAll('#dance-library-select option')].some(option => option.textContent === '收藏舞步'), null, { timeout: 30000 });
-    return { launchesAsPet: true, workshopStartsMinimized: true, defaultModel: true, defaultVrmaLoaded: true, defaultDancePlaying: true, dancePauseResume: true, workshopAvailable: true,
+    return { launchesAsPet: true, workshopStartsMinimized: true, defaultModel: true, defaultVrmaLoaded: true, defaultDancePlaying: true, dancingDrag, dancePauseResume: true, workshopAvailable: true,
       workshopDanceSync: true, invalidDancePreserved: true, laterChoicePreserved: true, selectedDanceRestored: true };
   } finally { if (app) await app.close(); }
 }
