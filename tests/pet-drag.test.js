@@ -10,7 +10,7 @@ function fixture() {
   let visible = true; let destroyed = false;
   const win = {
     isVisible: () => visible, isDestroyed: () => destroyed,
-    getBounds: () => ({ ...bounds }), setIgnoreMouseEvents: vi.fn(),
+    getBounds: vi.fn(() => ({ ...bounds })), setIgnoreMouseEvents: vi.fn(),
     setPosition: vi.fn((x, y) => { bounds = { ...bounds, x, y }; }),
   };
   let current = win;
@@ -32,6 +32,7 @@ describe('dragging the pet body', () => {
     expect(f.win.getBounds()).toEqual({ x: 100, y: 200, width: 320, height: 420 });
     expect(f.drag.stop()).toBe(true); f.cursor({ x: 1000, y: 1000 }); vi.advanceTimersByTime(32);
     expect(f.win.getBounds().x).toBe(100);
+    expect(f.win.getBounds).toHaveBeenCalledTimes(4); // One native read at press and three test observations.
   });
   it('captures the final movement on release before the next polling tick', () => {
     const f = fixture(); f.drag.start(); f.cursor({ x: -480, y: 220 });

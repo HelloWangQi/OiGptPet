@@ -182,11 +182,11 @@ try {
       return window ? window.getBounds() : null;
     });
     assert.equal((await bounds()).width, 256);
-    assert.equal((await bounds()).height, 336);
+    assert.equal((await bounds()).height, 396);
     await page.locator('#pet-scale').selectOption('1.2');
     await page.waitForFunction(() => document.querySelector('#pet-scale')?.disabled === false);
     assert.equal((await bounds()).width, 384);
-    assert.equal((await bounds()).height, 504);
+    assert.equal((await bounds()).height, 564);
     await page.locator('#performance-mode').selectOption('quality');
     await page.waitForFunction(() => document.querySelector('#performance-mode')?.disabled === false);
     assert.deepEqual(JSON.parse(await readFile(new URL('preferences.json', userData), 'utf8')), { version: 2, scale: 1.2, performance: 'quality' });
@@ -201,7 +201,7 @@ try {
     await page.locator('#open-pet').click();
     for (let attempt = 0; attempt < 100 && !await bounds(); attempt++) await new Promise((resolve) => setTimeout(resolve, 50));
     assert.equal((await bounds()).width, 384);
-    assert.equal((await bounds()).height, 504);
+    assert.equal((await bounds()).height, 564);
     await page.screenshot({ path: fileURLToPath(new URL('preferences-restored.png', output)) });
   }
   assert.deepEqual(errors, []);

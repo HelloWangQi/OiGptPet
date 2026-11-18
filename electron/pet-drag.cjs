@@ -11,8 +11,9 @@ function createPetDrag({ getWindow, getCursor }) {
     if (!session.moved && Math.hypot(dx, dy) < 4) return;
     session.moved = true;
     const x = Math.round(bounds.x + dx); const y = Math.round(bounds.y + dy);
-    const current = win.getBounds();
-    if (current.x !== x || current.y !== y) win.setPosition(x, y, false);
+    if (session.x === x && session.y === y) return;
+    win.setPosition(x, y, false);
+    session.x = x; session.y = y;
   }
   function stop(sample = true) {
     if (sample) update();
@@ -31,7 +32,7 @@ function createPetDrag({ getWindow, getCursor }) {
         && pointer.x >= bounds.x - 2 && pointer.x <= bounds.x + bounds.width + 2
         && pointer.y >= bounds.y - 2 && pointer.y <= bounds.y + bounds.height + 2
         ? { x: pointer.x, y: pointer.y } : { ...getCursor() };
-      session = { win, cursor, bounds, moved: false };
+      session = { win, cursor, bounds, x: bounds.x, y: bounds.y, moved: false };
       update();
       timer = setInterval(update, 16); timer.unref?.();
       return true;

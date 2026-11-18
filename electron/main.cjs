@@ -19,6 +19,7 @@ const { createRenderMetricsStore } = require('./render-metrics.cjs');
 const { createCodexUsageReader } = require('./codex-usage.cjs');
 
 const root = path.join(__dirname, '..');
+const PET_USAGE_HEIGHT = 60; // Matches --pet-usage-height in the desktop renderer.
 protocol.registerSchemesAsPrivileged([{ scheme: 'oipet', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
 if (process.env.OIGPTPET_TEST === '1' && process.env.OIGPTPET_TEST_USER_DATA) {
   app.setPath('userData', path.resolve(process.env.OIGPTPET_TEST_USER_DATA));
@@ -63,6 +64,7 @@ const modelPath = () => path.join(app.getPath('userData'), 'current.vrm');
 const preferences = createPreferencesStore(path.join(app.getPath('userData'), 'preferences.json'));
 const petDrag = createPetDrag({ getWindow: () => pet, getCursor: () => screen.getCursorScreenPoint() });
 function endPetDrag() {
+  if (!petDrag.active) return;
   petDrag.stop();
   windowRecovery?.reconcile();
   persistBounds();
@@ -178,9 +180,12 @@ function openPet() {
 }
 
 function persistBounds() {
-  if (quitting || !pet || pet.isDestroyed()) return;
-  savedBounds = pet.getBounds();
-  if (petToolsLayout) savedBounds = { ...savedBounds, x: savedBounds.x + petToolsLayout.petLeft, width: petToolsLayout.petWidth };
+  if (quitting || !pet || pet.isDestroyed() || petDrag.active) return;
+  const native = pet.getBounds();
+  const bounds = petToolsLayout
+    ? { ...native, x: native.x + petToolsLayout.petLeft, width: petToolsLayout.petWidth }
+    : native;
+  savedBounds = windowRecovery.contentBounds(bounds);
   windowState.schedule(savedBounds);
 }
 
@@ -352,9 +357,10 @@ else {
     });
     await fs.mkdir(app.getPath('userData'), { recursive: true });
     windowRecovery = createWindowRecovery({ screen, powerMonitor, getWindow: () => {
+      if (petDrag.active) return null;
       if (petToolsLayout) setPetToolsOpen(false);
       return pet;
-    }, getScale: () => preferences.get().scale });
+    }, getScale: () => preferences.get().scale, topInset: PET_USAGE_HEIGHT });
     try { await preferences.load(); } catch (error) { console.error('Preferences could not be read:', error.message); }
     try { await chat.load(); } catch { console.warn('Chat settings could not be loaded; save them again in the workshop.'); }
     try { savedBounds = await windowState.load(); } catch (error) { console.error('Window position could not be read:', error.message); }

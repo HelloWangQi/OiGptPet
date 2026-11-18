@@ -60,12 +60,13 @@ async function moveAndQuit(fail) {
 try {
   await launch();
   const expected = await moveAndQuit(false);
+  const expectedSaved = { ...expected, y: expected.y + 60, height: expected.height - 60 };
   const saved = JSON.parse(await readFile(path.join(profile, 'window-state.json'), 'utf8'));
-  assert.deepEqual(saved, expected);
+  assert.deepEqual(saved, expectedSaved);
   await launch(); assert.deepEqual(await bounds(), expected);
   const unsaved = await moveAndQuit(true);
   assert.notDeepEqual(unsaved, expected);
-  assert.deepEqual(JSON.parse(await readFile(path.join(profile, 'window-state.json'), 'utf8')), expected);
+  assert.deepEqual(JSON.parse(await readFile(path.join(profile, 'window-state.json'), 'utf8')), expectedSaved);
   assert.equal((await readdir(profile)).some(name => /^window-state\.json\..*\.tmp$/.test(name)), false);
   assert.ok(logs.some(line => line.includes('Last window position could not be saved: injected window-state save failure')));
   await launch(); assert.deepEqual(await bounds(), expected);
