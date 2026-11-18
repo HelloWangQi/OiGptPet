@@ -16,8 +16,10 @@ const os = require('node:os');
 const { createChatService } = require('./chat-service.cjs');
 const { assertTrustedSender } = require('./ipc-trust.cjs');
 const { createRenderMetricsStore } = require('./render-metrics.cjs');
+const { createCodexUsageReader } = require('./codex-usage.cjs');
 
 const root = path.join(__dirname, '..');
+const PET_USAGE_HEIGHT = 60; // Matches --pet-usage-height in the desktop renderer.
 protocol.registerSchemesAsPrivileged([{ scheme: 'oipet', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
 if (process.env.OIGPTPET_TEST === '1' && process.env.OIGPTPET_TEST_USER_DATA) {
   app.setPath('userData', path.resolve(process.env.OIGPTPET_TEST_USER_DATA));
@@ -35,6 +37,7 @@ let quitFlush;
 let quitReady = false;
 let modelBytes = null;
 const renderMetrics = createRenderMetricsStore();
+const codexUsage = createCodexUsageReader({ cwd: app.getPath('home') });
 const chat = createChatService({ file: path.join(app.getPath('userData'), 'chat-settings.json'), fs, safeStorage,
   fetch: (...args) => fetch(...args), onState: state => {
     for (const win of [workshop, pet]) if (win && !win.isDestroyed()) {
@@ -61,6 +64,7 @@ const modelPath = () => path.join(app.getPath('userData'), 'current.vrm');
 const preferences = createPreferencesStore(path.join(app.getPath('userData'), 'preferences.json'));
 const petDrag = createPetDrag({ getWindow: () => pet, getCursor: () => screen.getCursorScreenPoint() });
 function endPetDrag() {
+  if (!petDrag.active) return;
   petDrag.stop();
   windowRecovery?.reconcile();
   persistBounds();
@@ -176,9 +180,12 @@ function openPet() {
 }
 
 function persistBounds() {
-  if (quitting || !pet || pet.isDestroyed()) return;
-  savedBounds = pet.getBounds();
-  if (petToolsLayout) savedBounds = { ...savedBounds, x: savedBounds.x + petToolsLayout.petLeft, width: petToolsLayout.petWidth };
+  if (quitting || !pet || pet.isDestroyed() || petDrag.active) return;
+  const native = pet.getBounds();
+  const bounds = petToolsLayout
+    ? { ...native, x: native.x + petToolsLayout.petLeft, width: petToolsLayout.petWidth }
+    : native;
+  savedBounds = windowRecovery.contentBounds(bounds);
   windowState.schedule(savedBounds);
 }
 
@@ -195,6 +202,15 @@ function makeTrayIcon() {
 
 function handlers() {
   ipcMain.handle('window:visibility-get', event => trusted(event).isVisible());
+  ipcMain.handle('codex-usage:read', event => {
+    if (trusted(event) !== pet || !isActivePetWindow(event.sender, event.senderFrame.url)) {
+      throw new Error('Codex usage requires a visible pet window');
+    }
+    if (process.env.OIGPTPET_TEST === '1' && process.env.OIGPTPET_TEST_CODEX_USAGE !== '1') {
+      return { status: 'unavailable', checkedAt: Date.now() };
+    }
+    return codexUsage.read();
+  });
   ipcMain.handle('render:metrics', (event, value) => { const owner = trusted(event); renderMetrics.update(owner.webContents.id, value); });
   const chatOwner = event => { if (trusted(event) !== workshop) throw new Error('Only the workshop can control chat'); };
   const petChatOwner = event => {
@@ -341,9 +357,10 @@ else {
     });
     await fs.mkdir(app.getPath('userData'), { recursive: true });
     windowRecovery = createWindowRecovery({ screen, powerMonitor, getWindow: () => {
+      if (petDrag.active) return null;
       if (petToolsLayout) setPetToolsOpen(false);
       return pet;
-    }, getScale: () => preferences.get().scale });
+    }, getScale: () => preferences.get().scale, topInset: PET_USAGE_HEIGHT });
     try { await preferences.load(); } catch (error) { console.error('Preferences could not be read:', error.message); }
     try { await chat.load(); } catch { console.warn('Chat settings could not be loaded; save them again in the workshop.'); }
     try { savedBounds = await windowState.load(); } catch (error) { console.error('Window position could not be read:', error.message); }
@@ -390,6 +407,7 @@ else {
     event.preventDefault();
     if (quitFlush) return;
     chat.clear();
+    codexUsage.dispose();
     petDrag.stop();
     // Capture the live bounds before freezing move/resize persistence during shutdown.
     persistBounds();

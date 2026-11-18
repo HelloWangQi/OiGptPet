@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('petDesktop', Object.freeze({
+  getCodexUsage: () => ipcRenderer.invoke('codex-usage:read'),
   getChatSettings: () => ipcRenderer.invoke('chat:get'),
   checkChatSettings: () => ipcRenderer.invoke('chat:check'),
   getChatSnapshot: () => ipcRenderer.invoke('chat:snapshot'),

@@ -36,7 +36,7 @@ describe('desktop preferences persistence boundary', () => {
     expect(await store.load()).toEqual(DEFAULT_PREFERENCES);
     expect(await readFile(file, 'utf8')).toBe('{broken');
     await store.update({ performance: 'battery' });
-    expect(await createPreferencesStore(file).load()).toEqual({ version: 1, scale: 0.8, performance: 'battery' });
+    expect(await createPreferencesStore(file).load()).toEqual({ version: 2, scale: 0.8, performance: 'battery' });
   });
 
   it('serializes simultaneous partial changes and restores them on restart', async () => {
@@ -45,7 +45,7 @@ describe('desktop preferences persistence boundary', () => {
     const patch = { scale: 0.8 };
     const first = store.update(patch); patch.scale = 100;
     await Promise.all([first, store.update({ performance: 'battery' }), store.update({ scale: 1.2 })]);
-    expect(await createPreferencesStore(file).load()).toEqual({ version: 1, scale: 1.2, performance: 'battery' });
+    expect(await createPreferencesStore(file).load()).toEqual({ version: 2, scale: 1.2, performance: 'battery' });
     await expect(readFile(`${file}.tmp`)).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
@@ -68,8 +68,19 @@ describe('desktop preferences persistence boundary', () => {
 
   it('keeps browser and native settings compatible, including damaged or future records', () => {
     expect(frontendDefaults).toEqual(DEFAULT_PREFERENCES);
-    for (const value of [null, [], {}, { version: 2, scale: 1.2 }, { version: 1, scale: -1, performance: 'bogus' }, { version: 1, scale: 0.8, performance: 'quality' }]) {
+    for (const value of [null, [], {}, { version: 3, scale: 1.2 }, { version: 1, scale: -1, performance: 'bogus' }, { version: 2, scale: 0.8, performance: 'quality' }]) {
       expect(normalizeFrontend(value)).toEqual(normalizePreferences(value));
     }
+  });
+
+  it('restores balanced mode for saved version 1 quality settings and honors later quality selections', async () => {
+    const { file, store } = await fixture();
+    const previous = { version: 1, scale: 1.2, performance: 'quality' };
+    await writeFile(file, JSON.stringify(previous));
+    const balanced = { version: 2, scale: 1.2, performance: 'balanced' };
+    expect(await store.load()).toEqual(balanced);
+    expect(normalizeFrontend(previous)).toEqual(balanced);
+    await store.update({ performance: 'quality' });
+    expect(await createPreferencesStore(file).load()).toEqual({ ...balanced, performance: 'quality' });
   });
 });

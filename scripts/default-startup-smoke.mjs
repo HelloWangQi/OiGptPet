@@ -42,6 +42,14 @@ export async function checkDefaultStartup(executablePath, root) {
   try {
     let pet = await launch();
     assert.equal(await pet.evaluate(() => document.body.dataset.characterId), expectedId);
+    assert.deepEqual(await pet.evaluate(() => window.petDesktop.getPreferences()), { version: 2, scale: 0.8, performance: 'balanced' });
+    const usage = pet.locator('#codex-usage');
+    assert.equal(await usage.isVisible(), true, 'Usage card is visible with tools closed');
+    assert.equal(await usage.evaluate(card => getComputedStyle(card).pointerEvents), 'none');
+    const cardBounds = await usage.boundingBox();
+    const canvasBounds = await pet.locator('#character-canvas').boundingBox();
+    assert.ok(cardBounds && canvasBounds && cardBounds.y + cardBounds.height <= canvasBounds.y, 'Usage is above the character canvas');
+    assert.equal(canvasBounds.height, 336, 'The usage area keeps the compact character height');
     const minimizeDeadline = Date.now() + 5000;
     let states = [];
     do {

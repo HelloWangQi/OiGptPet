@@ -10,6 +10,7 @@ import { DEFAULT_PREFERENCES, IDLE_AFTER_MS, PERFORMANCE_POLICIES, normalizePref
 import { FramePacer } from './frame-pacer';
 import { pointerLook } from './pointer-look';
 import { setupChat } from './chat-panel';
+import { setupCodexUsagePanel } from './codex-usage-panel';
 import { ChatSpeech } from './chat-speech';
 import { PetChatPresentation } from './pet-chat-presentation';
 import { estimateSpeechMouthOpen } from './speech-mouth';
@@ -41,7 +42,16 @@ const icon = {
 app.innerHTML = petMode ? `
   <main class="pet-shell">
     <div id="drag-handle" data-interactive>⠿ 拖动我</div>
-    <canvas id="character-canvas" aria-label="桌宠角色"></canvas>
+    <div class="pet-canvas-area"><canvas id="character-canvas" aria-label="桌宠角色"></canvas></div>
+    <aside class="codex-usage" id="codex-usage" aria-label="ChatGPT / Codex 用量">
+      <dl>
+        <div><dt id="codex-usage-day-label">最近日用量</dt><dd id="codex-usage-day">—</dd></div>
+        <div><dt>累计已用</dt><dd id="codex-usage-lifetime">—</dd></div>
+        <div><dt>5 小时重置</dt><dd id="codex-usage-five-hour">—</dd></div>
+        <div><dt>周额度重置</dt><dd id="codex-usage-weekly">—</dd></div>
+      </dl>
+      <p id="codex-usage-status" role="status">启动后读取…</p>
+    </aside>
     <div id="pet-message" role="status"></div>
     <form id="pet-chat-composer" data-interactive hidden>
       <label class="sr-only" for="pet-chat-input">和桌宠聊天</label>
@@ -57,7 +67,7 @@ app.innerHTML = petMode ? `
         <button id="pet-tools-toggle" title="更多工具" aria-label="更多桌宠工具" aria-expanded="false" aria-controls="pet-tools-panel">•••</button>
         <button id="pet-quit" title="保存桌面位置并退出 OiGptPet" aria-label="退出 OiGptPet">×</button>
       </div>
-      <div id="pet-tools-panel" data-interactive role="group" aria-label="桌宠工具与舞步设置" hidden>
+      <div id="pet-tools-panel" data-interactive role="group" aria-label="桌宠工具" hidden>
         <section class="pet-tools-section">
           <h2>桌宠</h2>
           <div class="pet-tools-actions">
@@ -183,7 +193,7 @@ app.innerHTML = petMode ? `
           <label class="field-label" for="pet-scale">桌宠大小</label>
           <select id="pet-scale" disabled><option value="0.8" selected>小 · 80%</option><option value="1">标准 · 100%</option><option value="1.2">大 · 120%</option></select>
           <label class="field-label" for="performance-mode">动画性能</label>
-          <select id="performance-mode" disabled><option value="quality" selected>画质优先 · 最高 60 帧</option><option value="balanced">均衡 · 最高 30 帧</option><option value="battery">省电 · 最高 15 帧</option></select>
+          <select id="performance-mode" disabled><option value="quality">画质优先 · 最高 60 帧</option><option value="balanced" selected>均衡 · 最高 30 帧</option><option value="battery">省电 · 最高 15 帧</option></select>
           <p class="helper">闲置 10 秒自动降低绘制频率，隐藏时停止绘制。设置在本机保存。</p>
           <p class="helper" id="render-performance">本窗口：正在准备采样…</p>
           <p class="helper">每两秒更新绘制调用采样；不等同于屏幕呈现帧率或 GPU 耗时。桌面诊断分别记录工坊和桌宠。</p>
@@ -312,6 +322,7 @@ const framePacer = new FramePacer();
 const renderMonitor = new RenderMonitor();
 let renderReportPending = false;
 let nativeVisible = true;
+let petDragging = false;
 function renderContext(now: number): RenderContext {
   const activity = document.hidden || !nativeVisible ? 'hidden'
     : musicDance?.active || isPetDancePreviewActive(now) || stage?.motionIsPlaying() || now - lastInteraction < IDLE_AFTER_MS ? 'active' : 'idle';
@@ -1516,16 +1527,51 @@ async function bootstrap() {
     $<HTMLButtonElement>('#pet-dance-preview').title = `以 ${petDancePreviewTempo()} BPM 试听完整舞句（${petDancePreviewDescription()}）；不采集系统音频`;
   }
   if (petMode && desktop) musicDance = new SystemMusicAnalyzer();
+  let drawnRevision: number | undefined;
   const resize = () => {
     const bounds = canvasHost.getBoundingClientRect();
-    if (bounds.width && bounds.height) stage.resize(Math.round(bounds.width), Math.round(bounds.height), Math.min(window.devicePixelRatio || 1, PERFORMANCE_POLICIES[preferences.performance].maxPixelRatio));
+    if (bounds.width && bounds.height) {
+      stage.resize(Math.round(bounds.width), Math.round(bounds.height), Math.min(window.devicePixelRatio || 1, PERFORMANCE_POLICIES[preferences.performance].maxPixelRatio));
+      drawnRevision = undefined;
+    }
   };
   resizeStage = resize;
   new ResizeObserver(resize).observe(canvasHost);
   resize();
   let bodyDrag: { pointerId: number; x: number; y: number; target: HTMLElement; moved: boolean } | undefined;
+  let petCanvasHovered = false;
+  const canGrabDanceCanvas = () => petMode && stage.loaded && state === 'idle'
+    && (Boolean(musicDance?.active) || petDancePreviewStartedAt > 0 || (petDanceClips.length > 0 && !petDanceManuallyPaused));
+  function updateDanceGrabCursor() {
+    if (!petMode) return false;
+    const showGrab = petCanvasHovered && canGrabDanceCanvas();
+    if (canvasHost.classList.contains('pet-dance-grab') !== showGrab) canvasHost.classList.toggle('pet-dance-grab', showGrab);
+    return showGrab;
+  }
+  function setPetCanvasHovered(hovered: boolean) {
+    petCanvasHovered = hovered;
+    return updateDanceGrabCursor();
+  }
+  let frozenAt: number | undefined;
+  let frozenPreviewStart = 0;
   const frame = (now: number) => {
     if (closed) return;
+    const hoverFreezesDance = updateDanceGrabCursor() && drawnRevision === stateRevision && nativeVisible && !document.hidden;
+    if (bodyDrag || hoverFreezesDance) {
+      if (frozenAt === undefined) {
+        frozenAt = now;
+        frozenPreviewStart = petDancePreviewStartedAt;
+      }
+      requestAnimationFrame(frame);
+      return;
+    }
+    if (frozenAt !== undefined) {
+      if (frozenPreviewStart && petDancePreviewStartedAt === frozenPreviewStart) {
+        petDancePreviewStartedAt += now - frozenAt;
+      }
+      frozenAt = undefined;
+      framePacer.reset();
+    }
     const context = renderContext(now); renderMonitor.setContext(context, now);
     if (petMode) {
       const captureActive = Boolean(musicDance?.active);
@@ -1557,10 +1603,9 @@ async function bootstrap() {
       if (!paused) animationTime += delta;
       if (transientUntil && now > transientUntil) { transientUntil = 0; changeState('idle'); }
       const started = performance.now();
-      if (!bodyDrag) {
-        stage.render(state, animationTime, paused ? 0 : delta, now - lastPointer < 1800 ? look : undefined, stateRevision);
-        renderMonitor.record(performance.now() - started);
-      }
+      stage.render(state, animationTime, paused ? 0 : delta, now - lastPointer < 1800 ? look : undefined, stateRevision);
+      if (stage.loaded) drawnRevision = stateRevision;
+      renderMonitor.record(performance.now() - started);
     }
     if (!petMode && externalMotionClips.length && now - lastExternalMotionUiUpdate >= 100) {
       lastExternalMotionUiUpdate = now;
@@ -1570,6 +1615,9 @@ async function bootstrap() {
   };
   requestAnimationFrame(frame);
   let suppressBodyClick = false;
+  const withinCanvas = (event: PointerEvent, bounds: DOMRect) =>
+    event.pointerType === 'mouse' && event.clientX >= bounds.left && event.clientX < bounds.right
+    && event.clientY >= bounds.top && event.clientY < bounds.bottom;
   const trackDrag = (event: PointerEvent) => {
     if (bodyDrag && event.pointerId === bodyDrag.pointerId
       && Math.hypot(event.screenX - bodyDrag.x, event.screenY - bodyDrag.y) >= 4) bodyDrag.moved = true;
@@ -1582,6 +1630,8 @@ async function bootstrap() {
     document.body.classList.remove('pet-body-dragging');
     if (previous.target.hasPointerCapture(previous.pointerId)) previous.target.releasePointerCapture(previous.pointerId);
     void desktop!.endDrag().catch(console.error);
+    petDragging = false;
+    syncUsageVisibility();
   };
   let interactiveRects: DOMRect[] = [];
   if (petMode) {
@@ -1590,29 +1640,56 @@ async function bootstrap() {
       interactiveRects = interactiveElements.flatMap(element => element.hidden || element.closest('[hidden]')
         ? [] : [element.getBoundingClientRect()]);
     };
-    const interactiveResizeObserver = new ResizeObserver(refreshInteractiveRects);
+    let refreshQueued = false;
+    const scheduleInteractiveRects = () => {
+      if (refreshQueued) return;
+      refreshQueued = true;
+      requestAnimationFrame(() => { refreshQueued = false; refreshInteractiveRects(); });
+    };
+    const interactiveResizeObserver = new ResizeObserver(scheduleInteractiveRects);
     for (const element of interactiveElements) interactiveResizeObserver.observe(element);
-    const interactiveMutationObserver = new MutationObserver(refreshInteractiveRects);
+    const interactiveMutationObserver = new MutationObserver(scheduleInteractiveRects);
     interactiveMutationObserver.observe(document.body, { attributes: true, attributeFilter: ['hidden', 'style'], subtree: true });
-    window.addEventListener('resize', refreshInteractiveRects);
+    window.addEventListener('resize', scheduleInteractiveRects);
     refreshInteractiveRects();
     canvasHost.addEventListener('pointerdown', event => {
-      if (event.button !== 0 || !event.isPrimary || (event.target as HTMLElement).id !== 'character-canvas'
-        || !stage.hitTest(event.clientX, event.clientY)) return;
+      if (event.button !== 0 || !event.isPrimary || (event.target as HTMLElement).id !== 'character-canvas') return;
+      const grabCanvas = event.pointerType === 'mouse' && canGrabDanceCanvas();
+      if (!grabCanvas && !stage.hitTest(event.clientX, event.clientY)) return;
       suppressBodyClick = false;
       const target = event.target as HTMLElement;
-      bodyDrag = { pointerId: event.pointerId, x: event.screenX, y: event.screenY, target, moved: false };
+      const drag = { pointerId: event.pointerId, x: event.screenX, y: event.screenY, target, moved: false };
+      bodyDrag = drag;
       target.setPointerCapture(event.pointerId);
       document.body.classList.add('pet-body-dragging');
+      petDragging = true;
+      syncUsageVisibility();
       ignoringMouse = false;
-      void desktop!.startDrag({ x: event.screenX, y: event.screenY }).then(started => { if (!started) finishBodyDrag(); }).catch(error => { finishBodyDrag(); console.error(error); });
+      void desktop!.startDrag({ x: event.screenX, y: event.screenY }).then(started => {
+        if (!started && bodyDrag === drag) finishBodyDrag();
+      }).catch(error => {
+        if (bodyDrag === drag) finishBodyDrag();
+        console.error(error);
+      });
       event.preventDefault();
     });
-    window.addEventListener('pointerup', event => { if (event.pointerId === bodyDrag?.pointerId) { trackDrag(event); finishBodyDrag(); } });
-    window.addEventListener('pointercancel', event => { if (event.pointerId === bodyDrag?.pointerId) finishBodyDrag(); });
+    window.addEventListener('pointerup', event => {
+      if (event.pointerId !== bodyDrag?.pointerId) return;
+      setPetCanvasHovered(withinCanvas(event, canvasHost.getBoundingClientRect()));
+      trackDrag(event);
+      finishBodyDrag();
+    });
+    window.addEventListener('pointercancel', event => {
+      if (event.pointerId !== bodyDrag?.pointerId) return;
+      setPetCanvasHovered(false);
+      finishBodyDrag();
+    });
     window.addEventListener('lostpointercapture', event => { if (event.pointerId === bodyDrag?.pointerId) finishBodyDrag(); });
     window.addEventListener('blur', finishBodyDrag);
     window.addEventListener('pagehide', finishBodyDrag);
+    // Electron forwards mouse movement for the transparent part of the canvas.
+    canvasHost.addEventListener('mouseleave', () => { setPetCanvasHovered(false); });
+    document.documentElement.addEventListener('mouseleave', () => { setPetCanvasHovered(false); });
     canvasHost.addEventListener('click', event => {
       if (suppressBodyClick && (event.target as HTMLElement).id === 'character-canvas') {
         suppressBodyClick = false; event.preventDefault(); event.stopImmediatePropagation();
@@ -1622,18 +1699,23 @@ async function bootstrap() {
   window.addEventListener('pointermove', (event) => {
     if (bodyDrag) {
       trackDrag(event);
-      if (event.buttons === 0) finishBodyDrag();
+      if (event.buttons === 0) {
+        setPetCanvasHovered(withinCanvas(event, canvasHost.getBoundingClientRect()));
+        finishBodyDrag();
+      }
       lastInteraction = performance.now();
       return;
     }
     const bounds = canvasHost.getBoundingClientRect();
+    const danceGrab = petMode && setPetCanvasHovered(withinCanvas(event, bounds)
+      && event.target instanceof Node && canvasHost.contains(event.target));
     look = pointerLook(event.clientX, event.clientY, bounds);
     lastPointer = performance.now();
     lastInteraction = lastPointer;
     if (petMode && !forcedInteractive && !bodyDrag) {
       const overInteractiveRegion = interactiveRects.some(rect => event.clientX >= rect.left && event.clientX <= rect.right
         && event.clientY >= rect.top && event.clientY <= rect.bottom);
-      const interactive = (event.target as HTMLElement)?.closest('[data-interactive]')
+      const interactive = danceGrab || (event.target as HTMLElement)?.closest('[data-interactive]')
         || overInteractiveRegion || stage.hitTest(event.clientX, event.clientY);
       const next = !interactive;
       if (next !== ignoringMouse) { ignoringMouse = next; void desktop!.setClickThrough(next); }
@@ -1642,7 +1724,13 @@ async function bootstrap() {
   const markActive = () => { lastInteraction = performance.now(); };
   window.addEventListener('pointerdown', markActive);
   window.addEventListener('keydown', markActive);
-  document.addEventListener('visibilitychange', () => { framePacer.reset(); markActive(); publishRenderMetrics(); scheduleRenderReports(); });
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      setPetCanvasHovered(false);
+      finishBodyDrag();
+    }
+    framePacer.reset(); markActive(); publishRenderMetrics(); scheduleRenderReports();
+  });
   canvasHost.addEventListener('click', (event) => {
     if ((event.target as HTMLElement).id !== 'character-canvas') return;
     if (petMode && !stage.hitTest(event.clientX, event.clientY)) return;
@@ -1680,6 +1768,12 @@ async function bootstrap() {
   desktop?.onInteractionRestored(() => { forcedInteractive = true; ignoringMouse = false; });
   if (petMode) await chatUI.refresh();
 }
+
+const codexUsagePanel = petMode && desktop
+  ? setupCodexUsagePanel($('#codex-usage'), () => desktop.getCodexUsage())
+  : undefined;
+let usageReady = false;
+const syncUsageVisibility = () => codexUsagePanel?.setVisible(usageReady && nativeVisible && !document.hidden && !petDragging);
 
 if (petMode) {
   const petControls = $<HTMLDivElement>('#pet-controls');
@@ -2142,6 +2236,7 @@ const chatUI = setupChat(desktop, petMode, value => {
   lastInteraction = performance.now();
 });
 document.addEventListener('visibilitychange', () => {
+  syncUsageVisibility();
   if (petMode && document.hidden) {
     petSpeech?.stop();
     stopMusicDanceForHiddenPet();
@@ -2152,6 +2247,7 @@ const applyNativeVisibility = (visible: boolean) => {
   if (closed) return;
   if (!visible && petMode) { petSpeech?.stop(); stopMusicDanceForHiddenPet(); }
   nativeVisible = visible; framePacer.reset(); lastInteraction = performance.now();
+  syncUsageVisibility();
   publishRenderMetrics(); scheduleRenderReports();
 };
 const stopVisibility = desktop?.onWindowVisibility(visible => { ++visibilityRevision; applyNativeVisibility(visible); });
@@ -2162,6 +2258,7 @@ if (desktop) {
 window.addEventListener('beforeunload', () => {
   clearInterval(renderReportTimer);
   stopVisibility?.();
+  codexUsagePanel?.dispose();
   stopMusicDance();
   petSpeech?.dispose();
   chatUI.dispose();
@@ -2169,4 +2266,7 @@ window.addEventListener('beforeunload', () => {
   if (packageJob?.nativeStarted) void desktop?.cancelCharacterPackage(packageJob.id).catch(() => {});
   loadController?.abort(); libraryChannel.close(); library.close(); exportSession.reset(); stage?.dispose(); if (exportUrl) URL.revokeObjectURL(exportUrl);
 });
-void bootstrap();
+void bootstrap().finally(() => {
+  usageReady = !closed;
+  syncUsageVisibility();
+});

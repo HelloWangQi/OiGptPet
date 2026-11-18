@@ -1,10 +1,10 @@
 export interface DesktopPreferences {
-  version: 1;
+  version: 2;
   scale: 0.8 | 1 | 1.2;
   performance: 'quality' | 'balanced' | 'battery';
 }
 export type PreferencesPatch = Partial<Pick<DesktopPreferences, 'scale' | 'performance'>>;
-export const DEFAULT_PREFERENCES: DesktopPreferences = { version: 1, scale: 0.8, performance: 'quality' };
+export const DEFAULT_PREFERENCES: DesktopPreferences = { version: 2, scale: 0.8, performance: 'balanced' };
 const storageKey = 'oigptpet.preferences.v1';
 
 export const PERFORMANCE_POLICIES = {
@@ -16,12 +16,12 @@ export const IDLE_AFTER_MS = 10_000;
 
 export function normalizePreferences(value: unknown): DesktopPreferences {
   const input = value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Partial<DesktopPreferences> : {};
-  if (input.version !== 1) return { ...DEFAULT_PREFERENCES };
+    ? value as Partial<Omit<DesktopPreferences, 'version'>> & { version?: number } : {};
+  if (input.version !== 1 && input.version !== 2) return { ...DEFAULT_PREFERENCES };
   return {
-    version: 1,
+    version: 2,
     scale: input.scale === 0.8 || input.scale === 1 || input.scale === 1.2 ? input.scale : DEFAULT_PREFERENCES.scale,
-    performance: input.performance === 'quality' || input.performance === 'balanced' || input.performance === 'battery'
+    performance: (input.version === 2 && input.performance === 'quality') || input.performance === 'balanced' || input.performance === 'battery'
       ? input.performance : DEFAULT_PREFERENCES.performance,
   };
 }

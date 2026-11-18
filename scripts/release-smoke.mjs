@@ -86,7 +86,7 @@ try {
     return context?.getImageData(0, 0, canvas.width, canvas.height).data.some((value, i) => i % 4 === 3 && value >= 8);
   });
   const bounds = await desktop.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find((win) => !win.isResizable()).getBounds());
-  assert.equal(bounds.width, 384); assert.equal(bounds.height, 504);
+  assert.equal(bounds.width, 384); assert.equal(bounds.height, 564);
   await pet.screenshot({ path: path.join(output, 'packaged-sprite-pet.png') });
   const bodyDrag = await checkPetBodyDrag(desktop, pet);
   const petDock = await checkPetDock(desktop, page, pet);

@@ -12,6 +12,7 @@ interface CompanionChatSnapshot {
 
 interface Window {
   petDesktop?: {
+    getCodexUsage(): Promise<import('./codex-usage-panel').CodexUsageSnapshot>;
     getChatSettings(): Promise<{ model: string; hasKey: boolean; encryptionAvailable: boolean }>;
     checkChatSettings(): Promise<ChatReadiness>;
     getChatSnapshot(): Promise<CompanionChatSnapshot>;

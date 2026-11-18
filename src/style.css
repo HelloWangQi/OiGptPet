@@ -94,6 +94,11 @@
 }
 
 /* Compact side dock keeps the pet's lower body visible; infrequent tools live in a flyout. */
+.pet-shell { --pet-usage-height:60px; } /* Matches PET_USAGE_HEIGHT in Electron. */
+.pet-canvas-area { position:absolute; inset:var(--pet-usage-height) 0 0; }
+.pet-dance-grab #character-canvas { cursor:grab; }
+.pet-body-dragging .pet-dance-grab #character-canvas { cursor:grabbing; }
+.pet-shell #drag-handle { top:calc(var(--pet-usage-height) + 6px); }
 .pet-mode #pet-controls {
   top:50%; right:10px; bottom:auto; left:auto; transform:translateY(-50%);
   display:block; width:auto; max-width:none; overflow:visible; padding:0;
@@ -133,10 +138,11 @@
   scrollbar-width:thin;
 }
 .pet-mode .pet-shell[data-tools-open="true"] { overflow:visible; }
-.pet-mode #pet-controls { top:0; bottom:0; transform:none; display:flex; align-items:center; }
+.pet-mode #pet-controls { top:var(--pet-usage-height); bottom:0; transform:none; display:flex; align-items:center; }
 .pet-mode #pet-tools-panel {
-  position:fixed; left:var(--tools-left, 0px); right:auto;
+  position:fixed; top:calc(50% + var(--pet-usage-height) / 2); left:var(--tools-left, 0px); right:auto;
   width:var(--tools-width, 288px); box-sizing:border-box;
+  max-height:calc(100vh - var(--pet-usage-height) - 16px);
 }
 .pet-tools-section { display:grid; gap:7px; min-width:0; }
 .pet-tools-section + .pet-tools-section { padding-top:10px; border-top:1px solid #e1e6db; }
@@ -152,6 +158,18 @@
 .pet-tools-section output { color:#668056; font:10px monospace; }
 .pet-tools-section progress { width:100%; margin:0; }
 .pet-tools-section #pet-dance-clip { flex:1 1 100%; }
+.codex-usage {
+  position:absolute; top:2px; left:8px; z-index:2; pointer-events:none;
+  width:max-content; max-width:calc(100% - 16px); max-height:calc(var(--pet-usage-height) - 4px);
+  padding:3px 8px; overflow:hidden;
+  border:1px solid #dce5d48c; border-radius:8px; background:#f4f8ecc4; color:#304b36;
+  font-size:10px; line-height:12px; font-variant-numeric:tabular-nums;
+}
+.codex-usage dl { display:grid; column-gap:8px; grid-template-columns:auto minmax(0,1fr); margin:0; }
+.codex-usage:has(p:not([hidden])) dl { display:none; }
+.codex-usage dl div { display:contents; }
+.codex-usage dd { margin:0; text-align:right; overflow-wrap:anywhere; }
+.codex-usage p { margin:0; color:#435c46; }
 .workshop-dance-import { width:100%; margin-top:8px; background:#eff3e9; border:1px solid #d6dfcf; color:#516a4d; }
 .workshop-dance-import:hover:not(:disabled) { background:#e3eadb; }
 #pet-chat-composer { left:14px; right:58px; bottom:14px; }
