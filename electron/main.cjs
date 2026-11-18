@@ -16,6 +16,7 @@ const os = require('node:os');
 const { createChatService } = require('./chat-service.cjs');
 const { assertTrustedSender } = require('./ipc-trust.cjs');
 const { createRenderMetricsStore } = require('./render-metrics.cjs');
+const { createCodexUsageReader } = require('./codex-usage.cjs');
 
 const root = path.join(__dirname, '..');
 protocol.registerSchemesAsPrivileged([{ scheme: 'oipet', privileges: { standard: true, secure: true, supportFetchAPI: true, corsEnabled: true } }]);
@@ -35,6 +36,7 @@ let quitFlush;
 let quitReady = false;
 let modelBytes = null;
 const renderMetrics = createRenderMetricsStore();
+const codexUsage = createCodexUsageReader({ cwd: app.getPath('home') });
 const chat = createChatService({ file: path.join(app.getPath('userData'), 'chat-settings.json'), fs, safeStorage,
   fetch: (...args) => fetch(...args), onState: state => {
     for (const win of [workshop, pet]) if (win && !win.isDestroyed()) {
@@ -195,6 +197,12 @@ function makeTrayIcon() {
 
 function handlers() {
   ipcMain.handle('window:visibility-get', event => trusted(event).isVisible());
+  ipcMain.handle('codex-usage:read', event => {
+    if (trusted(event) !== pet || !petToolsLayout?.open || !isActivePetWindow(event.sender, event.senderFrame.url)) {
+      throw new Error('Codex usage requires visible pet tools');
+    }
+    return codexUsage.read();
+  });
   ipcMain.handle('render:metrics', (event, value) => { const owner = trusted(event); renderMetrics.update(owner.webContents.id, value); });
   const chatOwner = event => { if (trusted(event) !== workshop) throw new Error('Only the workshop can control chat'); };
   const petChatOwner = event => {
@@ -390,6 +398,7 @@ else {
     event.preventDefault();
     if (quitFlush) return;
     chat.clear();
+    codexUsage.dispose();
     petDrag.stop();
     // Capture the live bounds before freezing move/resize persistence during shutdown.
     persistBounds();

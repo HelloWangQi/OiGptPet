@@ -10,6 +10,7 @@ import { DEFAULT_PREFERENCES, IDLE_AFTER_MS, PERFORMANCE_POLICIES, normalizePref
 import { FramePacer } from './frame-pacer';
 import { pointerLook } from './pointer-look';
 import { setupChat } from './chat-panel';
+import { setupCodexUsagePanel } from './codex-usage-panel';
 import { ChatSpeech } from './chat-speech';
 import { PetChatPresentation } from './pet-chat-presentation';
 import { estimateSpeechMouthOpen } from './speech-mouth';
@@ -57,7 +58,17 @@ app.innerHTML = petMode ? `
         <button id="pet-tools-toggle" title="更多工具" aria-label="更多桌宠工具" aria-expanded="false" aria-controls="pet-tools-panel">•••</button>
         <button id="pet-quit" title="保存桌面位置并退出 OiGptPet" aria-label="退出 OiGptPet">×</button>
       </div>
-      <div id="pet-tools-panel" data-interactive role="group" aria-label="桌宠工具与舞步设置" hidden>
+      <div id="pet-tools-panel" data-interactive role="group" aria-label="桌宠工具" hidden>
+        <details class="pet-tools-section codex-usage" id="codex-usage">
+          <summary>ChatGPT / Codex 用量</summary>
+          <dl>
+            <div><dt>5 小时重置</dt><dd id="codex-usage-five-hour">—</dd></div>
+            <div><dt>周额度重置</dt><dd id="codex-usage-weekly">—</dd></div>
+            <div><dt id="codex-usage-day-label">最近日用量</dt><dd id="codex-usage-day">—</dd></div>
+            <div><dt>累计已用</dt><dd id="codex-usage-lifetime">—</dd></div>
+          </dl>
+          <p id="codex-usage-status" role="status"></p>
+        </details>
         <section class="pet-tools-section">
           <h2>桌宠</h2>
           <div class="pet-tools-actions">
@@ -1681,6 +1692,11 @@ async function bootstrap() {
   if (petMode) await chatUI.refresh();
 }
 
+const codexUsagePanel = petMode && desktop
+  ? setupCodexUsagePanel($<HTMLDetailsElement>('#codex-usage'), () => desktop.getCodexUsage())
+  : undefined;
+const syncUsageVisibility = () => codexUsagePanel?.setVisible(nativeVisible && !document.hidden && !$('#pet-tools-panel').hidden);
+
 if (petMode) {
   const petControls = $<HTMLDivElement>('#pet-controls');
   const toolsPanel = $<HTMLDivElement>('#pet-tools-panel');
@@ -1693,6 +1709,7 @@ if (petMode) {
     toolsPanel.style.setProperty('--tools-left', `${layout.toolsLeft}px`);
     toolsPanel.style.setProperty('--tools-width', `${layout.toolsWidth}px`);
     toolsPanel.hidden = !layout.open;
+    syncUsageVisibility();
     petControls.dataset.toolsOpen = String(layout.open);
     toolsToggle.setAttribute('aria-expanded', String(layout.open));
     toolsToggle.setAttribute('aria-label', layout.open ? '收起桌宠工具' : '更多桌宠工具');
@@ -1702,6 +1719,7 @@ if (petMode) {
   const closePetTools = () => {
     if (toolsPanel.hidden) return;
     toolsPanel.hidden = true;
+    syncUsageVisibility();
     petControls.dataset.toolsOpen = 'false';
     toolsToggle.setAttribute('aria-expanded', 'false');
     toolsToggle.setAttribute('aria-label', '更多桌宠工具');
@@ -2142,6 +2160,7 @@ const chatUI = setupChat(desktop, petMode, value => {
   lastInteraction = performance.now();
 });
 document.addEventListener('visibilitychange', () => {
+  syncUsageVisibility();
   if (petMode && document.hidden) {
     petSpeech?.stop();
     stopMusicDanceForHiddenPet();
@@ -2152,6 +2171,7 @@ const applyNativeVisibility = (visible: boolean) => {
   if (closed) return;
   if (!visible && petMode) { petSpeech?.stop(); stopMusicDanceForHiddenPet(); }
   nativeVisible = visible; framePacer.reset(); lastInteraction = performance.now();
+  syncUsageVisibility();
   publishRenderMetrics(); scheduleRenderReports();
 };
 const stopVisibility = desktop?.onWindowVisibility(visible => { ++visibilityRevision; applyNativeVisibility(visible); });
@@ -2162,6 +2182,7 @@ if (desktop) {
 window.addEventListener('beforeunload', () => {
   clearInterval(renderReportTimer);
   stopVisibility?.();
+  codexUsagePanel?.dispose();
   stopMusicDance();
   petSpeech?.dispose();
   chatUI.dispose();
