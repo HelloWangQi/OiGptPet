@@ -83,12 +83,12 @@ try {
   await page.screenshot({ path: fileURLToPath(new URL('workshop.png', output)) });
 
   if (preferencesOnly) {
-    assert.deepEqual(await page.evaluate(() => window.petDesktop.getPreferences()), { version: 1, scale: 0.8, performance: 'quality' });
+    assert.deepEqual(await page.evaluate(() => window.petDesktop.getPreferences()), { version: 2, scale: 0.8, performance: 'balanced' });
     await page.locator('#performance-mode').selectOption('battery');
     await page.waitForFunction(() => document.querySelector('#performance-mode')?.disabled === false);
     await page.locator('#pet-scale').selectOption('0.8');
     await page.waitForFunction(() => document.querySelector('#pet-scale')?.disabled === false);
-    assert.deepEqual(await page.evaluate(() => window.petDesktop.getPreferences()), { version: 1, scale: 0.8, performance: 'battery' });
+    assert.deepEqual(await page.evaluate(() => window.petDesktop.getPreferences()), { version: 2, scale: 0.8, performance: 'battery' });
     const rejected = await page.evaluate(async () => {
       try { await window.petDesktop.setPreferences({ scale: 9 }); return ''; }
       catch (error) { return error.message; }
@@ -189,7 +189,7 @@ try {
     assert.equal((await bounds()).height, 504);
     await page.locator('#performance-mode').selectOption('quality');
     await page.waitForFunction(() => document.querySelector('#performance-mode')?.disabled === false);
-    assert.deepEqual(JSON.parse(await readFile(new URL('preferences.json', userData), 'utf8')), { version: 1, scale: 1.2, performance: 'quality' });
+    assert.deepEqual(JSON.parse(await readFile(new URL('preferences.json', userData), 'utf8')), { version: 2, scale: 1.2, performance: 'quality' });
     await desktop.close();
     desktop = await electron.launch(launchOptions);
     desktop.process().stderr.on('data', (chunk) => nativeLog.push(chunk.toString()));

@@ -198,8 +198,11 @@ function makeTrayIcon() {
 function handlers() {
   ipcMain.handle('window:visibility-get', event => trusted(event).isVisible());
   ipcMain.handle('codex-usage:read', event => {
-    if (trusted(event) !== pet || !petToolsLayout?.open || !isActivePetWindow(event.sender, event.senderFrame.url)) {
-      throw new Error('Codex usage requires visible pet tools');
+    if (trusted(event) !== pet || !isActivePetWindow(event.sender, event.senderFrame.url)) {
+      throw new Error('Codex usage requires a visible pet window');
+    }
+    if (process.env.OIGPTPET_TEST === '1' && process.env.OIGPTPET_TEST_CODEX_USAGE !== '1') {
+      return { status: 'unavailable', checkedAt: Date.now() };
     }
     return codexUsage.read();
   });

@@ -1,16 +1,17 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 
-const DEFAULT_PREFERENCES = Object.freeze({ version: 1, scale: 0.8, performance: 'quality' });
+const DEFAULT_PREFERENCES = Object.freeze({ version: 2, scale: 0.8, performance: 'balanced' });
 const scales = [0.8, 1, 1.2];
 const modes = ['quality', 'balanced', 'battery'];
 
 function normalizePreferences(value) {
-  const input = value && typeof value === 'object' && !Array.isArray(value) && value.version === 1 ? value : {};
+  const input = value && typeof value === 'object' && !Array.isArray(value) && [1, 2].includes(value.version) ? value : {};
   return {
-    version: 1,
+    version: 2,
     scale: scales.includes(input.scale) ? input.scale : DEFAULT_PREFERENCES.scale,
-    performance: modes.includes(input.performance) ? input.performance : DEFAULT_PREFERENCES.performance,
+    performance: modes.includes(input.performance) && !(input.version === 1 && input.performance === 'quality')
+      ? input.performance : DEFAULT_PREFERENCES.performance,
   };
 }
 

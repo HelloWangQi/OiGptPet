@@ -43,6 +43,16 @@ app.innerHTML = petMode ? `
   <main class="pet-shell">
     <div id="drag-handle" data-interactive>⠿ 拖动我</div>
     <canvas id="character-canvas" aria-label="桌宠角色"></canvas>
+    <aside class="codex-usage" id="codex-usage" aria-label="ChatGPT / Codex 用量">
+      <h2>Codex · token 用量</h2>
+      <dl>
+        <div><dt id="codex-usage-day-label">最近日用量</dt><dd id="codex-usage-day">—</dd></div>
+        <div><dt>累计已用</dt><dd id="codex-usage-lifetime">—</dd></div>
+        <div><dt>5 小时重置</dt><dd id="codex-usage-five-hour">—</dd></div>
+        <div><dt>周额度重置</dt><dd id="codex-usage-weekly">—</dd></div>
+      </dl>
+      <p id="codex-usage-status" role="status">启动后读取…</p>
+    </aside>
     <div id="pet-message" role="status"></div>
     <form id="pet-chat-composer" data-interactive hidden>
       <label class="sr-only" for="pet-chat-input">和桌宠聊天</label>
@@ -59,16 +69,6 @@ app.innerHTML = petMode ? `
         <button id="pet-quit" title="保存桌面位置并退出 OiGptPet" aria-label="退出 OiGptPet">×</button>
       </div>
       <div id="pet-tools-panel" data-interactive role="group" aria-label="桌宠工具" hidden>
-        <details class="pet-tools-section codex-usage" id="codex-usage">
-          <summary>ChatGPT / Codex 用量</summary>
-          <dl>
-            <div><dt>5 小时重置</dt><dd id="codex-usage-five-hour">—</dd></div>
-            <div><dt>周额度重置</dt><dd id="codex-usage-weekly">—</dd></div>
-            <div><dt id="codex-usage-day-label">最近日用量</dt><dd id="codex-usage-day">—</dd></div>
-            <div><dt>累计已用</dt><dd id="codex-usage-lifetime">—</dd></div>
-          </dl>
-          <p id="codex-usage-status" role="status"></p>
-        </details>
         <section class="pet-tools-section">
           <h2>桌宠</h2>
           <div class="pet-tools-actions">
@@ -194,7 +194,7 @@ app.innerHTML = petMode ? `
           <label class="field-label" for="pet-scale">桌宠大小</label>
           <select id="pet-scale" disabled><option value="0.8" selected>小 · 80%</option><option value="1">标准 · 100%</option><option value="1.2">大 · 120%</option></select>
           <label class="field-label" for="performance-mode">动画性能</label>
-          <select id="performance-mode" disabled><option value="quality" selected>画质优先 · 最高 60 帧</option><option value="balanced">均衡 · 最高 30 帧</option><option value="battery">省电 · 最高 15 帧</option></select>
+          <select id="performance-mode" disabled><option value="quality">画质优先 · 最高 60 帧</option><option value="balanced" selected>均衡 · 最高 30 帧</option><option value="battery">省电 · 最高 15 帧</option></select>
           <p class="helper">闲置 10 秒自动降低绘制频率，隐藏时停止绘制。设置在本机保存。</p>
           <p class="helper" id="render-performance">本窗口：正在准备采样…</p>
           <p class="helper">每两秒更新绘制调用采样；不等同于屏幕呈现帧率或 GPU 耗时。桌面诊断分别记录工坊和桌宠。</p>
@@ -1693,9 +1693,10 @@ async function bootstrap() {
 }
 
 const codexUsagePanel = petMode && desktop
-  ? setupCodexUsagePanel($<HTMLDetailsElement>('#codex-usage'), () => desktop.getCodexUsage())
+  ? setupCodexUsagePanel($('#codex-usage'), () => desktop.getCodexUsage())
   : undefined;
-const syncUsageVisibility = () => codexUsagePanel?.setVisible(nativeVisible && !document.hidden && !$('#pet-tools-panel').hidden);
+let usageReady = false;
+const syncUsageVisibility = () => codexUsagePanel?.setVisible(usageReady && nativeVisible && !document.hidden);
 
 if (petMode) {
   const petControls = $<HTMLDivElement>('#pet-controls');
@@ -1709,7 +1710,6 @@ if (petMode) {
     toolsPanel.style.setProperty('--tools-left', `${layout.toolsLeft}px`);
     toolsPanel.style.setProperty('--tools-width', `${layout.toolsWidth}px`);
     toolsPanel.hidden = !layout.open;
-    syncUsageVisibility();
     petControls.dataset.toolsOpen = String(layout.open);
     toolsToggle.setAttribute('aria-expanded', String(layout.open));
     toolsToggle.setAttribute('aria-label', layout.open ? '收起桌宠工具' : '更多桌宠工具');
@@ -1719,7 +1719,6 @@ if (petMode) {
   const closePetTools = () => {
     if (toolsPanel.hidden) return;
     toolsPanel.hidden = true;
-    syncUsageVisibility();
     petControls.dataset.toolsOpen = 'false';
     toolsToggle.setAttribute('aria-expanded', 'false');
     toolsToggle.setAttribute('aria-label', '更多桌宠工具');
@@ -2190,4 +2189,7 @@ window.addEventListener('beforeunload', () => {
   if (packageJob?.nativeStarted) void desktop?.cancelCharacterPackage(packageJob.id).catch(() => {});
   loadController?.abort(); libraryChannel.close(); library.close(); exportSession.reset(); stage?.dispose(); if (exportUrl) URL.revokeObjectURL(exportUrl);
 });
-void bootstrap();
+void bootstrap().finally(() => {
+  usageReady = !closed;
+  syncUsageVisibility();
+});
