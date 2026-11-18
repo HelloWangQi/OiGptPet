@@ -22,6 +22,24 @@ export async function checkDancingVrmDrag(app, pet) {
     });
     const canvas = await pet.locator('#character-canvas').boundingBox();
     assert.ok(canvas);
+    const leaveCanvas = () => pet.mouse.move(canvas.x + 3, canvas.y - 8);
+    // A clear corner of the character canvas must pause the pose before the
+    // pointer ever hits an opaque part of the model.
+    await pet.mouse.move(canvas.x + 3, canvas.y + 3);
+    assert.equal(await pet.locator('#character-canvas').evaluate(element => getComputedStyle(element).cursor), 'grab');
+    const hovered = await pet.locator('#character-canvas').screenshot();
+    await pet.waitForTimeout(500);
+    assert.deepEqual(await pet.locator('#character-canvas').screenshot(), hovered, 'Hovering the canvas corner freezes the dance');
+    await app.evaluate(({ BrowserWindow }, position) => {
+      const bounds = BrowserWindow.getAllWindows().find(win => !win.isResizable()).getBounds();
+      globalThis.__vrmDragCursor = { x: bounds.x + position.x, y: bounds.y + position.y };
+    }, { x: canvas.x + 3, y: canvas.y + 3 });
+    await pet.mouse.down();
+    assert.equal(await pet.evaluate(() => document.body.classList.contains('pet-body-dragging')), true, 'The clear corner can start a drag');
+    await pet.mouse.up();
+    await leaveCanvas();
+    await pet.waitForTimeout(500);
+    assert.notDeepEqual(await pet.locator('#character-canvas').screenshot(), hovered, 'Leaving the canvas resumes the dance');
     for (const y of [0.48, 0.4, 0.56, 0.32, 0.64]) {
       for (const x of [0.5, 0.43, 0.57, 0.36, 0.64]) {
         const point = { x: canvas.x + canvas.width * x, y: canvas.y + canvas.height * y };
@@ -63,8 +81,9 @@ export async function checkDancingVrmDrag(app, pet) {
     assert.deepEqual(stopped.after, stopped.before, 'Releasing the body stops native window movement');
     assert.equal(await pet.evaluate(() => window.__vrmBodyClicks), 0, 'Dragging must not trigger a body click');
     const frame = await pet.locator('#character-canvas').screenshot();
+    await leaveCanvas();
     await pet.waitForTimeout(700);
-    assert.notDeepEqual(await pet.locator('#character-canvas').screenshot(), frame, 'Dance resumes after the drag');
+    assert.notDeepEqual(await pet.locator('#character-canvas').screenshot(), frame, 'Dance resumes when the pointer leaves after dragging');
     const scaleBefore = await pet.evaluate(async () => (await window.petDesktop.getPreferences()).scale);
     const sizeBefore = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().find(win => !win.isResizable()).getBounds());
     const changedScale = scaleBefore === 0.8 ? 1.2 : 0.8;
@@ -108,7 +127,7 @@ export async function checkDancingVrmDrag(app, pet) {
     const restoredFrame = await pet.locator('#character-canvas').screenshot();
     await pet.waitForTimeout(700);
     assert.notDeepEqual(await pet.locator('#character-canvas').screenshot(), restoredFrame, 'Dance resumes after restoring the pet');
-    return { vrmBodyHit: true, movedDuringDance: true, released: true, danceResumed: true, scaleDuringDance: true, hideAndRestore: true };
+    return { vrmBodyHit: true, hoverFrozen: true, movedDuringDance: true, released: true, danceResumed: true, scaleDuringDance: true, hideAndRestore: true };
   } finally {
     await pet.mouse.up().catch(() => {});
     await pet.evaluate(() => { document.querySelector('.pet-shell')?.removeEventListener('click', window.__vrmBodyListener); delete window.__vrmBodyListener; delete window.__vrmBodyClicks; }).catch(() => {});

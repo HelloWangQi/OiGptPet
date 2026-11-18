@@ -96,6 +96,8 @@
 /* Compact side dock keeps the pet's lower body visible; infrequent tools live in a flyout. */
 .pet-shell { --pet-usage-height:60px; } /* Matches PET_USAGE_HEIGHT in Electron. */
 .pet-canvas-area { position:absolute; inset:var(--pet-usage-height) 0 0; }
+.pet-dance-grab #character-canvas { cursor:grab; }
+.pet-body-dragging .pet-dance-grab #character-canvas { cursor:grabbing; }
 .pet-shell #drag-handle { top:calc(var(--pet-usage-height) + 6px); }
 .pet-mode #pet-controls {
   top:50%; right:10px; bottom:auto; left:auto; transform:translateY(-50%);

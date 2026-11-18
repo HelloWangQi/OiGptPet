@@ -1527,19 +1527,50 @@ async function bootstrap() {
     $<HTMLButtonElement>('#pet-dance-preview').title = `以 ${petDancePreviewTempo()} BPM 试听完整舞句（${petDancePreviewDescription()}）；不采集系统音频`;
   }
   if (petMode && desktop) musicDance = new SystemMusicAnalyzer();
+  let drawnRevision: number | undefined;
   const resize = () => {
     const bounds = canvasHost.getBoundingClientRect();
-    if (bounds.width && bounds.height) stage.resize(Math.round(bounds.width), Math.round(bounds.height), Math.min(window.devicePixelRatio || 1, PERFORMANCE_POLICIES[preferences.performance].maxPixelRatio));
+    if (bounds.width && bounds.height) {
+      stage.resize(Math.round(bounds.width), Math.round(bounds.height), Math.min(window.devicePixelRatio || 1, PERFORMANCE_POLICIES[preferences.performance].maxPixelRatio));
+      drawnRevision = undefined;
+    }
   };
   resizeStage = resize;
   new ResizeObserver(resize).observe(canvasHost);
   resize();
   let bodyDrag: { pointerId: number; x: number; y: number; target: HTMLElement; moved: boolean } | undefined;
+  let petCanvasHovered = false;
+  const canGrabDanceCanvas = () => petMode && stage.loaded && state === 'idle'
+    && (Boolean(musicDance?.active) || petDancePreviewStartedAt > 0 || (petDanceClips.length > 0 && !petDanceManuallyPaused));
+  function updateDanceGrabCursor() {
+    if (!petMode) return false;
+    const showGrab = petCanvasHovered && canGrabDanceCanvas();
+    if (canvasHost.classList.contains('pet-dance-grab') !== showGrab) canvasHost.classList.toggle('pet-dance-grab', showGrab);
+    return showGrab;
+  }
+  function setPetCanvasHovered(hovered: boolean) {
+    petCanvasHovered = hovered;
+    return updateDanceGrabCursor();
+  }
+  let frozenAt: number | undefined;
+  let frozenPreviewStart = 0;
   const frame = (now: number) => {
     if (closed) return;
-    if (bodyDrag) {
+    const hoverFreezesDance = updateDanceGrabCursor() && drawnRevision === stateRevision && nativeVisible && !document.hidden;
+    if (bodyDrag || hoverFreezesDance) {
+      if (frozenAt === undefined) {
+        frozenAt = now;
+        frozenPreviewStart = petDancePreviewStartedAt;
+      }
       requestAnimationFrame(frame);
       return;
+    }
+    if (frozenAt !== undefined) {
+      if (frozenPreviewStart && petDancePreviewStartedAt === frozenPreviewStart) {
+        petDancePreviewStartedAt += now - frozenAt;
+      }
+      frozenAt = undefined;
+      framePacer.reset();
     }
     const context = renderContext(now); renderMonitor.setContext(context, now);
     if (petMode) {
@@ -1573,6 +1604,7 @@ async function bootstrap() {
       if (transientUntil && now > transientUntil) { transientUntil = 0; changeState('idle'); }
       const started = performance.now();
       stage.render(state, animationTime, paused ? 0 : delta, now - lastPointer < 1800 ? look : undefined, stateRevision);
+      if (stage.loaded) drawnRevision = stateRevision;
       renderMonitor.record(performance.now() - started);
     }
     if (!petMode && externalMotionClips.length && now - lastExternalMotionUiUpdate >= 100) {
@@ -1583,6 +1615,9 @@ async function bootstrap() {
   };
   requestAnimationFrame(frame);
   let suppressBodyClick = false;
+  const withinCanvas = (event: PointerEvent, bounds: DOMRect) =>
+    event.pointerType === 'mouse' && event.clientX >= bounds.left && event.clientX < bounds.right
+    && event.clientY >= bounds.top && event.clientY < bounds.bottom;
   const trackDrag = (event: PointerEvent) => {
     if (bodyDrag && event.pointerId === bodyDrag.pointerId
       && Math.hypot(event.screenX - bodyDrag.x, event.screenY - bodyDrag.y) >= 4) bodyDrag.moved = true;
@@ -1618,8 +1653,9 @@ async function bootstrap() {
     window.addEventListener('resize', scheduleInteractiveRects);
     refreshInteractiveRects();
     canvasHost.addEventListener('pointerdown', event => {
-      if (event.button !== 0 || !event.isPrimary || (event.target as HTMLElement).id !== 'character-canvas'
-        || !stage.hitTest(event.clientX, event.clientY)) return;
+      if (event.button !== 0 || !event.isPrimary || (event.target as HTMLElement).id !== 'character-canvas') return;
+      const grabCanvas = event.pointerType === 'mouse' && canGrabDanceCanvas();
+      if (!grabCanvas && !stage.hitTest(event.clientX, event.clientY)) return;
       suppressBodyClick = false;
       const target = event.target as HTMLElement;
       const drag = { pointerId: event.pointerId, x: event.screenX, y: event.screenY, target, moved: false };
@@ -1637,11 +1673,23 @@ async function bootstrap() {
       });
       event.preventDefault();
     });
-    window.addEventListener('pointerup', event => { if (event.pointerId === bodyDrag?.pointerId) { trackDrag(event); finishBodyDrag(); } });
-    window.addEventListener('pointercancel', event => { if (event.pointerId === bodyDrag?.pointerId) finishBodyDrag(); });
+    window.addEventListener('pointerup', event => {
+      if (event.pointerId !== bodyDrag?.pointerId) return;
+      setPetCanvasHovered(withinCanvas(event, canvasHost.getBoundingClientRect()));
+      trackDrag(event);
+      finishBodyDrag();
+    });
+    window.addEventListener('pointercancel', event => {
+      if (event.pointerId !== bodyDrag?.pointerId) return;
+      setPetCanvasHovered(false);
+      finishBodyDrag();
+    });
     window.addEventListener('lostpointercapture', event => { if (event.pointerId === bodyDrag?.pointerId) finishBodyDrag(); });
     window.addEventListener('blur', finishBodyDrag);
     window.addEventListener('pagehide', finishBodyDrag);
+    // Electron forwards mouse movement for the transparent part of the canvas.
+    canvasHost.addEventListener('mouseleave', () => { setPetCanvasHovered(false); });
+    document.documentElement.addEventListener('mouseleave', () => { setPetCanvasHovered(false); });
     canvasHost.addEventListener('click', event => {
       if (suppressBodyClick && (event.target as HTMLElement).id === 'character-canvas') {
         suppressBodyClick = false; event.preventDefault(); event.stopImmediatePropagation();
@@ -1651,18 +1699,23 @@ async function bootstrap() {
   window.addEventListener('pointermove', (event) => {
     if (bodyDrag) {
       trackDrag(event);
-      if (event.buttons === 0) finishBodyDrag();
+      if (event.buttons === 0) {
+        setPetCanvasHovered(withinCanvas(event, canvasHost.getBoundingClientRect()));
+        finishBodyDrag();
+      }
       lastInteraction = performance.now();
       return;
     }
     const bounds = canvasHost.getBoundingClientRect();
+    const danceGrab = petMode && setPetCanvasHovered(withinCanvas(event, bounds)
+      && event.target instanceof Node && canvasHost.contains(event.target));
     look = pointerLook(event.clientX, event.clientY, bounds);
     lastPointer = performance.now();
     lastInteraction = lastPointer;
     if (petMode && !forcedInteractive && !bodyDrag) {
       const overInteractiveRegion = interactiveRects.some(rect => event.clientX >= rect.left && event.clientX <= rect.right
         && event.clientY >= rect.top && event.clientY <= rect.bottom);
-      const interactive = (event.target as HTMLElement)?.closest('[data-interactive]')
+      const interactive = danceGrab || (event.target as HTMLElement)?.closest('[data-interactive]')
         || overInteractiveRegion || stage.hitTest(event.clientX, event.clientY);
       const next = !interactive;
       if (next !== ignoringMouse) { ignoringMouse = next; void desktop!.setClickThrough(next); }
@@ -1672,7 +1725,10 @@ async function bootstrap() {
   window.addEventListener('pointerdown', markActive);
   window.addEventListener('keydown', markActive);
   document.addEventListener('visibilitychange', () => {
-    if (document.hidden) finishBodyDrag();
+    if (document.hidden) {
+      setPetCanvasHovered(false);
+      finishBodyDrag();
+    }
     framePacer.reset(); markActive(); publishRenderMetrics(); scheduleRenderReports();
   });
   canvasHost.addEventListener('click', (event) => {
